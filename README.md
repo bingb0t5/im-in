@@ -24,10 +24,9 @@ Required for the app to run:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-Legacy/optional variables still present in config:
+Optional:
 
-- `GEMINI_API_KEY` (currently unused by app runtime code)
-- `APP_URL` (documented legacy variable)
+- `APP_URL` (only needed in some hosted setups)
 
 ## Local Development
 
@@ -73,3 +72,12 @@ If strict private access is required (host/invitee-only at DB level), that shoul
 The exported live Supabase schema includes guest identity/session tables (`attendee_profiles`, `attendee_sessions`, and `event_attendees.attendee_profile_id`), but `supabase_schema.sql` in this repo is still a stale snapshot.
 
 See `SCHEMA_ALIGNMENT.md` for current alignment details, `supabase_reconcile_live_schema.sql` for safe live-db reconciliation, and `supabase_guest_identity_migration.sql` for bootstrapping non-production environments.
+
+## RSVP/Cancellation RPCs
+
+This app currently uses DB RPC helpers for reliability in key attendee actions:
+
+- `cancel_attendee_with_promotion(...)`
+- `add_proxy_attendee(...)`
+
+These are defined in `supabase_reconcile_live_schema.sql`.

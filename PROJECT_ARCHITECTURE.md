@@ -77,7 +77,7 @@ Important backend-related files:
 
 Important nuance:
 
-- `package.json` includes `express`, `dotenv`, and `@google/genai`, but there is no Express app, no server route code, and no Gemini usage in `src/`.
+- The app is frontend-first and talks directly to Supabase; there is no Express app or server route layer in this repository.
 - The app behaves as a frontend-only client that talks directly to Supabase.
 
 ## Folder-By-Folder Explanation
@@ -201,6 +201,7 @@ However, `supabase_schema.sql` in this repository is a stale snapshot and does n
 - `EventDetail.tsx`: reads event/attendee records and performs RSVP/cancel flows
 - `HostDashboard.tsx`: fetches event attendees, deletes attendees, duplicates events
 - `guestService.ts`: manages attendee profiles, sessions, and guest bookings
+- `supabase_reconcile_live_schema.sql`: defines reliability RPCs used by the app (`cancel_attendee_with_promotion`, `add_proxy_attendee`)
 
 ### Realtime Usage
 
@@ -366,9 +367,8 @@ That creates risk around:
 
 `guestService.sendRecoveryEmail(...)`:
 
-- generates tokens with `Math.random()`
-- logs the recovery URL to the console
-- uses `alert(...)` instead of a real mailer
+- generates/stores recovery session tokens but does not send real email
+- relies on an out-of-band or future mailer integration to deliver recovery links
 
 This is not production-grade account recovery.
 
@@ -384,15 +384,13 @@ Current explicit contract:
 
 If stricter privacy is needed, implement host/invitee access controls via RLS and route-level policy decisions.
 
-### 5. Stale AI Studio / Gemini Scaffolding
+### 5. Documentation And Snapshot Drift
 
-There is leftover scaffolding that can confuse future contributors:
+There are still a few consistency edges that can confuse contributors:
 
-- `README.md` instructions centered on `GEMINI_API_KEY`
-- `.env.example` includes `APP_URL`
-- `vite.config.ts` injects `GEMINI_API_KEY`
-- `index.html` title still references AI Studio
-- unused packages in `package.json`
+- `supabase_schema.sql` is a stale snapshot relative to live schema
+- RPC behavior now matters for attendee actions and must stay documented
+- `APP_URL` may be optional depending on deployment setup
 
 ### 6. No Tests
 

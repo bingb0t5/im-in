@@ -57,11 +57,7 @@ Before changing RSVP, waitlist, bookings, auth, or guest recovery logic:
 
 ## Do Not Assume The Schema Is Complete
 
-The app code expects database structures not present in `supabase_schema.sql`, including:
-
-- `attendee_profiles`
-- `attendee_sessions`
-- `event_attendees.attendee_profile_id`
+`supabase_schema.sql` is a snapshot and may lag the live Supabase schema.
 
 Rules:
 
@@ -143,9 +139,8 @@ Current meaningful env vars:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-Legacy/scaffolding env vars still present:
+Optional/legacy env vars:
 
-- `GEMINI_API_KEY`
 - `APP_URL`
 - `DISABLE_HMR`
 
@@ -156,7 +151,6 @@ Rules:
   - `.env.example`
   - relevant docs
   - deployment notes
-- Do not claim `GEMINI_API_KEY` is required for current app functionality.
 - Remember that `VITE_*` vars are exposed to the client bundle.
 
 ## UI / Routing Rules
@@ -259,8 +253,7 @@ Watch for these known risks:
 
 - schema drift between frontend and SQL
 - stale README/setup instructions
-- stale AI Studio/Gemini references
-- missing `is_public` filtering in public event browsing
+- RPC and frontend logic drift for RSVP/cancel flows
 - duplicated waitlist/business logic across client and SQL
 - demo-grade recovery token/email flow
 
