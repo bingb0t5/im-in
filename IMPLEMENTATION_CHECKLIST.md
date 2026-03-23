@@ -312,3 +312,98 @@ This cleanup effort is in a good place when:
 - public/private behavior is clear
 - guest identity flow is understandable
 - the app remains lightweight and easy to change
+
+## Audit Snapshot (Mar 24, 2026)
+
+This is the current implementation status against Phases 0-6.
+
+### Phase 0: Repo Clarity
+
+**Status: DONE**
+
+- `README.md` now reflects the real React/Supabase app.
+- `index.html` title is now `I'm In`.
+- `package.json` project name is `im-in`.
+- `.env.example` is cleaned and aligned to current runtime needs.
+- `PROJECT_ARCHITECTURE.md` is maintained and updated.
+
+### Phase 1: Schema And Data Contract Alignment
+
+**Status: DONE (with explicit snapshot caveat)**
+
+- `SCHEMA_ALIGNMENT.md` documents live-vs-snapshot differences.
+- `supabase_guest_identity_migration.sql` and `supabase_reconcile_live_schema.sql` were added for bootstrap/reconciliation paths.
+- Core guest identity contract is documented (`attendee_profiles`, `attendee_sessions`, `event_attendees.attendee_profile_id`).
+- `supabase_schema.sql` is intentionally treated as a stale snapshot and documented as such.
+
+### Phase 2: Lightweight Structure Cleanup
+
+**Status: DONE**
+
+- Shared logic extracted into `src/lib/`:
+  - `attendees.ts`
+  - `bookings.ts`
+  - `events.ts`
+  - `rsvp.ts`
+- Pages now delegate reusable computation to shared helpers (Home, Calendar, Bookings, EventDetail, HostDashboard, CreateEvent).
+- No heavy architecture/state-management additions were introduced.
+
+### Phase 3: RSVP And Waitlist Consistency
+
+**Status: PARTIAL**
+
+Completed:
+
+- RSVP/waitlist helpers were centralized for key client-side decisions.
+- Critical actions now use DB RPCs in `EventDetail.tsx`:
+  - `cancel_attendee_with_promotion(...)`
+  - `add_proxy_attendee(...)`
+- Source-of-truth decision and risks are documented in `PROJECT_ARCHITECTURE.md` and `AI_DEV_RULES.md`.
+
+Remaining:
+
+- RSVP authority is still mixed (client + SQL/RPC), not yet fully unified under one path.
+- Full de-duplication of business logic across all RSVP entry points is still pending by design.
+
+### Phase 4: Public/Private Event Contract
+
+**Status: DONE**
+
+- Public calendar query now filters `is_public = true`.
+- Public/private "unlisted private link" contract is documented in `README.md`, `PROJECT_ARCHITECTURE.md`, and `AI_DEV_RULES.md`.
+
+### Phase 5: Auth And Guest Session Hardening
+
+**Status: PARTIAL**
+
+Completed:
+
+- Auth/profile sync behavior is documented and stabilized.
+- `Login.tsx` redirect behavior was cleaned up.
+- Guest session handling was tightened in `guestService` (`getStoredGuestSession`, typed flows).
+- Recovery and booking flows are clearer and more robust than baseline.
+
+Remaining:
+
+- Recovery delivery remains demo-grade (no production mailer integration yet).
+- Production-grade token lifecycle/hardening is still a future upgrade.
+
+### Phase 6: Dependency And Tooling Cleanup
+
+**Status: DONE**
+
+- Removed unused packages:
+  - `express`
+  - `dotenv`
+  - `@google/genai`
+  - `date-fns`
+  - plus related unused typing/runtime tooling (`@types/express`, `tsx`)
+- Made `npm run clean` cross-platform.
+- Kept scripts minimal and valid.
+- Type-check passes (`npm run lint`).
+
+## Final Remaining Work (Post-Phase Audit)
+
+1. Decide whether to fully unify RSVP/write authority under SQL/RPC or keep mixed mode long-term.
+2. If desired, implement production-grade recovery email/token delivery.
+3. Run the `RELEASE_CHECKLIST.md` pass before next deployment.
