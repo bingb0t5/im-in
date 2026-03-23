@@ -30,7 +30,15 @@ Focus on:
 - the guest booking / guest recovery flow
 - the main technical risks
 
-Do not code. Keep it concise but specific, with file references.
+Do not code.
+
+Return:
+- a 1-2 paragraph architecture summary
+- a bullet list of the main routes/pages with file paths
+- a bullet list of the main technical risks, ordered by severity
+- a short note on any mismatch between docs/config and actual code
+
+Keep it concise but specific, with file references.
 ```
 
 ## Prompt 2: Clean Up Stale Project Identity

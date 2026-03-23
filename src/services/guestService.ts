@@ -1,5 +1,7 @@
 import { supabase } from '../supabase';
 import { Attendee } from '../types';
+import { User } from '@supabase/supabase-js';
+import { BookingRow } from '../lib/bookings';
 
 export interface AttendeeProfile {
   id: string;
@@ -16,6 +18,19 @@ export interface GuestSession {
 }
 
 const GUEST_SESSION_KEY = 'im_in_guest_session';
+
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+function generateSessionToken() {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  return Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+}
 
 export const guestService = {
   getStoredSession(): string | null {
@@ -42,13 +57,28 @@ export const guestService = {
     return data.attendee_profiles as unknown as AttendeeProfile;
   },
 
+  async getStoredGuestSession(): Promise<GuestSession | null> {
+    const token = this.getStoredSession();
+    if (!token) return null;
+
+    const profile = await this.validateSession(token);
+    if (!profile) {
+      this.clearStoredSession();
+      return null;
+    }
+
+    return { token, profile };
+  },
+
   async createGuestSession(email: string, firstName: string, lastName: string, userId?: string): Promise<GuestSession> {
+    const normalizedEmail = normalizeEmail(email);
+
     // 1. Get or create profile
     let profile: AttendeeProfile;
     const { data: existingProfile } = await supabase
       .from('attendee_profiles')
       .select('*')
-      .eq('email', email.toLowerCase())
+      .eq('email', normalizedEmail)
       .maybeSingle();
 
     if (existingProfile) {
@@ -66,7 +96,7 @@ export const guestService = {
       const { data: newProfile, error: profileError } = await supabase
         .from('attendee_profiles')
         .insert([{ 
-          email: email.toLowerCase(), 
+          email: normalizedEmail, 
           first_name: firstName, 
           last_name: lastName,
           user_id: userId || null
@@ -79,7 +109,7 @@ export const guestService = {
     }
 
     // 2. Create session
-    const token = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+    const token = generateSessionToken();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30); // 30 days
 
@@ -97,7 +127,7 @@ export const guestService = {
     return { token, profile };
   },
 
-  async getMyBookings(token: string): Promise<any[]> {
+  async getMyBookings(token: string): Promise<BookingRow[]> {
     const profile = await this.validateSession(token);
     if (!profile) return [];
 
@@ -116,10 +146,12 @@ export const guestService = {
   },
 
   async sendRecoveryEmail(email: string): Promise<void> {
+    const normalizedEmail = normalizeEmail(email);
+
     const { data: profile } = await supabase
       .from('attendee_profiles')
       .select('id')
-      .eq('email', email.toLowerCase())
+      .eq('email', normalizedEmail)
       .maybeSingle();
 
     if (!profile) {
@@ -127,26 +159,25 @@ export const guestService = {
       return;
     }
 
-    const token = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+    const token = generateSessionToken();
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 1); // 1 hour for recovery
 
-    await supabase
+    const { error: sessionError } = await supabase
       .from('attendee_sessions')
       .insert([{
         attendee_profile_id: profile.id,
         token,
         expires_at: expiresAt.toISOString()
       }]);
+    if (sessionError) throw sessionError;
 
-    const recoveryUrl = `${window.location.origin}/recover?token=${token}`;
-    console.log('Recovery URL (Simulated Email):', recoveryUrl);
-    // In a real app, you'd send this via an email service
-    alert(`Recovery link sent to ${email} (Check console for link in this demo)`);
+    // TODO: Integrate real email delivery service and send:
+    // `${window.location.origin}/recover?token=${token}`
   },
 
-  async getOrCreateProfileForUser(user: any, name?: string): Promise<AttendeeProfile> {
-    const email = user.email!;
+  async getOrCreateProfileForUser(user: User, name?: string): Promise<AttendeeProfile> {
+    const email = normalizeEmail(user.email!);
     const names = (name || user.user_metadata?.full_name || '').split(' ');
     const firstName = names[0] || '';
     const lastName = names.slice(1).join(' ') || '';
@@ -155,13 +186,13 @@ export const guestService = {
     const { data: existingProfile } = await supabase
       .from('attendee_profiles')
       .select('*')
-      .eq('email', email.toLowerCase())
+      .eq('email', email)
       .maybeSingle();
 
     if (existingProfile) {
       profile = existingProfile;
       // Update user_id if not set, and name if provided
-      const updates: any = {};
+      const updates: Partial<Pick<AttendeeProfile, 'user_id' | 'first_name' | 'last_name'>> = {};
       if (!profile.user_id) updates.user_id = user.id;
       if (firstName && !profile.first_name) updates.first_name = firstName;
       if (lastName && !profile.last_name) updates.last_name = lastName;
@@ -186,7 +217,7 @@ export const guestService = {
       const { data: newProfile, error: profileError } = await supabase
         .from('attendee_profiles')
         .insert([{ 
-          email: email.toLowerCase(), 
+          email, 
           first_name: firstName, 
           last_name: lastName,
           user_id: user.id

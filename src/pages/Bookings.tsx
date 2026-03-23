@@ -4,30 +4,25 @@ import { guestService } from '../services/guestService';
 import { ArrowLeft, Calendar, MapPin, AlertCircle, LogOut } from 'lucide-react';
 import { formatDate } from '../utils';
 import { motion } from 'motion/react';
+import { BookingRow, GroupedBooking, groupBookingsByEvent } from '../lib/bookings';
+import { AttendeeProfile } from '../services/guestService';
 
 export default function Bookings() {
   const navigate = useNavigate();
-  const [bookings, setBookings] = useState<any[]>([]);
+  const [bookings, setBookings] = useState<BookingRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<AttendeeProfile | null>(null);
 
   useEffect(() => {
     const fetchBookings = async () => {
-      const token = guestService.getStoredSession();
-      if (!token) {
-        navigate('/');
-        return;
-      }
-
       try {
-        const validatedProfile = await guestService.validateSession(token);
-        if (!validatedProfile) {
-          guestService.clearStoredSession();
+        const session = await guestService.getStoredGuestSession();
+        if (!session) {
           navigate('/');
           return;
         }
-        setProfile(validatedProfile);
-        const data = await guestService.getMyBookings(token);
+        setProfile(session.profile);
+        const data = await guestService.getMyBookings(session.token);
         setBookings(data);
       } catch (error) {
         console.error('Fetch Bookings Error:', error);
@@ -43,6 +38,8 @@ export default function Bookings() {
     guestService.clearStoredSession();
     navigate('/');
   };
+
+  const groupedBookings = groupBookingsByEvent(bookings);
 
   if (loading) {
     return (
@@ -88,19 +85,7 @@ export default function Bookings() {
               </button>
             </div>
           ) : (
-            Object.values(bookings.reduce((acc: any, booking) => {
-              const eventId = booking.events.id;
-              if (!acc[eventId]) {
-                acc[eventId] = {
-                  ...booking,
-                  attendees: [booking.guest_name]
-                };
-              } else {
-                acc[eventId].attendees.push(booking.guest_name);
-                if (booking.status === 'confirmed') acc[eventId].status = 'confirmed';
-              }
-              return acc;
-            }, {})).map((groupedBooking: any) => (
+            groupedBookings.map((groupedBooking: GroupedBooking) => (
               <motion.div
                 key={groupedBooking.events.id}
                 initial={{ opacity: 0, y: 10 }}

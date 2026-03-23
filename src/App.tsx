@@ -43,8 +43,8 @@ export default function App() {
       });
 
       return () => subscription.unsubscribe();
-    } catch (err: any) {
-      if (err.message.includes('Supabase configuration missing')) {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message.includes('Supabase configuration missing')) {
         setConfigError(err.message);
         setLoading(false);
       } else {
@@ -52,6 +52,14 @@ export default function App() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      guestService.getOrCreateProfileForUser(user).catch(err => {
+        console.error('Error syncing profile:', err);
+      });
+    }
+  }, [user]);
 
   if (configError) {
     return (
@@ -81,14 +89,6 @@ export default function App() {
       </div>
     );
   }
-
-  useEffect(() => {
-    if (user) {
-      guestService.getOrCreateProfileForUser(user).catch(err => {
-        console.error('Error syncing profile:', err);
-      });
-    }
-  }, [user]);
 
   if (loading) {
     return (

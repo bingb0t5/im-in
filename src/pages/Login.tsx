@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { Mail, ArrowRight, CheckCircle2, ArrowLeft, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { guestService } from '../services/guestService';
@@ -23,10 +23,7 @@ export default function Login({ user }: { user: User | null }) {
     }
   }, [searchParams]);
 
-  if (user) {
-    navigate('/create-event');
-    return null;
-  }
+  if (user) return <Navigate to="/create-event" replace />;
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,8 +64,8 @@ export default function Login({ user }: { user: User | null }) {
     try {
       await guestService.sendRecoveryEmail(recoveryEmail);
       setRecoverySent(true);
-    } catch (error: any) {
-      setError(error.message);
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : 'Failed to send recovery link');
     } finally {
       setLoading(false);
     }
@@ -116,7 +113,7 @@ export default function Login({ user }: { user: User | null }) {
                 </div>
                 <h2 className="text-lg font-black text-slate-900">Link Sent</h2>
                 <p className="text-slate-600 text-sm font-medium">
-                  If an account exists for <span className="font-black text-slate-900">{recoveryEmail}</span>, we've sent a recovery link.
+                  If an account exists for <span className="font-black text-slate-900">{recoveryEmail}</span>, recovery has been requested.
                 </p>
                 <button 
                   onClick={() => setShowRecovery(false)}

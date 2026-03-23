@@ -56,7 +56,6 @@ Notes:
 
 - The app uses a single-page app routing model with `BrowserRouter`.
 - Styling is mostly page-local; there is no dedicated `components/` folder yet.
-- `index.html` still has the stale title `My Google AI Studio App`, which does not match the actual product.
 
 ## Backend / Server Stack
 
@@ -92,7 +91,7 @@ Important nuance:
 - `index.html`: HTML shell for the SPA
 - `.env.example`: example environment variables
 - `.gitignore`: ignored files and env patterns
-- `README.md`: outdated AI Studio/Gemini-oriented setup doc
+- `README.md`: current setup and deployment notes
 - `metadata.json`: app name and short description
 - `supabase_schema.sql`: core database schema and policies
 - `seed_data.sql`: example event seed data
@@ -184,20 +183,15 @@ These support:
 - waitlist ordering
 - automatic promotion triggers
 
-### Additional Tables Assumed By App Code
+### Live Schema vs Repository Snapshot
 
-The frontend also expects tables that are not defined in `supabase_schema.sql`:
+The live Supabase schema includes guest identity/session structures used by the frontend:
 
 - `attendee_profiles`
 - `attendee_sessions`
-
-The app code also expects:
-
 - `event_attendees.attendee_profile_id`
 
-These are used extensively in `src/services/guestService.ts`, `src/pages/EventDetail.tsx`, and `src/types.ts`.
-
-This means the checked-in schema is incomplete relative to the running app code.
+However, `supabase_schema.sql` in this repository is a stale snapshot and does not fully reflect current production schema details. See `SCHEMA_ALIGNMENT.md` for the latest reconciliation notes.
 
 ### How Supabase Is Used In The App
 
@@ -341,27 +335,25 @@ can fail when loaded directly in the browser.
 
 ### Deployment Caveats
 
-- The checked-in `README.md` is outdated and does not describe Supabase/Render deployment.
-- `index.html` still contains AI Studio branding in the page title.
+- `supabase_schema.sql` is not a guaranteed source-of-truth snapshot for production.
 - There is no CI or deployment validation in the repo.
 
 ## Known Risks / Technical Debt
 
-### 1. Schema Drift Between SQL And Frontend
+### 1. Schema Drift Between Snapshot SQL And Live Database
 
-The biggest architectural risk is that the checked-in schema does not match the app code.
+The biggest schema risk is now drift between:
 
-Missing from `supabase_schema.sql` but expected by the app:
+- checked-in `supabase_schema.sql`
+- live Supabase production schema
 
-- `attendee_profiles`
-- `attendee_sessions`
-- `event_attendees.attendee_profile_id`
-
-This is a real maintenance and onboarding risk.
+The live schema appears to include guest identity/session tables used by the app, but repo SQL defaults/constraints still differ. This remains a maintenance and onboarding risk.
 
 ### 2. RSVP Logic Is Split Between Client And SQL
 
 `supabase_schema.sql` contains an atomic `rsvp_to_event(...)` function plus waitlist-position logic, but the React app mostly performs direct table inserts/updates from the client.
+
+Current implementation decision (Phase 3): keep client-side RSVP flow as the active source of truth for now, and centralize status/promotion decisions in shared frontend helpers to reduce drift across pages.
 
 That creates risk around:
 
@@ -380,11 +372,17 @@ That creates risk around:
 
 This is not production-grade account recovery.
 
-### 4. Public Event Filtering Is Incomplete
+### 4. Public/Private Contract Still Needs Policy Clarity
 
-`Calendar.tsx` fetches `scheduled` future events but does not also filter by `is_public`.
+`Calendar.tsx` now filters on `is_public = true`, which protects the public listing flow.
 
-That can expose events the UI suggests should be private, depending on actual database data and policies.
+Current explicit contract:
+
+- `is_public = true`: discoverable in public calendar.
+- `is_public = false`: hidden from public listing.
+- private events remain accessible via direct `/events/:slug` link (unlisted model).
+
+If stricter privacy is needed, implement host/invitee access controls via RLS and route-level policy decisions.
 
 ### 5. Stale AI Studio / Gemini Scaffolding
 
@@ -409,19 +407,15 @@ There are no automated tests, no test script, and no evident CI workflow. Regres
 
 ### Highest Priority
 
-- Add missing Supabase migrations for `attendee_profiles`, `attendee_sessions`, and `attendee_profile_id`.
-- Decide whether the authoritative RSVP path is:
-  - client-side direct writes, or
-  - a single server-side / RPC-based flow
-- Update `Calendar.tsx` to filter explicitly on `is_public`.
+- Keep `supabase_schema.sql` and live schema expectations synchronized (or clearly mark snapshot limitations in docs).
+- Keep the current RSVP source-of-truth decision explicit in docs: client-side authority for now, with shared helper-based logic.
+- Decide if/when to move RSVP authority to a server-side/RPC flow.
+- Decide if/when to move from "unlisted private events" to strict private access controls for `/events/:slug`.
 - Replace guest recovery demo behavior with real token generation and email delivery.
 
 ### Good Cleanup Work
 
-- Rewrite `README.md` around Supabase instead of Gemini/AI Studio
 - remove unused dependencies if they are truly not needed
-- rename package metadata from `react-example`
-- update `index.html` title
 - make `clean` cross-platform
 
 ### Safer Engineering Practices Going Forward
@@ -438,4 +432,4 @@ This repository is a frontend-first community events app built with `React + Vit
 
 The main architectural strength is its simplicity: a small page-based SPA with direct Supabase integration.
 
-The main architectural risk is inconsistency between the checked-in schema, guest-session model, and client-side RSVP logic. Future work should focus first on aligning schema, auth/guest identity, and waitlist behavior before adding major new features.
+The main architectural risk is still consistency: schema snapshot drift, guest-session complexity, and long-term RSVP authority split between client flows and SQL functions. Future work should continue reducing this drift before major new features.

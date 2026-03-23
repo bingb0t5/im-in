@@ -7,6 +7,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { formatDate } from '../utils';
 import { Event } from '../types';
 import { guestService } from '../services/guestService';
+import { groupBookingsByEvent } from '../lib/bookings';
+import { withConfirmedCounts } from '../lib/events';
 
 export default function Home({ user }: { user: User | null }) {
   const [hostedEvents, setHostedEvents] = useState<Event[]>([]);
@@ -59,10 +61,7 @@ export default function Home({ user }: { user: User | null }) {
 
       if (joinedError) throw joinedError;
 
-      const hostedWithCounts = (hosted || []).map((event: any) => ({
-        ...event,
-        confirmed_count: event.event_attendees?.filter((a: any) => a.status === 'confirmed').length || 0
-      }));
+      const hostedWithCounts = withConfirmedCounts((hosted || []) as any[]);
 
       setHostedEvents(hostedWithCounts);
       setJoinedEvents(joined || []);
@@ -82,6 +81,8 @@ export default function Home({ user }: { user: User | null }) {
     await supabase.auth.signOut();
     navigate('/login');
   };
+
+  const groupedJoinedEvents = groupBookingsByEvent(joinedEvents);
 
   if (!user) {
     return (
@@ -396,20 +397,7 @@ export default function Home({ user }: { user: User | null }) {
             </div>
           ) : (
             <div className="space-y-4">
-              {Object.values(joinedEvents.reduce((acc: any, booking) => {
-                const eventId = booking.events.id;
-                if (!acc[eventId]) {
-                  acc[eventId] = {
-                    ...booking,
-                    attendees: [booking.guest_name]
-                  };
-                } else {
-                  acc[eventId].attendees.push(booking.guest_name);
-                  // If any booking is confirmed, show confirmed status
-                  if (booking.status === 'confirmed') acc[eventId].status = 'confirmed';
-                }
-                return acc;
-              }, {})).map((groupedBooking: any) => (
+              {groupedJoinedEvents.map((groupedBooking: any) => (
                 <Link 
                   key={groupedBooking.events.id} 
                   to={`/events/${groupedBooking.events.slug}`}

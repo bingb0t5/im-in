@@ -110,6 +110,7 @@ Rules:
   - `src/pages/CreateEvent.tsx`
   - `supabase_schema.sql`
 - Do not change waitlist behavior in only one place if the same concept exists in both SQL and client code.
+- Current project decision: treat the frontend RSVP flow as authoritative for now, and keep RSVP status/promotion logic centralized in shared frontend helpers.
 - If you touch attendee status transitions, inspect:
   - `confirmed`
   - `waitlist`
@@ -163,7 +164,11 @@ Rules:
 - Maintain compatibility with `BrowserRouter`.
 - Preserve deep-link behavior for `/events/:slug`, `/host/events/:id`, `/bookings`, and `/recover`.
 - When adding routes, ensure they make sense for static hosting with SPA rewrites.
-- Keep public/private event intent consistent. If a page is public-facing, think about `is_public`.
+- Visibility contract (current):
+  - `is_public = true` => show in public calendar discovery.
+  - `is_public = false` => hide from public listings.
+  - private events are currently unlisted, not access-restricted, on `/events/:slug`.
+- Keep this contract consistent unless product/RLS policy is intentionally changed.
 
 ## Documentation Rules
 

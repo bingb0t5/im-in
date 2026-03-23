@@ -5,6 +5,7 @@ import { Calendar as CalendarIcon, ChevronRight, MapPin, Users, ArrowLeft, Searc
 import { motion } from 'motion/react';
 import { formatDate } from '../utils';
 import { Event } from '../types';
+import { withConfirmedCounts } from '../lib/events';
 
 export default function Calendar() {
   const [events, setEvents] = useState<Event[]>([]);
@@ -29,16 +30,14 @@ export default function Calendar() {
         event_attendees(status)
       `)
       .eq('status', 'scheduled')
+      .eq('is_public', true)
       .gte('starts_at', startOfToday)
       .order('starts_at', { ascending: true });
 
     if (error) {
       console.error('Error fetching public events:', error);
     } else if (data) {
-      const eventsWithCounts = data.map((event: any) => ({
-        ...event,
-        confirmed_count: event.event_attendees?.filter((a: any) => a.status === 'confirmed').length || 0
-      }));
+      const eventsWithCounts = withConfirmedCounts(data as any[]);
       setEvents(eventsWithCounts);
     }
     setLoading(false);

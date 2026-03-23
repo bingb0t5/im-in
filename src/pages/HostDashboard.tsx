@@ -6,6 +6,8 @@ import { Users, Share2, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Cl
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, generateSlug } from '../utils';
 import { Event, Attendee } from '../types';
+import { getNextWaitlistAttendee } from '../lib/attendees';
+import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 
 export default function HostDashboard({ user }: { user: User | null }) {
   const { id } = useParams();
@@ -93,11 +95,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
         const currentConfirmed = attendees.filter(a => a.id !== attendeeId && a.status === 'confirmed').length;
         
         if (currentConfirmed < event!.capacity) {
-          // Find the first person on the waitlist
-          const firstOnWaitlist = attendees
-            .filter(a => a.id !== attendeeId && a.status === 'waitlist')
-            .sort((a, b) => new Date(a.joined_at).getTime() - new Date(b.joined_at).getTime())[0];
-
+          const firstOnWaitlist = getNextWaitlistAttendee(attendees, attendeeId);
           if (firstOnWaitlist) {
             await supabase
               .from('event_attendees')
@@ -139,19 +137,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
         return;
       }
 
-      // 2. Determine status based on current confirmed count
-      const confirmedCount = attendees.filter(a => a.status === 'confirmed').length;
-      let status: 'confirmed' | 'waitlist' = 'confirmed';
-      
-      if (confirmedCount >= event.capacity) {
-        if (event.allow_waitlist) {
-          status = 'waitlist';
-        } else {
-          alert('Event is full and waitlist is disabled');
-          setActionLoading(false);
-          return;
-        }
+      // 2. Determine status from shared RSVP strategy
+      const decision = decideRsvpStatus(getConfirmedCount(attendees), event.capacity, event.allow_waitlist);
+      if (isRsvpBlocked(decision)) {
+        alert(decision.reason);
+        setActionLoading(false);
+        return;
       }
+      const status = decision.status;
 
       // 3. Insert or Update RSVP
       if (existing) {

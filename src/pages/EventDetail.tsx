@@ -7,6 +7,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { formatDate } from '../utils';
 import { Event, Attendee } from '../types';
 import { guestService, AttendeeProfile } from '../services/guestService';
+import { findMyRsvps, getAttendanceSummary } from '../lib/attendees';
+import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 
 export default function EventDetail({ user }: { user: User | null }) {
   const { slug } = useParams();
@@ -20,10 +22,27 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showProxyModal, setShowProxyModal] = useState(false);
   const [proxyName, setProxyName] = useState('');
+  const [proxyError, setProxyError] = useState<string | null>(null);
   const [guestInfo, setGuestInfo] = useState({ name: '', email: '' });
   const [guestProfile, setGuestProfile] = useState<AttendeeProfile | null>(null);
   const [myRsvps, setMyRsvps] = useState<Attendee[]>([]);
   const [rsvpToCancel, setRsvpToCancel] = useState<Attendee | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  const getErrorMessage = (error: unknown, fallback: string) => {
+    if (error && typeof error === 'object') {
+      const maybeError = error as { message?: string; details?: string; hint?: string; code?: string };
+      const parts = [maybeError.message, maybeError.details, maybeError.hint].filter(Boolean);
+      if (parts.length > 0) {
+        return parts.join(' - ');
+      }
+      if (maybeError.code) {
+        return `Error code: ${maybeError.code}`;
+      }
+    }
+    if (error instanceof Error && error.message) return error.message;
+    return fallback;
+  };
 
   useEffect(() => {
     const checkGuestSession = async () => {
@@ -58,31 +77,13 @@ export default function EventDetail({ user }: { user: User | null }) {
 
   useEffect(() => {
     if (attendees.length > 0) {
-      let found: Attendee[] = [];
-      if (user) {
-        // Find by user_id
-        const byUserId = attendees.filter(a => a.user_id === user.id && a.status !== 'cancelled');
-        found = [...byUserId];
-        
-        // Find by email if not already found by user_id
-        if (user.email) {
-          const byEmail = attendees.filter(a => 
-            a.guest_email?.toLowerCase() === user.email?.toLowerCase() && 
-            a.status !== 'cancelled' &&
-            !found.some(f => f.id === a.id)
-          );
-          found = [...found, ...byEmail];
-        }
-      }
-      if (guestProfile) {
-        const byProfileId = attendees.filter(a => 
-          a.attendee_profile_id === guestProfile.id && 
-          a.status !== 'cancelled' &&
-          !found.some(f => f.id === a.id)
-        );
-        found = [...found, ...byProfileId];
-      }
-      setMyRsvps(found);
+      setMyRsvps(
+        findMyRsvps(attendees, {
+          userId: user?.id,
+          userEmail: user?.email,
+          guestProfileId: guestProfile?.id,
+        }),
+      );
     } else {
       setMyRsvps([]);
     }
@@ -168,19 +169,14 @@ export default function EventDetail({ user }: { user: User | null }) {
         return;
       }
 
-      // 4. Determine status based on current confirmed count
-      const confirmedCount = attendees.filter(a => a.status === 'confirmed').length;
-      let status: 'confirmed' | 'waitlist' = 'confirmed';
-      
-      if (confirmedCount >= event.capacity) {
-        if (event.allow_waitlist) {
-          status = 'waitlist';
-        } else {
-          alert('Event is full and waitlist is disabled');
-          setRsvpLoading(false);
-          return;
-        }
+      // 4. Determine status from shared RSVP strategy
+      const decision = decideRsvpStatus(getConfirmedCount(attendees), event.capacity, event.allow_waitlist);
+      if (isRsvpBlocked(decision)) {
+        alert(decision.reason);
+        setRsvpLoading(false);
+        return;
       }
+      const status = decision.status;
 
       // 5. Insert or Update RSVP
       if (existing) {
@@ -227,12 +223,13 @@ export default function EventDetail({ user }: { user: User | null }) {
     e.preventDefault();
     if (!event || !proxyName.trim()) return;
     setRsvpLoading(true);
+    setProxyError(null);
 
     const email = user?.email || guestInfo.email;
     let currentProfileId = guestProfile?.id;
 
     if (!email) {
-      alert('Email is required to add someone else.');
+      setProxyError('Email is required to add someone else.');
       setRsvpLoading(false);
       return;
     }
@@ -247,54 +244,31 @@ export default function EventDetail({ user }: { user: User | null }) {
       }
 
       if (!currentProfileId) {
-        alert('You must be signed in or have a guest session to add someone else.');
+        setProxyError('You must be signed in or have a guest session to add someone else.');
         setRsvpLoading(false);
         return;
       }
 
-      // 2. Check if this specific person is already added
-      const { data: existing } = await supabase
-        .from('event_attendees')
-        .select('id, status')
-        .eq('event_id', event.id)
-        .eq('guest_name', proxyName.trim())
-        .eq('attendee_profile_id', currentProfileId)
-        .neq('status', 'cancelled')
-        .maybeSingle();
-
-      if (existing) {
-        alert(`${proxyName} is already on the list!`);
+      // 2. Determine status from shared RSVP strategy
+      const decision = decideRsvpStatus(getConfirmedCount(attendees), event.capacity, event.allow_waitlist);
+      if (isRsvpBlocked(decision)) {
+        setProxyError(decision.reason);
         setRsvpLoading(false);
         return;
       }
 
-      // 3. Determine status
-      const confirmedCount = attendees.filter(a => a.status === 'confirmed').length;
-      let status: 'confirmed' | 'waitlist' = 'confirmed';
-      
-      if (confirmedCount >= event.capacity) {
-        if (event.allow_waitlist) {
-          status = 'waitlist';
-        } else {
-          alert('Event is full and waitlist is disabled');
-          setRsvpLoading(false);
-          return;
-        }
-      }
-
-      // 4. Insert RSVP
-      const { error } = await supabase
-        .from('event_attendees')
-        .insert([{
-          event_id: event.id,
-          user_id: user?.id || null,
-          attendee_profile_id: currentProfileId,
-          guest_name: proxyName.trim(),
-          guest_email: email,
-          status
-        }]);
-      
+      // 3. Use server-side upsert path for proxy RSVP (handles legacy constraints + auth).
+      const sessionToken = guestService.getStoredSession();
+      const { data, error } = await supabase.rpc('add_proxy_attendee', {
+        p_event_id: event.id,
+        p_proxy_name: proxyName.trim(),
+        p_attendee_profile_id: currentProfileId,
+        p_user_id: user?.id || null,
+        p_owner_email: email,
+        p_session_token: sessionToken,
+      });
       if (error) throw error;
+      if (data?.error) throw new Error(data.error);
 
       setShowProxyModal(false);
       setProxyName('');
@@ -302,7 +276,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       fetchAttendees();
     } catch (error: any) {
       console.error('Proxy RSVP Error:', error);
-      alert(error.message || 'Failed to add person. Please try again.');
+      setProxyError(error.message || 'Failed to add person. Please try again.');
     } finally {
       setRsvpLoading(false);
     }
@@ -313,39 +287,25 @@ export default function EventDetail({ user }: { user: User | null }) {
 
     try {
       setRsvpLoading(true);
-      const wasConfirmed = rsvpToCancel.status === 'confirmed';
-      
-      const { error } = await supabase
-        .from('event_attendees')
-        .update({ 
-          status: 'cancelled', 
-          cancelled_at: new Date().toISOString() 
-        })
-        .eq('id', rsvpToCancel.id);
+      setCancelError(null);
+      const sessionToken = guestService.getStoredSession();
+      const { data, error } = await supabase.rpc('cancel_attendee_with_promotion', {
+        p_attendee_id: rsvpToCancel.id,
+        p_session_token: sessionToken,
+      });
 
-      if (error) {
-        throw error;
-      } else {
-        // Automatic Waitlist Promotion
-        if (wasConfirmed && event) {
-          const nextOnWaitlist = attendees
-            .filter(a => a.id !== rsvpToCancel.id && a.status === 'waitlist')
-            .sort((a, b) => new Date(a.joined_at).getTime() - new Date(b.joined_at).getTime())[0];
-          
-          if (nextOnWaitlist) {
-            await supabase
-              .from('event_attendees')
-              .update({ status: 'confirmed', promoted_at: new Date().toISOString() })
-              .eq('id', nextOnWaitlist.id);
-          }
-        }
-        setRsvpToCancel(null);
-        setShowCancelModal(false);
-        fetchAttendees();
+      if (error) throw error;
+
+      if (data?.error) {
+        throw new Error(data.error);
       }
-    } catch (error: any) {
+
+      setRsvpToCancel(null);
+      setShowCancelModal(false);
+      fetchAttendees();
+    } catch (error: unknown) {
       console.error('Cancel Error:', error);
-      alert(error.message || 'Failed to cancel RSVP');
+      setCancelError(getErrorMessage(error, 'Failed to cancel RSVP'));
     } finally {
       setRsvpLoading(false);
     }
@@ -370,10 +330,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     );
   }
 
-  const confirmedCount = attendees.filter(a => a.status === 'confirmed').length;
-  const waitlistCount = attendees.filter(a => a.status === 'waitlist').length;
-  const isFull = confirmedCount >= event.capacity;
-  const spotsRemaining = Math.max(0, event.capacity - confirmedCount);
+  const { confirmedCount, waitlistCount, isFull, spotsRemaining } = getAttendanceSummary(attendees, event.capacity);
 
   return (
     <div className="min-h-screen bg-slate-50 pb-40">
@@ -408,13 +365,17 @@ export default function EventDetail({ user }: { user: User | null }) {
             {event.title}
           </h1>
           
-          {event.is_public && (
-            <div className="mb-6 flex">
+          <div className="mb-6 flex">
+            {event.is_public ? (
               <span className="inline-flex items-center gap-1.5 bg-brand-50 text-brand-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-brand-100">
                 <Users className="w-3 h-3" /> Public Event
               </span>
-            </div>
-          )}
+            ) : (
+              <span className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-slate-200">
+                <Users className="w-3 h-3" /> Private Link
+              </span>
+            )}
+          </div>
           
           <div className="space-y-5">
             <div className="flex items-start gap-4">
@@ -533,10 +494,17 @@ export default function EventDetail({ user }: { user: User | null }) {
                         <CheckCircle2 className="w-4 h-4" />
                         <span>{rsvp.guest_name}</span>
                       </div>
-                      <span>{rsvp.status === 'confirmed' ? "In" : "Waitlist"}</span>
+                      {rsvp.status === 'confirmed' ? (
+                        <span>In</span>
+                      ) : (
+                        <span className="text-[9px] uppercase tracking-widest font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg">
+                          Waitlist
+                        </span>
+                      )}
                     </div>
                     <button 
                       onClick={() => {
+                        setCancelError(null);
                         setRsvpToCancel(rsvp);
                         setShowCancelModal(true);
                       }}
@@ -549,7 +517,10 @@ export default function EventDetail({ user }: { user: User | null }) {
                 ))}
               </div>
               <button 
-                onClick={() => setShowProxyModal(true)}
+                onClick={() => {
+                  setProxyError(null);
+                  setShowProxyModal(true);
+                }}
                 className="w-full bg-white border border-brand-100 text-brand-600 font-black py-4 rounded-2xl shadow-sm hover:bg-brand-50 transition-all flex items-center justify-center gap-2 active:scale-95"
               >
                 <Plus className="w-5 h-5" />
@@ -728,6 +699,11 @@ export default function EventDetail({ user }: { user: User | null }) {
               </div>
               <h2 className="text-xl font-black text-slate-900 tracking-tight mb-2">Are you sure?</h2>
               <p className="text-slate-500 font-medium mb-8 text-sm">You'll lose your spot and might not be able to get it back.</p>
+              {cancelError && (
+                <p className="text-red-500 text-xs font-bold bg-red-50 p-3 rounded-xl border border-red-100 mb-4">
+                  {cancelError}
+                </p>
+              )}
               
               <div className="space-y-3">
                 <button
@@ -779,6 +755,11 @@ export default function EventDetail({ user }: { user: User | null }) {
                   <X className="w-6 h-6 text-slate-400" />
                 </button>
               </div>
+              {proxyError && (
+                <p className="text-red-500 text-xs font-bold bg-red-50 p-3 rounded-xl border border-red-100 mb-4">
+                  {proxyError}
+                </p>
+              )}
               
               <form onSubmit={handleProxyRsvp} className="space-y-5">
                 <div>

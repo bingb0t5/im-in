@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Calendar, MapPin, Users, ArrowLeft, Save, AlertCircle, Info } from 'lucide-react';
 import { motion } from 'motion/react';
 import { generateSlug } from '../utils';
+import { pickWaitlistAttendeesForPromotion } from '../lib/rsvp';
 
 export default function CreateEvent({ user }: { user: User | null }) {
   const { id } = useParams();
@@ -141,7 +142,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
             const spotsAvailable = formData.capacity - currentConfirmedCount;
 
             if (spotsAvailable > 0) {
-              const toPromote = waitlist.slice(0, spotsAvailable);
+              const toPromote = pickWaitlistAttendeesForPromotion(waitlist, spotsAvailable);
               for (const person of toPromote) {
                 await supabase
                   .from('event_attendees')
