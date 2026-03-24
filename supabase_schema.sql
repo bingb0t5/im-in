@@ -7,13 +7,19 @@ CREATE TABLE IF NOT EXISTS public.events (
     slug TEXT UNIQUE NOT NULL,
     title TEXT NOT NULL,
     description TEXT,
+    public_summary TEXT,
     location_text TEXT,
+    public_location_text TEXT,
+    google_maps_url TEXT,
     starts_at TIMESTAMPTZ NOT NULL,
     ends_at TIMESTAMPTZ,
     capacity INTEGER NOT NULL,
     host_user_id UUID REFERENCES auth.users(id),
     host_name TEXT,
     host_contact_text TEXT,
+    show_host_publicly BOOLEAN DEFAULT false,
+    access_code TEXT DEFAULT gen_random_uuid()::text,
+    visibility TEXT CHECK (visibility IN ('public', 'semi_public', 'private')) DEFAULT 'semi_public',
     allow_waitlist BOOLEAN DEFAULT true,
     is_public BOOLEAN DEFAULT false,
     status TEXT CHECK (status IN ('scheduled', 'cancelled', 'completed')) DEFAULT 'scheduled',
@@ -44,11 +50,23 @@ CREATE TABLE IF NOT EXISTS public.event_waitlist_positions (
     UNIQUE(event_id, position)
 );
 
+CREATE TABLE IF NOT EXISTS public.event_access_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    requester_name TEXT NOT NULL,
+    requester_whatsapp TEXT NOT NULL,
+    requester_note TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'declined', 'contacted')),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- 2. RLS Policies
 
 ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.event_attendees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.event_waitlist_positions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_access_requests ENABLE ROW LEVEL SECURITY;
 
 -- Events: Anyone can read, only host can create/update
 CREATE POLICY "Public events are viewable by everyone" ON public.events
@@ -87,6 +105,23 @@ CREATE POLICY "Hosts can delete attendees" ON public.event_attendees
 -- Waitlist positions: Anyone can read, managed by system/host
 CREATE POLICY "Waitlist positions are viewable by everyone" ON public.event_waitlist_positions
     FOR SELECT USING (true);
+
+CREATE POLICY "Anyone can create event access requests" ON public.event_access_requests
+    FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Hosts can view event access requests" ON public.event_access_requests
+    FOR SELECT USING (
+        auth.uid() IN (
+            SELECT host_user_id FROM public.events WHERE id = event_id
+        )
+    );
+
+CREATE POLICY "Hosts can update event access requests" ON public.event_access_requests
+    FOR UPDATE USING (
+        auth.uid() IN (
+            SELECT host_user_id FROM public.events WHERE id = event_id
+        )
+    );
 
 -- 3. Functions & Triggers
 

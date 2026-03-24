@@ -3,19 +3,36 @@ export interface Event {
   slug: string;
   title: string;
   description?: string;
+  public_summary?: string;
   location_text?: string;
+  public_location_text?: string;
+  google_maps_url?: string;
   starts_at: string;
   ends_at?: string;
   capacity: number;
   host_user_id: string;
   host_name?: string;
   host_contact_text?: string;
+  show_host_publicly?: boolean;
+  access_code?: string;
+  visibility?: 'public' | 'semi_public' | 'private';
   allow_waitlist: boolean;
   is_public: boolean;
   status: 'scheduled' | 'cancelled' | 'completed';
   created_at: string;
   updated_at: string;
   confirmed_count?: number;
+}
+
+export interface EventAccessRequest {
+  id: string;
+  event_id: string;
+  requester_name: string;
+  requester_whatsapp: string;
+  requester_note?: string | null;
+  status: 'pending' | 'approved' | 'declined' | 'contacted';
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Attendee {

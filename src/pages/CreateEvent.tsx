@@ -14,13 +14,18 @@ const CREATE_EVENT_PENDING_AUTH_KEY = 'im_in_create_event_pending_auth';
 type CreateEventDraft = {
   formData: {
     title: string;
+    public_summary: string;
     description: string;
+    public_location_text: string;
     location_text: string;
+    google_maps_url: string;
     starts_at: string;
     ends_at: string;
     capacity: number;
     host_name: string;
     host_contact_text: string;
+    show_host_publicly: boolean;
+    visibility: 'public' | 'semi_public' | 'private';
     allow_waitlist: boolean;
     is_public: boolean;
   };
@@ -38,13 +43,18 @@ export default function CreateEvent({ user }: { user: User | null }) {
   const [initialLoading, setInitialLoading] = useState(isEditing);
   const [formData, setFormData] = useState({
     title: '',
+    public_summary: '',
     description: '',
+    public_location_text: '',
     location_text: '',
+    google_maps_url: '',
     starts_at: '',
     ends_at: '',
     capacity: 10,
     host_name: '',
     host_contact_text: '',
+    show_host_publicly: false,
+    visibility: 'semi_public' as 'public' | 'semi_public' | 'private',
     allow_waitlist: true,
     is_public: true,
   });
@@ -58,6 +68,14 @@ export default function CreateEvent({ user }: { user: User | null }) {
   const [profileName, setProfileName] = useState('');
   const [profileWhatsapp, setProfileWhatsapp] = useState('');
   const [needsProfileDetails, setNeedsProfileDetails] = useState(false);
+  const [accountHostName, setAccountHostName] = useState('');
+  const pickHostNameFromProfile = (profile: any) => {
+    const fullName = (profile?.full_name || '').trim();
+    if (fullName) return fullName;
+    const first = (profile?.first_name || '').trim();
+    const last = (profile?.last_name || '').trim();
+    return `${first} ${last}`.trim();
+  };
 
   useEffect(() => {
     if (isEditing && user) {
@@ -104,6 +122,75 @@ export default function CreateEvent({ user }: { user: User | null }) {
     }
   }, [isEditing, user, needsProfileDetails, formData.host_name]);
 
+  useEffect(() => {
+    if (!user) {
+      setAccountHostName('');
+      return;
+    }
+    let cancelled = false;
+
+    const hydrateDefaultHostName = async () => {
+      const { data: latestHostedEvent } = await supabase
+        .from('events')
+        .select('host_name, created_at')
+        .eq('host_user_id', user.id)
+        .not('host_name', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const hostedEventName = (latestHostedEvent?.host_name || '').trim();
+      if (hostedEventName) {
+        if (!cancelled) setAccountHostName(hostedEventName);
+        return;
+      }
+
+      const metadataName = (user.user_metadata?.full_name || '').trim();
+      if (metadataName) {
+        if (!cancelled) setAccountHostName(metadataName);
+        return;
+      }
+
+      const normalizedEmail = (user.email || '').trim().toLowerCase();
+
+      const { data: byUserId } = await supabase
+        .from('attendee_profiles')
+        .select('full_name, first_name, last_name')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      let resolvedName = pickHostNameFromProfile(byUserId);
+      if (!resolvedName && normalizedEmail) {
+        const { data: byEmail } = await supabase
+          .from('attendee_profiles')
+          .select('full_name, first_name, last_name')
+          .eq('email', normalizedEmail)
+          .maybeSingle();
+        resolvedName = pickHostNameFromProfile(byEmail);
+      }
+
+      if (!resolvedName && normalizedEmail) {
+        resolvedName = normalizedEmail.split('@')[0].replace(/[._-]+/g, ' ').trim();
+      }
+
+      if (!cancelled && resolvedName) {
+        setAccountHostName(resolvedName);
+      }
+    };
+
+    hydrateDefaultHostName();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !accountHostName) return;
+    setFormData((prev) => (prev.host_name === accountHostName ? prev : { ...prev, host_name: accountHostName }));
+    setProfileName((prev) => prev || accountHostName);
+  }, [user, accountHostName]);
+
   const fetchEvent = async () => {
     const { data, error } = await supabase
       .from('events')
@@ -124,13 +211,18 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
       setFormData({
         title: data.title || '',
+        public_summary: data.public_summary || '',
         description: data.description || '',
+        public_location_text: data.public_location_text || '',
         location_text: data.location_text || '',
+        google_maps_url: data.google_maps_url || '',
         starts_at: formatForInput(data.starts_at),
         ends_at: formatForInput(data.ends_at),
         capacity: data.capacity ?? 10,
         host_name: data.host_name || '',
         host_contact_text: data.host_contact_text || '',
+        show_host_publicly: data.show_host_publicly ?? false,
+        visibility: data.visibility || (data.is_public ? 'public' : 'private'),
         allow_waitlist: data.allow_waitlist ?? true,
         is_public: data.is_public ?? true,
       });
@@ -166,8 +258,9 @@ export default function CreateEvent({ user }: { user: User | null }) {
       // Clean up optional fields: convert empty strings to null
       const metadataName = (user.user_metadata?.full_name || '').trim();
       const emailName = (user.email || '').split('@')[0].replace(/[._-]+/g, ' ').trim();
-      const resolvedHostName = (formData.host_name || metadataName || emailName).trim();
+      const resolvedHostName = (accountHostName || formData.host_name || metadataName || emailName).trim();
       const resolvedHostContact = formData.host_contact_text.trim();
+      const resolvedVisibility = formData.visibility || 'semi_public';
       if (!resolvedHostName) {
         throw new Error('Host name is required to create an event.');
       }
@@ -176,11 +269,21 @@ export default function CreateEvent({ user }: { user: User | null }) {
         ...formData,
         host_user_id: user.id,
         host_name: resolvedHostName,
+        visibility: resolvedVisibility,
+        is_public: resolvedVisibility !== 'private',
         description: formData.description.trim() || null,
+        public_summary: formData.public_summary.trim() || null,
         location_text: formData.location_text.trim() || null,
+        public_location_text: formData.public_location_text.trim() || null,
+        google_maps_url: formData.google_maps_url.trim() || null,
         ends_at: formData.ends_at || null,
         host_contact_text: resolvedHostContact || null,
       };
+
+      if (resolvedVisibility === 'public') {
+        submissionData.public_summary = submissionData.public_summary || submissionData.description;
+        submissionData.public_location_text = submissionData.public_location_text || submissionData.location_text;
+      }
 
       if (!isEditing) {
         submissionData.slug = `${generateSlug(formData.title)}-${Math.random().toString(36).substring(2, 7)}`;
@@ -369,15 +472,30 @@ export default function CreateEvent({ user }: { user: User | null }) {
             </div>
 
             <div>
-              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Description (Optional)</label>
+              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">
+                {formData.visibility === 'public' ? 'Event Description (Public)' : 'Full Event Description'}
+              </label>
               <textarea
                 rows={4}
-                placeholder="What should people know?"
+                placeholder={formData.visibility === 'public' ? 'What should people know?' : 'Visible only via the direct event link'}
                 className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 outline-none transition-all font-medium text-sm"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               />
             </div>
+
+            {formData.visibility !== 'public' && (
+              <div>
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Public Summary</label>
+                <textarea
+                  rows={3}
+                  placeholder="Shown on the public events list"
+                  className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 outline-none transition-all font-medium text-sm"
+                  value={formData.public_summary}
+                  onChange={(e) => setFormData({ ...formData, public_summary: e.target.value })}
+                />
+              </div>
+            )}
           </section>
 
           {/* Logistics */}
@@ -410,15 +528,46 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
             <div>
               <label className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">
-                <MapPin className="w-3.5 h-3.5 text-brand-600" /> Location
+                <MapPin className="w-3.5 h-3.5 text-brand-600" /> {formData.visibility === 'public' ? 'Location' : 'Exact Location'}
               </label>
               <input
                 type="text"
-                placeholder="Where is it happening?"
+                placeholder={formData.visibility === 'public' ? 'Where is it happening?' : 'Exact location (shown on direct event link)'}
                 className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
                 value={formData.location_text}
                 onChange={(e) => setFormData({ ...formData, location_text: e.target.value })}
               />
+            </div>
+
+            {formData.visibility !== 'public' && (
+              <div>
+                <label className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">
+                  <MapPin className="w-3.5 h-3.5 text-brand-600" /> Public Town / City
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Nelson, Wellington, Auckland"
+                  className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                  value={formData.public_location_text}
+                  onChange={(e) => setFormData({ ...formData, public_location_text: e.target.value })}
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">
+                <MapPin className="w-3.5 h-3.5 text-brand-600" /> Google Maps Link (Optional)
+              </label>
+              <input
+                type="url"
+                placeholder="Paste Google Maps share URL"
+                className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                value={formData.google_maps_url}
+                onChange={(e) => setFormData({ ...formData, google_maps_url: e.target.value })}
+              />
+              <p className="text-xs text-slate-400 font-medium mt-2 px-1">
+                Tip: use the Share button in Google Maps and paste the link here.
+              </p>
             </div>
 
             <div>
@@ -449,19 +598,40 @@ export default function CreateEvent({ user }: { user: User | null }) {
               </div>
             </div>
 
-            <div className="pt-6 border-t border-slate-50">
+            <div className="pt-6 border-t border-slate-50 space-y-5">
+              <div>
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Visibility</label>
+                <select
+                  className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                  value={formData.visibility}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      visibility: e.target.value as 'public' | 'semi_public' | 'private',
+                    })
+                  }
+                >
+                  <option value="semi_public">Semi-public (recommended)</option>
+                  <option value="public">Public</option>
+                  <option value="private">Private link only</option>
+                </select>
+                <p className="text-xs text-slate-400 font-medium mt-2 px-1">
+                  Semi-public events appear in public browse with limited info. Full details are only visible via your shared link.
+                </p>
+              </div>
+
               <label className="flex items-center gap-4 text-slate-900 font-black cursor-pointer select-none group">
                 <div className="relative flex items-center">
                   <input
                     type="checkbox"
                     className="peer w-7 h-7 rounded-xl border-2 border-slate-200 text-brand-600 focus:ring-brand-600 transition-all"
-                    checked={formData.is_public}
-                    onChange={(e) => setFormData({ ...formData, is_public: e.target.checked })}
+                    checked={formData.show_host_publicly}
+                    onChange={(e) => setFormData({ ...formData, show_host_publicly: e.target.checked })}
                   />
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-base tracking-tight">List on public calendar</span>
-                  <span className="text-xs text-slate-400 font-medium">Anyone can see and join this event from the main events page.</span>
+                  <span className="text-base tracking-tight">Show host on public listing</span>
+                  <span className="text-xs text-slate-400 font-medium">If off, your name is hidden in public browse previews.</span>
                 </div>
               </label>
             </div>
@@ -477,9 +647,10 @@ export default function CreateEvent({ user }: { user: User | null }) {
                     required
                     type="text"
                     placeholder="Your Name"
-                    className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
-                    value={formData.host_name}
-                    onChange={(e) => setFormData({ ...formData, host_name: e.target.value })}
+                    readOnly
+                    disabled
+                    className="w-full p-4 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 outline-none transition-all font-bold text-sm cursor-not-allowed"
+                    value={accountHostName || formData.host_name}
                   />
                 </div>
                 <div>

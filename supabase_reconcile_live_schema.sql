@@ -116,6 +116,141 @@ CREATE INDEX IF NOT EXISTS event_attendees_added_by_attendee_profile_id_idx
     ON public.event_attendees (added_by_attendee_profile_id);
 
 -- -------------------------------------------------------------------
+-- 2c) Event visibility + semi-public fields
+-- -------------------------------------------------------------------
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS visibility TEXT;
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS public_summary TEXT;
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS public_location_text TEXT;
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS google_maps_url TEXT;
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS show_host_publicly BOOLEAN DEFAULT false;
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS access_code TEXT;
+
+UPDATE public.events
+SET visibility = CASE WHEN is_public THEN 'public' ELSE 'private' END
+WHERE visibility IS NULL;
+
+UPDATE public.events
+SET access_code = gen_random_uuid()::text
+WHERE access_code IS NULL OR btrim(access_code) = '';
+
+UPDATE public.events
+SET show_host_publicly = false
+WHERE show_host_publicly IS NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'events_visibility_check'
+    ) THEN
+        ALTER TABLE public.events
+            ADD CONSTRAINT events_visibility_check
+            CHECK (visibility IN ('public', 'semi_public', 'private'));
+    END IF;
+END $$;
+
+ALTER TABLE public.events
+    ALTER COLUMN visibility SET DEFAULT 'semi_public';
+
+CREATE INDEX IF NOT EXISTS events_visibility_status_starts_at_idx
+    ON public.events (visibility, status, starts_at);
+
+CREATE INDEX IF NOT EXISTS events_access_code_idx
+    ON public.events (access_code);
+
+-- -------------------------------------------------------------------
+-- 2d) Access request queue for semi-public events
+-- -------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.event_access_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    requester_name TEXT NOT NULL,
+    requester_whatsapp TEXT NOT NULL,
+    requester_note TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'declined', 'contacted')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS event_access_requests_event_id_created_at_idx
+    ON public.event_access_requests (event_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS event_access_requests_event_id_status_idx
+    ON public.event_access_requests (event_id, status);
+
+ALTER TABLE public.event_access_requests ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'event_access_requests'
+          AND policyname = 'Anyone can create event access requests'
+    ) THEN
+        CREATE POLICY "Anyone can create event access requests"
+            ON public.event_access_requests
+            FOR INSERT
+            WITH CHECK (true);
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'event_access_requests'
+          AND policyname = 'Hosts can view event access requests'
+    ) THEN
+        CREATE POLICY "Hosts can view event access requests"
+            ON public.event_access_requests
+            FOR SELECT
+            USING (
+                auth.uid() IN (
+                    SELECT e.host_user_id
+                    FROM public.events e
+                    WHERE e.id = event_id
+                )
+            );
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'event_access_requests'
+          AND policyname = 'Hosts can update event access requests'
+    ) THEN
+        CREATE POLICY "Hosts can update event access requests"
+            ON public.event_access_requests
+            FOR UPDATE
+            USING (
+                auth.uid() IN (
+                    SELECT e.host_user_id
+                    FROM public.events e
+                    WHERE e.id = event_id
+                )
+            );
+    END IF;
+END $$;
+
 -- 6) Reliable cancellation RPC (bypasses fragile RLS query paths)
 -- -------------------------------------------------------------------
 -- Why:
@@ -668,6 +803,22 @@ BEGIN
     ) THEN
         CREATE TRIGGER attendee_profiles_touch_updated_at
             BEFORE UPDATE ON public.attendee_profiles
+            FOR EACH ROW
+            EXECUTE FUNCTION public.touch_updated_at();
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'event_access_requests_touch_updated_at'
+          AND tgrelid = 'public.event_access_requests'::regclass
+          AND NOT tgisinternal
+    ) THEN
+        CREATE TRIGGER event_access_requests_touch_updated_at
+            BEFORE UPDATE ON public.event_access_requests
             FOR EACH ROW
             EXECUTE FUNCTION public.touch_updated_at();
     END IF;

@@ -5,10 +5,12 @@ import { Calendar as CalendarIcon, ChevronRight, MapPin, Users, ArrowLeft, Searc
 import { motion } from 'motion/react';
 import { formatDate } from '../utils';
 import { Event } from '../types';
-import { withConfirmedCounts } from '../lib/events';
+import { withConfirmedCounts, buildEventPath } from '../lib/events';
+import { User } from '@supabase/supabase-js';
 
-export default function Calendar() {
+export default function Calendar({ user }: { user: User | null }) {
   const [events, setEvents] = useState<Event[]>([]);
+  const [privateAccessByEventId, setPrivateAccessByEventId] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
@@ -16,6 +18,10 @@ export default function Calendar() {
   useEffect(() => {
     fetchPublicEvents();
   }, []);
+
+  useEffect(() => {
+    fetchMyPrivateAccessMap();
+  }, [user?.id, user?.email]);
 
   const fetchPublicEvents = async () => {
     // Show events from the start of today onwards
@@ -43,9 +49,48 @@ export default function Calendar() {
     setLoading(false);
   };
 
+  const fetchMyPrivateAccessMap = async () => {
+    if (!user?.email) {
+      setPrivateAccessByEventId({});
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('event_attendees')
+      .select(`
+        event_id,
+        events (
+          id,
+          slug,
+          visibility,
+          is_public,
+          access_code
+        )
+      `)
+      .or(`user_id.eq.${user.id},guest_email.eq.${user.email}`)
+      .neq('status', 'cancelled');
+
+    if (error || !data) {
+      setPrivateAccessByEventId({});
+      return;
+    }
+
+    const map: Record<string, string> = {};
+    (data as any[]).forEach((row) => {
+      const eventRow = row.events;
+      if (!eventRow?.id) return;
+      const path = buildEventPath(eventRow, { preferPrivateAccess: true });
+      if (path.includes('?access=')) {
+        map[eventRow.id] = path;
+      }
+    });
+    setPrivateAccessByEventId(map);
+  };
+
   const filteredEvents = events.filter(event => 
     event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (event.location_text && event.location_text.toLowerCase().includes(searchQuery.toLowerCase()))
+    (event.location_text && event.location_text.toLowerCase().includes(searchQuery.toLowerCase())) ||
+    (event.public_location_text && event.public_location_text.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
@@ -96,8 +141,20 @@ export default function Calendar() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
               >
+                {(() => {
+                  const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+                  const isSemiPublic = visibility === 'semi_public';
+                  const dayOnly = formatDate(event.starts_at).split(' at ')[0];
+                  const timeOnly = formatDate(event.starts_at).split(' at ')[1];
+                  const previewLocation = isSemiPublic
+                    ? event.public_location_text || 'Town/city shared by host'
+                    : event.location_text || event.public_location_text || 'No location set';
+                  const cta = isSemiPublic ? 'Request to View' : "I'm in";
+                  const eventPath = privateAccessByEventId[event.id] || buildEventPath(event);
+
+                  return (
                 <Link 
-                  to={`/events/${event.slug}`}
+                  to={eventPath}
                   className="block bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:border-brand-100 hover:shadow-md transition-all active:scale-[0.98]"
                 >
                   <div className="flex justify-between items-start mb-4">
@@ -105,16 +162,23 @@ export default function Calendar() {
                       <h3 className="text-lg font-black text-slate-900 leading-tight tracking-tight">{event.title}</h3>
                       <div className="flex items-center gap-2 text-slate-400 text-xs font-bold">
                         <MapPin className="w-3.5 h-3.5" />
-                        {event.location_text || 'No location set'}
+                        {previewLocation}
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                        {formatDate(event.starts_at).split(' at ')[0]}
+                        {dayOnly}
                       </span>
-                      <span className="text-[10px] font-black text-brand-600 uppercase tracking-widest">
-                        {formatDate(event.starts_at).split(' at ')[1]}
-                      </span>
+                      {!isSemiPublic && (
+                        <span className="text-[10px] font-black text-brand-600 uppercase tracking-widest">
+                          {timeOnly}
+                        </span>
+                      )}
+                      {isSemiPublic && (
+                        <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2 py-1 rounded-lg">
+                          Semi Public
+                        </span>
+                      )}
                     </div>
                   </div>
                   
@@ -133,10 +197,12 @@ export default function Calendar() {
                       )}
                     </div>
                     <div className="flex items-center gap-1 text-brand-600 font-black text-xs">
-                      I'm in <ChevronRight className="w-4 h-4" />
+                      {cta} <ChevronRight className="w-4 h-4" />
                     </div>
                   </div>
                 </Link>
+                  );
+                })()}
               </motion.div>
             ))}
           </div>
