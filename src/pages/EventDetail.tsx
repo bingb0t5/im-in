@@ -4,7 +4,7 @@ import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, X, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { formatDate } from '../utils';
+import { formatDate, formatDay, formatDurationMinutes } from '../utils';
 import { Event, Attendee } from '../types';
 import { guestService, AttendeeProfile } from '../services/guestService';
 import { findMyRsvps, getAttendanceSummary } from '../lib/attendees';
@@ -562,7 +562,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     ) || 'Guest';
 
   const shareInvite = (url: string) => {
-    const text = `${event.title} – ${formatDate(event.starts_at)}\n${spotsRemaining} spots left. Join here:\n${url}`;
+    const text = `${event.title} – ${formatDate(event.starts_at, event.timezone)}\n${spotsRemaining} spots left. Join here:\n${url}`;
     if (navigator.share) {
       navigator.share({ title: event.title, text, url });
     } else {
@@ -578,7 +578,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   };
 
   if (!hasFullEventAccess) {
-    const dayOnly = formatDate(event.starts_at).split(' at ')[0];
+    const dayOnly = formatDay(event.starts_at, event.timezone);
     const previewLocation = event.public_location_text || 'Town/city shared by host';
     const previewSummary = event.public_summary || 'Request access to view full details and join this event.';
 
@@ -781,8 +781,10 @@ export default function EventDetail({ user }: { user: User | null }) {
                 <Calendar className="w-5 h-5 text-brand-600" />
               </div>
               <div>
-                <p className="font-bold text-slate-900 text-base">{formatDate(event.starts_at)}</p>
-                {event.ends_at && <p className="text-xs text-slate-400 font-medium">Until {formatDate(event.ends_at)}</p>}
+                <p className="font-bold text-slate-900 text-base">{formatDate(event.starts_at, event.timezone)}</p>
+                <p className="text-xs text-slate-400 font-medium">
+                  Duration {formatDurationMinutes(event.duration_minutes)} - Timezone: {event.timezone || 'Asia/Ho_Chi_Minh'}
+                </p>
               </div>
             </div>
 

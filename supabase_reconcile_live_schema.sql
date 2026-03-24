@@ -132,6 +132,12 @@ ALTER TABLE public.events
     ADD COLUMN IF NOT EXISTS google_maps_url TEXT;
 
 ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS timezone TEXT;
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS duration_minutes INTEGER;
+
+ALTER TABLE public.events
     ADD COLUMN IF NOT EXISTS show_host_publicly BOOLEAN DEFAULT false;
 
 ALTER TABLE public.events
@@ -149,6 +155,28 @@ UPDATE public.events
 SET show_host_publicly = false
 WHERE show_host_publicly IS NULL;
 
+UPDATE public.events
+SET timezone = 'Asia/Ho_Chi_Minh'
+WHERE timezone IS NULL OR btrim(timezone) = '';
+
+UPDATE public.events
+SET duration_minutes = LEAST(
+    360,
+    GREATEST(
+        15,
+        (
+            ROUND(
+                CASE
+                    WHEN ends_at IS NOT NULL AND ends_at > starts_at
+                        THEN EXTRACT(EPOCH FROM (ends_at - starts_at)) / 900.0
+                    ELSE 4
+                END
+            ) * 15
+        )::INTEGER
+    )
+)
+WHERE duration_minutes IS NULL;
+
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -164,6 +192,31 @@ END $$;
 
 ALTER TABLE public.events
     ALTER COLUMN visibility SET DEFAULT 'semi_public';
+
+ALTER TABLE public.events
+    ALTER COLUMN timezone SET DEFAULT 'Asia/Ho_Chi_Minh';
+
+ALTER TABLE public.events
+    ALTER COLUMN timezone SET NOT NULL;
+
+ALTER TABLE public.events
+    ALTER COLUMN duration_minutes SET DEFAULT 60;
+
+ALTER TABLE public.events
+    ALTER COLUMN duration_minutes SET NOT NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'events_duration_minutes_check'
+    ) THEN
+        ALTER TABLE public.events
+            ADD CONSTRAINT events_duration_minutes_check
+            CHECK (duration_minutes >= 15 AND duration_minutes <= 360 AND duration_minutes % 15 = 0);
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS events_visibility_status_starts_at_idx
     ON public.events (visibility, status, starts_at);

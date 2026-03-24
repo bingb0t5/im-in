@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS public.events (
     public_location_text TEXT,
     google_maps_url TEXT,
     starts_at TIMESTAMPTZ NOT NULL,
+    timezone TEXT NOT NULL DEFAULT 'Asia/Ho_Chi_Minh',
+    duration_minutes INTEGER NOT NULL DEFAULT 60 CHECK (duration_minutes >= 15 AND duration_minutes <= 360 AND duration_minutes % 15 = 0),
     ends_at TIMESTAMPTZ,
     capacity INTEGER NOT NULL,
     host_user_id UUID REFERENCES auth.users(id),
