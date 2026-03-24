@@ -8,7 +8,7 @@ import { formatDate } from '../utils';
 import { Event } from '../types';
 import { guestService } from '../services/guestService';
 import { groupBookingsByEvent } from '../lib/bookings';
-import { withConfirmedCounts } from '../lib/events';
+import { withConfirmedCounts, buildEventPath } from '../lib/events';
 
 export default function Home({ user }: { user: User | null }) {
   const [hostedEvents, setHostedEvents] = useState<Event[]>([]);
@@ -400,7 +400,7 @@ export default function Home({ user }: { user: User | null }) {
               {groupedJoinedEvents.map((groupedBooking: any) => (
                 <Link 
                   key={groupedBooking.events.id} 
-                  to={`/events/${groupedBooking.events.slug}`}
+                  to={buildEventPath(groupedBooking.events, { preferPrivateAccess: true })}
                   className="block bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:border-brand-100 hover:shadow-md transition-all active:scale-[0.98]"
                 >
                   <div className="flex justify-between items-start mb-4">

@@ -6,6 +6,7 @@ import { formatDate } from '../utils';
 import { motion } from 'motion/react';
 import { BookingRow, GroupedBooking, groupBookingsByEvent } from '../lib/bookings';
 import { AttendeeProfile } from '../services/guestService';
+import { buildEventPath } from '../lib/events';
 
 export default function Bookings() {
   const navigate = useNavigate();
@@ -90,7 +91,7 @@ export default function Bookings() {
                 key={groupedBooking.events.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                onClick={() => navigate(`/events/${groupedBooking.events.slug}`)}
+                onClick={() => navigate(buildEventPath(groupedBooking.events as any, { preferPrivateAccess: true }))}
                 className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 hover:border-brand-600/20 hover:shadow-md transition-all cursor-pointer group"
               >
                   <div className="flex justify-between items-start mb-4">

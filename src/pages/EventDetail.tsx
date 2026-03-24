@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, X, Plus } from 'lucide-react';
@@ -13,6 +13,7 @@ import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp'
 export default function EventDetail({ user }: { user: User | null }) {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [event, setEvent] = useState<Event | null>(null);
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,6 +22,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showProxyModal, setShowProxyModal] = useState(false);
+  const [showShareChoiceModal, setShowShareChoiceModal] = useState(false);
   const [proxyName, setProxyName] = useState('');
   const [proxyError, setProxyError] = useState<string | null>(null);
   const [proxyOwnerName, setProxyOwnerName] = useState('');
@@ -32,6 +34,13 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [myRsvps, setMyRsvps] = useState<Attendee[]>([]);
   const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
   const [successType, setSuccessType] = useState<'self' | 'proxy'>('self');
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [requestName, setRequestName] = useState('');
+  const [requestWhatsapp, setRequestWhatsapp] = useState('');
+  const [requestNote, setRequestNote] = useState('');
+  const [requestLoading, setRequestLoading] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestSuccess, setRequestSuccess] = useState(false);
   const [rsvpToCancel, setRsvpToCancel] = useState<Attendee | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
@@ -139,6 +148,19 @@ export default function EventDetail({ user }: { user: User | null }) {
       email: user.email || prev.email,
     }));
   }, [user, signedInPreferredName]);
+
+  useEffect(() => {
+    const defaultName = pickFirstNonEmpty(
+      user?.user_metadata?.full_name,
+      signedInPreferredName,
+      guestProfile?.full_name,
+      guestInfo.name,
+      fallbackNameFromEmail(user?.email || guestInfo.email),
+    );
+    if (defaultName && !requestName.trim()) {
+      setRequestName(defaultName);
+    }
+  }, [user, signedInPreferredName, guestProfile?.full_name, guestInfo.name, guestInfo.email, requestName]);
 
   useEffect(() => {
     if (user) {
@@ -446,6 +468,54 @@ export default function EventDetail({ user }: { user: User | null }) {
     }
   };
 
+  const handleAccessRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!event) return;
+
+    const name = requestName.trim();
+    const whatsapp = requestWhatsapp.trim();
+    if (!name || !whatsapp) {
+      setRequestError('Please add your name and WhatsApp number.');
+      return;
+    }
+
+    try {
+      setRequestLoading(true);
+      setRequestError(null);
+      const { data: existingPending } = await supabase
+        .from('event_access_requests')
+        .select('id')
+        .eq('event_id', event.id)
+        .eq('requester_whatsapp', whatsapp)
+        .eq('status', 'pending')
+        .maybeSingle();
+
+      if (existingPending?.id) {
+        setRequestError('You already have a pending request for this event.');
+        setRequestLoading(false);
+        return;
+      }
+
+      const { error } = await supabase.from('event_access_requests').insert([
+        {
+          event_id: event.id,
+          requester_name: name,
+          requester_whatsapp: whatsapp,
+          requester_note: requestNote.trim() || null,
+          status: 'pending',
+        },
+      ]);
+
+      if (error) throw error;
+      setRequestSuccess(true);
+      setRequestNote('');
+    } catch (error) {
+      setRequestError(getErrorMessage(error, 'Could not submit request. Please try again.'));
+    } finally {
+      setRequestLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -465,6 +535,16 @@ export default function EventDetail({ user }: { user: User | null }) {
     );
   }
 
+  const eventVisibility = event.visibility || (event.is_public ? 'public' : 'private');
+  const accessToken = searchParams.get('access');
+  const hasAccessToken = !!(accessToken && event.access_code && accessToken === event.access_code);
+  const isHostViewer = !!(user && event.host_user_id === user.id);
+  const hasFullEventAccess = eventVisibility !== 'semi_public' || hasAccessToken || isHostViewer;
+  const publicEventUrl = `${window.location.origin}/events/${event.slug}`;
+  const privateEventUrl =
+    eventVisibility === 'semi_public' && event.access_code
+      ? `${window.location.origin}/events/${event.slug}?access=${event.access_code}`
+      : publicEventUrl;
   const { confirmedCount, waitlistCount, isFull, spotsRemaining } = getAttendanceSummary(attendees, event.capacity);
   const mySelfRsvps = myRsvps.filter((rsvp) => rsvp.added_by_type !== 'proxy');
   const myManagedRsvps = myRsvps.filter((rsvp) => rsvp.added_by_type === 'proxy');
@@ -481,6 +561,172 @@ export default function EventDetail({ user }: { user: User | null }) {
       fallbackNameFromEmail(confirmedDetailsEmail),
     ) || 'Guest';
 
+  const shareInvite = (url: string) => {
+    const text = `${event.title} – ${formatDate(event.starts_at)}\n${spotsRemaining} spots left. Join here:\n${url}`;
+    if (navigator.share) {
+      navigator.share({ title: event.title, text, url });
+    } else {
+      navigator.clipboard.writeText(text);
+      alert('Invite copied to clipboard!');
+    }
+  };
+
+  const openDirections = () => {
+    const url = (event.google_maps_url || '').trim();
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  if (!hasFullEventAccess) {
+    const dayOnly = formatDate(event.starts_at).split(' at ')[0];
+    const previewLocation = event.public_location_text || 'Town/city shared by host';
+    const previewSummary = event.public_summary || 'Request access to view full details and join this event.';
+
+    return (
+      <div className="min-h-screen bg-slate-50 pb-24">
+        <div className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
+          <div className="max-w-xl mx-auto px-6 h-16 flex items-center justify-between">
+            <button onClick={() => navigate('/calendar')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+              <ArrowLeft className="w-5 h-5 text-slate-600" />
+            </button>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Event Preview</span>
+            <div className="w-9" />
+          </div>
+        </div>
+
+        <main className="max-w-xl mx-auto px-6 pt-8 space-y-6">
+          <section className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+            <span className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-indigo-100 mb-4">
+              <Users className="w-3 h-3" /> Semi Public
+            </span>
+            <h1 className="text-3xl font-black tracking-tight leading-tight text-slate-900 mb-6">{event.title}</h1>
+
+            <div className="space-y-4">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 bg-brand-50 rounded-xl flex items-center justify-center shrink-0">
+                  <Calendar className="w-5 h-5 text-brand-600" />
+                </div>
+                <p className="font-bold text-slate-900 text-base">{dayOnly}</p>
+              </div>
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0">
+                  <MapPin className="w-5 h-5 text-blue-600" />
+                </div>
+                <p className="font-bold text-slate-900 text-base">{previewLocation}</p>
+              </div>
+              {event.show_host_publicly && event.host_name && (
+                <div className="flex items-start gap-4">
+                  <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center shrink-0">
+                    <Users className="w-5 h-5 text-slate-600" />
+                  </div>
+                  <p className="font-bold text-slate-900 text-base">Hosted by {event.host_name}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-8 pt-8 border-t border-slate-50">
+              <p className="text-slate-600 leading-relaxed whitespace-pre-wrap font-medium text-sm">{previewSummary}</p>
+            </div>
+          </section>
+
+          <button
+            onClick={() => {
+              setRequestError(null);
+              setRequestSuccess(false);
+              setShowRequestModal(true);
+            }}
+            className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-lg py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
+          >
+            Request to View
+          </button>
+        </main>
+
+        <AnimatePresence>
+          {showRequestModal && (
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowRequestModal(false)}
+                className="absolute inset-0 bg-slate-900/40 backdrop-blur-md"
+              />
+              <motion.div
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl"
+              >
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-1">Request to View</h2>
+                    <p className="text-slate-500 font-medium text-sm">Send your details to the host and they can share the full link.</p>
+                  </div>
+                  <button onClick={() => setShowRequestModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+                    <X className="w-6 h-6 text-slate-400" />
+                  </button>
+                </div>
+
+                {requestSuccess ? (
+                  <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 text-sm font-medium text-brand-700">
+                    Request sent. The host can contact you via WhatsApp.
+                  </div>
+                ) : (
+                  <form onSubmit={handleAccessRequest} className="space-y-4">
+                    {requestError && (
+                      <p className="text-red-500 text-xs font-bold bg-red-50 p-3 rounded-xl border border-red-100">
+                        {requestError}
+                      </p>
+                    )}
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">Your Name</label>
+                      <input
+                        required
+                        type="text"
+                        className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
+                        value={requestName}
+                        onChange={(e) => setRequestName(e.target.value)}
+                        placeholder="e.g. Sarah Jones"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">WhatsApp Number</label>
+                      <input
+                        required
+                        type="text"
+                        className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
+                        value={requestWhatsapp}
+                        onChange={(e) => setRequestWhatsapp(e.target.value)}
+                        placeholder="+64..."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">Note (Optional)</label>
+                      <textarea
+                        rows={3}
+                        className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-medium text-sm"
+                        value={requestNote}
+                        onChange={(e) => setRequestNote(e.target.value)}
+                        placeholder="Anything else you'd like the host to know"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={requestLoading}
+                      className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-lg py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      {requestLoading ? 'Sending...' : 'Send Request'}
+                    </button>
+                  </form>
+                )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 pb-40">
       {/* Header */}
@@ -492,17 +738,16 @@ export default function EventDetail({ user }: { user: User | null }) {
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Event Details</span>
           <button 
             onClick={() => {
-              const text = `${event.title} – ${formatDate(event.starts_at)}\n${spotsRemaining} spots left. Join here:\n${window.location.href}`;
-              if (navigator.share) {
-                navigator.share({ title: event.title, text, url: window.location.href });
-              } else {
-                navigator.clipboard.writeText(text);
-                alert('Invite copied to clipboard!');
+              if (eventVisibility === 'semi_public' && hasFullEventAccess) {
+                setShowShareChoiceModal(true);
+                return;
               }
+              shareInvite(privateEventUrl);
             }}
-            className="p-2 hover:bg-slate-50 rounded-xl transition-all"
+            className="px-3 py-2 hover:bg-slate-50 rounded-xl transition-all flex items-center gap-1.5"
           >
             <Share2 className="w-5 h-5 text-slate-600" />
+            <span className="text-xs font-bold text-slate-500">Share</span>
           </button>
         </div>
       </div>
@@ -515,9 +760,13 @@ export default function EventDetail({ user }: { user: User | null }) {
           </h1>
           
           <div className="mb-6 flex">
-            {event.is_public ? (
+            {eventVisibility === 'public' ? (
               <span className="inline-flex items-center gap-1.5 bg-brand-50 text-brand-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-brand-100">
                 <Users className="w-3 h-3" /> Public Event
+              </span>
+            ) : eventVisibility === 'semi_public' ? (
+              <span className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-indigo-100">
+                <Users className="w-3 h-3" /> Semi Public
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-slate-200">
@@ -542,8 +791,18 @@ export default function EventDetail({ user }: { user: User | null }) {
                 <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0">
                   <MapPin className="w-5 h-5 text-blue-600" />
                 </div>
-                <div>
+                <div className="flex-1">
                   <p className="font-bold text-slate-900 text-base">{event.location_text}</p>
+                  {event.google_maps_url && (
+                    <button
+                      type="button"
+                      onClick={openDirections}
+                      className="mt-2 inline-flex items-center gap-2 text-xs font-black text-brand-600 hover:text-brand-500 transition-all"
+                    >
+                      <MapPin className="w-3.5 h-3.5" />
+                      Directions
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -913,6 +1172,57 @@ export default function EventDetail({ user }: { user: User | null }) {
                   className="w-full bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold py-4 rounded-2xl transition-all active:scale-95 text-sm"
                 >
                   Actually, I'm still in
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Share Choice Modal */}
+      <AnimatePresence>
+        {showShareChoiceModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowShareChoiceModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-xl font-black text-slate-900 tracking-tight">Share Link</h2>
+                <button onClick={() => setShowShareChoiceModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+                  <X className="w-6 h-6 text-slate-400" />
+                </button>
+              </div>
+              <p className="text-sm text-slate-500 font-medium mb-5">
+                Choose whether to share the public preview or private access link.
+              </p>
+              <div className="space-y-3">
+                <button
+                  onClick={() => {
+                    setShowShareChoiceModal(false);
+                    shareInvite(publicEventUrl);
+                  }}
+                  className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
+                >
+                  Share Public Link
+                </button>
+                <button
+                  onClick={() => {
+                    setShowShareChoiceModal(false);
+                    shareInvite(privateEventUrl);
+                  }}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95"
+                >
+                  Share Private Link
                 </button>
               </div>
             </motion.div>

@@ -5,7 +5,7 @@ import { User } from '@supabase/supabase-js';
 import { Users, Share2, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Clock, Edit2, Plus, X, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, generateSlug } from '../utils';
-import { Event, Attendee } from '../types';
+import { Event, Attendee, EventAccessRequest } from '../types';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 
 export default function HostDashboard({ user }: { user: User | null }) {
@@ -18,6 +18,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [newAttendee, setNewAttendee] = useState({ name: '', email: '' });
   const [actionLoading, setActionLoading] = useState(false);
   const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
+  const [accessRequests, setAccessRequests] = useState<EventAccessRequest[]>([]);
+  const [requestActionLoadingId, setRequestActionLoadingId] = useState<string | null>(null);
+  const [showDeclinedRequests, setShowDeclinedRequests] = useState(false);
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
     show: boolean;
@@ -33,6 +36,42 @@ export default function HostDashboard({ user }: { user: User | null }) {
     const localPart = (email || '').split('@')[0] || '';
     const fallback = localPart.replace(/[._-]+/g, ' ').trim();
     return fallback || 'Guest';
+  };
+
+  const normalizeWhatsapp = (value: string) => value.replace(/[^\d]/g, '');
+
+  const getPublicPreviewUrl = () => {
+    if (!event) return '';
+    return `${window.location.origin}/events/${event.slug}`;
+  };
+
+  const generateAccessCode = () => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  };
+
+  const ensurePrivateAccessUrl = async () => {
+    if (!event) return '';
+    const base = getPublicPreviewUrl();
+    const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+
+    if (visibility !== 'semi_public') return base;
+
+    if (event.access_code && event.access_code.trim()) {
+      return `${base}?access=${event.access_code}`;
+    }
+
+    const nextAccessCode = generateAccessCode();
+    const { error } = await supabase
+      .from('events')
+      .update({ access_code: nextAccessCode })
+      .eq('id', event.id);
+
+    if (error) throw error;
+    setEvent((prev) => (prev ? { ...prev, access_code: nextAccessCode } : prev));
+    return `${base}?access=${nextAccessCode}`;
   };
 
   const getAddedByLabel = (attendee: Attendee) => {
@@ -89,6 +128,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
       }, () => {
         fetchAttendees(id!);
       })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'event_access_requests',
+        filter: `event_id=eq.${id}`
+      }, () => {
+        fetchAccessRequests(id!);
+      })
       .subscribe();
 
     return () => {
@@ -109,6 +156,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
     } else {
       setEvent(data);
       fetchAttendees(data.id);
+      fetchAccessRequests(data.id);
     }
   };
 
@@ -125,6 +173,16 @@ export default function HostDashboard({ user }: { user: User | null }) {
       await hydrateAdderNames(data as Attendee[]);
     }
     setLoading(false);
+  };
+
+  const fetchAccessRequests = async (eventId: string) => {
+    const { data } = await supabase
+      .from('event_access_requests')
+      .select('*')
+      .eq('event_id', eventId)
+      .order('created_at', { ascending: false });
+
+    if (data) setAccessRequests(data as EventAccessRequest[]);
   };
 
   const removeAttendee = async (attendeeId: string) => {
@@ -262,12 +320,17 @@ export default function HostDashboard({ user }: { user: User | null }) {
         .insert([{
           title: event.title,
           description: event.description,
+          public_summary: event.public_summary,
           location_text: event.location_text,
+          public_location_text: event.public_location_text,
+          google_maps_url: event.google_maps_url,
           starts_at: newStartsAt.toISOString(),
           ends_at: newEndsAt,
           capacity: event.capacity,
           host_name: event.host_name,
           host_contact_text: event.host_contact_text,
+          show_host_publicly: event.show_host_publicly,
+          visibility: event.visibility || (event.is_public ? 'public' : 'private'),
           allow_waitlist: event.allow_waitlist,
           is_public: event.is_public,
           host_user_id: user?.id,
@@ -287,18 +350,77 @@ export default function HostDashboard({ user }: { user: User | null }) {
     }
   };
 
-  const copyLink = () => {
-    const url = `${window.location.origin}/events/${event?.slug}`;
-    navigator.clipboard.writeText(url);
-    alert('Link copied!');
+  const copyLink = async () => {
+    try {
+      const url = await ensurePrivateAccessUrl();
+      if (!url) return;
+      navigator.clipboard.writeText(url);
+      alert('Private link copied!');
+    } catch (error: any) {
+      alert(error.message || 'Could not prepare private link');
+    }
   };
 
-  const shareWhatsApp = () => {
-    const url = `${window.location.origin}/events/${event?.slug}`;
-    const confirmedCount = attendees.filter(a => a.status === 'confirmed').length;
-    const spotsLeft = Math.max(0, event!.capacity - confirmedCount);
-    const text = `${event?.title} – ${formatDate(event!.starts_at)}\n${spotsLeft} spots left. Check availability and join here:\n${url}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  const copyPublicPreviewLink = () => {
+    const url = getPublicPreviewUrl();
+    navigator.clipboard.writeText(url);
+    alert('Public preview link copied!');
+  };
+
+  const shareWhatsApp = async () => {
+    try {
+      const url = await ensurePrivateAccessUrl();
+      if (!url || !event) return;
+      const confirmedCount = attendees.filter(a => a.status === 'confirmed').length;
+      const spotsLeft = Math.max(0, event.capacity - confirmedCount);
+      const text = `${event.title}\n${formatDate(event.starts_at)}\n${spotsLeft} spots left.\n\nPrivate event link:\n${url}`;
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    } catch (error: any) {
+      alert(error.message || 'Could not prepare WhatsApp share');
+    }
+  };
+
+  const openRequestWhatsapp = async (
+    request: EventAccessRequest,
+    mode: 'approve' | 'decline' | 'more_info',
+  ) => {
+    if (!event) return;
+    const number = normalizeWhatsapp(request.requester_whatsapp || '');
+    if (!number) {
+      alert('No valid WhatsApp number on this request.');
+      return;
+    }
+
+    const eventLink = await ensurePrivateAccessUrl();
+    let status: EventAccessRequest['status'] | null = null;
+    let text = '';
+    if (mode === 'approve') {
+      status = 'approved';
+      text = `Hi ${request.requester_name}, thanks for requesting access to ${event.title}. Here is the private event link:\n${eventLink}`;
+    } else if (mode === 'decline') {
+      status = 'declined';
+      text = `Hi ${request.requester_name}, thanks for your request for ${event.title}. Sorry, we can't share this event right now.`;
+    } else {
+      text = `Hi ${request.requester_name}, thanks for requesting access to ${event.title}. Can you please tell me a little more before I share the link?`;
+    }
+
+    try {
+      setRequestActionLoadingId(request.id);
+      if (status) {
+        const { error } = await supabase
+          .from('event_access_requests')
+          .update({ status })
+          .eq('id', request.id);
+        if (error) throw error;
+      }
+
+      window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`, '_blank');
+      fetchAccessRequests(event.id);
+    } catch (error: any) {
+      alert(error.message || 'Could not update request');
+    } finally {
+      setRequestActionLoadingId(null);
+    }
   };
 
   if (loading || !event) {
@@ -311,6 +433,10 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
   const confirmed = attendees.filter(a => a.status === 'confirmed');
   const waitlist = attendees.filter(a => a.status === 'waitlist');
+  const pendingRequests = accessRequests.filter((r) => r.status === 'pending');
+  const activeRequests = accessRequests.filter((r) => r.status !== 'declined');
+  const declinedRequests = accessRequests.filter((r) => r.status === 'declined');
+  const visibleRequests = showDeclinedRequests ? declinedRequests : activeRequests;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
@@ -364,17 +490,104 @@ export default function HostDashboard({ user }: { user: User | null }) {
           <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
             <Share2 className="w-4 h-4" /> Share Event
           </h2>
-          <div className="grid grid-cols-2 gap-3">
-            <button onClick={copyLink} className="bg-slate-50 hover:bg-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95 group">
-              <Copy className="w-5 h-5 text-slate-400 group-hover:text-brand-600" />
-              <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Link</span>
-            </button>
-            <button onClick={shareWhatsApp} className="bg-brand-600 hover:bg-brand-700 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95 shadow-md shadow-brand-600/10">
-              <MessageCircle className="w-5 h-5 text-white" />
-              <span className="text-[9px] font-bold text-white uppercase tracking-wider">WhatsApp</span>
-            </button>
-          </div>
+          {(event.visibility || (event.is_public ? 'public' : 'private')) === 'semi_public' ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={copyPublicPreviewLink} className="bg-slate-50 hover:bg-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95 group">
+                  <Copy className="w-5 h-5 text-slate-400 group-hover:text-brand-600" />
+                  <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Public Link</span>
+                </button>
+                <button onClick={() => { void copyLink(); }} className="bg-brand-50 hover:bg-brand-100 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95 group">
+                  <Copy className="w-5 h-5 text-brand-600" />
+                  <span className="text-[9px] font-bold text-brand-700 uppercase tracking-wider">Private Link</span>
+                </button>
+              </div>
+              <button onClick={() => { void shareWhatsApp(); }} className="w-full bg-brand-600 hover:bg-brand-700 p-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md shadow-brand-600/10">
+                <MessageCircle className="w-5 h-5 text-white" />
+                <span className="text-[10px] font-bold text-white uppercase tracking-wider">Share Private Link on WhatsApp</span>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => { void copyLink(); }} className="bg-slate-50 hover:bg-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95 group">
+                <Copy className="w-5 h-5 text-slate-400 group-hover:text-brand-600" />
+                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Link</span>
+              </button>
+              <button onClick={() => { void shareWhatsApp(); }} className="bg-brand-600 hover:bg-brand-700 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95 shadow-md shadow-brand-600/10">
+                <MessageCircle className="w-5 h-5 text-white" />
+                <span className="text-[9px] font-bold text-white uppercase tracking-wider">WhatsApp</span>
+              </button>
+            </div>
+          )}
         </section>
+
+        {(event.visibility || (event.is_public ? 'public' : 'private')) === 'semi_public' && (
+          <section className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Access Requests</h2>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                {pendingRequests.length} pending
+              </span>
+            </div>
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setShowDeclinedRequests((prev) => !prev)}
+                className="text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-all"
+              >
+                {showDeclinedRequests ? 'View Active' : `View Declined (${declinedRequests.length})`}
+              </button>
+            </div>
+
+            {visibleRequests.length === 0 ? (
+              <p className="text-sm text-slate-400 italic">
+                {showDeclinedRequests ? 'No declined requests.' : 'No active requests yet.'}
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {visibleRequests.slice(0, 8).map((request) => (
+                  <div key={request.id} className="rounded-2xl border border-slate-100 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-bold text-slate-800 text-sm">{request.requester_name}</p>
+                        <p className="text-xs text-slate-500 font-medium">{request.requester_whatsapp}</p>
+                        {request.requester_note && (
+                          <p className="text-xs text-slate-500 mt-2">{request.requester_note}</p>
+                        )}
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-widest bg-slate-50 text-slate-500 px-2 py-1 rounded-lg">
+                        {request.status}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
+                      <button
+                        onClick={() => openRequestWhatsapp(request, 'approve')}
+                        disabled={requestActionLoadingId === request.id || request.status === 'declined'}
+                        className="px-3 py-2 rounded-xl bg-brand-600 text-white text-xs font-black hover:bg-brand-500 transition-all disabled:opacity-50"
+                      >
+                        Share Private Link
+                      </button>
+                      <button
+                        onClick={() => openRequestWhatsapp(request, 'more_info')}
+                        disabled={requestActionLoadingId === request.id || request.status === 'declined'}
+                        className="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-black hover:bg-slate-200 transition-all disabled:opacity-50"
+                      >
+                        Request Info
+                      </button>
+                      <button
+                        onClick={() => openRequestWhatsapp(request, 'decline')}
+                        disabled={requestActionLoadingId === request.id || request.status === 'declined'}
+                        className="px-3 py-2 rounded-xl bg-red-50 text-red-500 text-xs font-black hover:bg-red-100 transition-all disabled:opacity-50"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Attendee List */}
         <section className="space-y-3">
