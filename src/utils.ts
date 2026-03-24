@@ -168,3 +168,47 @@ export function generateSlug(title: string) {
     .replace(/[^\w ]+/g, '')
     .replace(/ +/g, '-');
 }
+
+function toGoogleCalendarUtcStamp(value: string | Date) {
+  const iso = new Date(value).toISOString();
+  return iso.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+}
+
+interface GoogleCalendarUrlInput {
+  title: string;
+  startsAtIso: string;
+  endsAtIso?: string | null;
+  durationMinutes?: number | null;
+  timezone?: string;
+  location?: string | null;
+  details?: string | null;
+}
+
+export function buildGoogleCalendarEventUrl(input: GoogleCalendarUrlInput) {
+  const {
+    title,
+    startsAtIso,
+    endsAtIso,
+    durationMinutes = 60,
+    timezone = DEFAULT_EVENT_TIMEZONE,
+    location,
+    details,
+  } = input;
+
+  const start = new Date(startsAtIso);
+  const end = endsAtIso
+    ? new Date(endsAtIso)
+    : new Date(start.getTime() + Math.max(15, durationMinutes || 60) * 60 * 1000);
+
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: title,
+    dates: `${toGoogleCalendarUtcStamp(start)}/${toGoogleCalendarUtcStamp(end)}`,
+    ctz: timezone,
+  });
+
+  if (location?.trim()) params.set('location', location.trim());
+  if (details?.trim()) params.set('details', details.trim());
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
