@@ -425,8 +425,23 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
   if (loading || !event) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600"></div>
+      <div className="min-h-screen bg-slate-50 pb-24">
+        <div className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-20">
+          <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div className="w-9 h-9 bg-slate-100 rounded-xl animate-pulse" />
+            <div className="w-32 h-4 bg-slate-100 rounded-full animate-pulse" />
+            <div className="w-9 h-9 bg-slate-100 rounded-xl animate-pulse" />
+          </div>
+        </div>
+        <main className="max-w-2xl mx-auto px-4 pt-6 space-y-6">
+          <div className="grid grid-cols-3 gap-3">
+            {[1,2,3].map(i => <div key={i} className="h-16 bg-slate-100 rounded-2xl animate-pulse" />)}
+          </div>
+          <div className="h-32 bg-slate-100 rounded-2xl animate-pulse" />
+          <div className="space-y-3">
+            {[1,2,3].map(i => <div key={i} className="h-16 bg-slate-100 rounded-2xl animate-pulse" />)}
+          </div>
+        </main>
       </div>
     );
   }
@@ -442,158 +457,139 @@ export default function HostDashboard({ user }: { user: User | null }) {
     <div className="min-h-screen bg-slate-50 pb-24">
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-20">
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
-          <button onClick={() => goBackOr(navigate, '/')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+          <button onClick={() => goBackOr(navigate, '/')} className="p-2 hover:bg-slate-100 rounded-xl transition-all active:scale-95">
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
           <div className="flex flex-col items-center">
             <h1 className="text-base font-bold text-slate-900 tracking-tight">Manage Activity</h1>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate max-w-[150px]">{event.title}</span>
+            <span className="text-[10px] font-medium text-slate-400 truncate max-w-[160px]">{event.title}</span>
           </div>
-          <div className="flex items-center gap-1">
-            <button 
-              onClick={copyEvent}
-              disabled={actionLoading}
-              className="p-2 text-slate-400 hover:text-brand-600 hover:bg-slate-50 rounded-xl transition-all"
-              title="Duplicate for Next Week"
-            >
-              <Copy className="w-5 h-5" />
-            </button>
-            <button 
-              onClick={() => navigate(`/host/events/${event.id}/edit`)}
-              className="p-2 text-slate-400 hover:text-brand-600 hover:bg-slate-50 rounded-xl transition-all"
-              title="Edit Activity"
-            >
-              <Edit2 className="w-5 h-5" />
-            </button>
-            <button onClick={() => navigate(`/events/${event.slug}`)} className="text-brand-600 font-bold text-sm px-3 py-2 hover:bg-brand-50 rounded-lg transition-all">
-              View
-            </button>
-          </div>
+          <button 
+            onClick={() => navigate(`/host/events/${event.id}/edit`)}
+            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all active:scale-95"
+            title="Edit Activity"
+          >
+            <Edit2 className="w-5 h-5" />
+          </button>
         </div>
       </header>
 
       <main className="max-w-2xl mx-auto px-4 pt-6 space-y-6">
-        {/* Date/Time */}
-        <section className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 bg-brand-50 rounded-xl flex items-center justify-center shrink-0">
-              <Calendar className="w-5 h-5 text-brand-600" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">When</p>
-              <p className="text-base font-black text-slate-900">{formatDate(event.starts_at, event.timezone)}</p>
-              <p className="text-xs text-slate-500 font-medium">
-                {event.timezone || 'Asia/Ho_Chi_Minh'} · Duration {formatDurationMinutes(event.duration_minutes)}
-              </p>
-            </div>
+        {/* At-a-glance row: When · Going · Waitlist */}
+        <section className="grid grid-cols-3 gap-3">
+          <div className="col-span-1 bg-white p-3 rounded-2xl flex flex-col justify-between">
+            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-1">When</p>
+            <p className="text-xs font-bold text-slate-900 leading-snug">{formatDate(event.starts_at, event.timezone)}</p>
+            <p className="text-[10px] text-slate-400 mt-1">{formatDurationMinutes(event.duration_minutes)}</p>
           </div>
-        </section>
-
-        {/* Quick Stats */}
-        <section className="grid grid-cols-2 gap-4">
-          <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Going</p>
-            <p className="text-2xl font-bold text-slate-900 tracking-tight">{confirmed.length} <span className="text-slate-200 text-xl font-medium">/</span> {event.capacity}</p>
+          <div className="bg-white p-3 rounded-2xl">
+            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-1">Going</p>
+            <p className="text-lg font-bold text-slate-900 tracking-tight">{confirmed.length} <span className="text-slate-300 text-base font-light">/</span> {event.capacity}</p>
           </div>
-          <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Waitlist</p>
-            <p className="text-2xl font-bold text-slate-900 tracking-tight">{waitlist.length}</p>
+          <div className="bg-white p-3 rounded-2xl">
+            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-1">Waitlist</p>
+            <p className="text-lg font-bold text-slate-900 tracking-tight">{waitlist.length}</p>
           </div>
         </section>
 
         {/* Share Tools */}
-        <section className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
-          <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-            <Share2 className="w-4 h-4" /> Share Activity
-          </h2>
+        <section className="bg-white rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Share Activity</p>
+            <button
+              type="button"
+              onClick={() => navigate(`/events/${event.slug}`)}
+              className="text-xs font-bold text-slate-400 hover:text-brand-600 transition-all active:scale-95"
+            >
+              View Activity
+            </button>
+          </div>
           {(event.visibility || (event.is_public ? 'public' : 'private')) === 'semi_public' ? (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
-                <button onClick={copyPublicPreviewLink} className="bg-slate-50 hover:bg-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95 group">
-                  <Copy className="w-5 h-5 text-slate-400 group-hover:text-brand-600" />
-                  <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Public Link</span>
+                <button onClick={copyPublicPreviewLink} className="bg-slate-50 hover:bg-slate-100 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
+                  <Copy className="w-4 h-4 text-slate-400" />
+                  <span className="text-xs font-bold text-slate-600">Public Link</span>
                 </button>
-                <button onClick={() => { void copyLink(); }} className="bg-brand-50 hover:bg-brand-100 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95 group">
-                  <Copy className="w-5 h-5 text-brand-600" />
-                  <span className="text-[9px] font-bold text-brand-700 uppercase tracking-wider">Private Link</span>
+                <button onClick={() => { void copyLink(); }} className="bg-slate-50 hover:bg-slate-100 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
+                  <Copy className="w-4 h-4 text-slate-500" />
+                  <span className="text-xs font-bold text-slate-600">Private Link</span>
                 </button>
               </div>
-              <button onClick={() => { void shareWhatsApp(); }} className="w-full bg-brand-600 hover:bg-brand-700 p-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md shadow-brand-600/10">
+              <button onClick={() => { void shareWhatsApp(); }} className="w-full bg-brand-600 hover:bg-brand-700 p-4 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
                 <MessageCircle className="w-5 h-5 text-white" />
-                <span className="text-[10px] font-bold text-white uppercase tracking-wider">Share Private Link on WhatsApp</span>
+                <span className="text-sm font-bold text-white">Share Private Link via WhatsApp</span>
               </button>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              <button onClick={() => { void copyLink(); }} className="bg-slate-50 hover:bg-slate-100 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95 group">
-                <Copy className="w-5 h-5 text-slate-400 group-hover:text-brand-600" />
-                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Link</span>
+              <button onClick={() => { void copyLink(); }} className="bg-slate-50 hover:bg-slate-100 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
+                <Copy className="w-4 h-4 text-slate-400" />
+                <span className="text-xs font-bold text-slate-600">Copy Link</span>
               </button>
-              <button onClick={() => { void shareWhatsApp(); }} className="bg-brand-600 hover:bg-brand-700 p-4 rounded-2xl flex flex-col items-center gap-2 transition-all active:scale-95 shadow-md shadow-brand-600/10">
-                <MessageCircle className="w-5 h-5 text-white" />
-                <span className="text-[9px] font-bold text-white uppercase tracking-wider">WhatsApp</span>
+              <button onClick={() => { void shareWhatsApp(); }} className="bg-brand-600 hover:bg-brand-700 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
+                <MessageCircle className="w-4 h-4 text-white" />
+                <span className="text-xs font-bold text-white">WhatsApp</span>
               </button>
             </div>
           )}
         </section>
 
         {(event.visibility || (event.is_public ? 'public' : 'private')) === 'semi_public' && (
-          <section className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4">
+          <section className="bg-white rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Access Requests</h2>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                {pendingRequests.length} pending
-              </span>
-            </div>
-            <div className="flex items-center justify-end">
-              <button
-                type="button"
-                onClick={() => setShowDeclinedRequests((prev) => !prev)}
-                className="text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-all"
-              >
-                {showDeclinedRequests ? 'View Active' : `View Declined (${declinedRequests.length})`}
-              </button>
+              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Access Requests</p>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-400">{pendingRequests.length} pending</span>
+                <button
+                  type="button"
+                  onClick={() => setShowDeclinedRequests((prev) => !prev)}
+                  className="text-xs text-slate-400 hover:text-slate-600 underline transition-all"
+                >
+                  {showDeclinedRequests ? 'Active' : `Declined (${declinedRequests.length})`}
+                </button>
+              </div>
             </div>
 
             {visibleRequests.length === 0 ? (
-              <p className="text-sm text-slate-400 italic">
-                {showDeclinedRequests ? 'No declined requests.' : 'No active requests yet.'}
+              <p className="text-sm text-slate-400">
+                {showDeclinedRequests ? 'No declined requests.' : 'No access requests yet.'}
               </p>
             ) : (
-              <div className="space-y-3">
+              <div className="divide-y divide-slate-50">
                 {visibleRequests.slice(0, 8).map((request) => (
-                  <div key={request.id} className="rounded-2xl border border-slate-100 p-4">
-                    <div className="flex items-start justify-between gap-3">
+                  <div key={request.id} className="py-4 first:pt-0">
+                    <div className="flex items-start justify-between gap-3 mb-3">
                       <div>
                         <p className="font-bold text-slate-800 text-sm">{request.requester_name}</p>
-                        <p className="text-xs text-slate-500 font-medium">{request.requester_whatsapp}</p>
+                        <p className="text-xs text-slate-400">{request.requester_whatsapp}</p>
                         {request.requester_note && (
-                          <p className="text-xs text-slate-500 mt-2">{request.requester_note}</p>
+                          <p className="text-xs text-slate-500 mt-1">{request.requester_note}</p>
                         )}
                       </div>
-                      <span className="text-[9px] font-black uppercase tracking-widest bg-slate-50 text-slate-500 px-2 py-1 rounded-lg">
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-slate-400">
                         {request.status}
                       </span>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
+                    <div className="flex gap-2">
                       <button
                         onClick={() => openRequestWhatsapp(request, 'approve')}
                         disabled={requestActionLoadingId === request.id || request.status === 'declined'}
-                        className="px-3 py-2 rounded-xl bg-brand-600 text-white text-xs font-black hover:bg-brand-500 transition-all disabled:opacity-50"
+                        className="flex-1 px-3 py-2 rounded-xl bg-brand-600 text-white text-xs font-bold hover:bg-brand-500 transition-all active:scale-95 disabled:opacity-50"
                       >
-                        Share Private Link
+                        Share Link
                       </button>
                       <button
                         onClick={() => openRequestWhatsapp(request, 'more_info')}
                         disabled={requestActionLoadingId === request.id || request.status === 'declined'}
-                        className="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-black hover:bg-slate-200 transition-all disabled:opacity-50"
+                        className="flex-1 px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold hover:bg-slate-200 transition-all active:scale-95 disabled:opacity-50"
                       >
-                        Request Info
+                        More Info
                       </button>
                       <button
                         onClick={() => openRequestWhatsapp(request, 'decline')}
                         disabled={requestActionLoadingId === request.id || request.status === 'declined'}
-                        className="px-3 py-2 rounded-xl bg-red-50 text-red-500 text-xs font-black hover:bg-red-100 transition-all disabled:opacity-50"
+                        className="px-3 py-2 rounded-xl text-red-400 text-xs font-bold hover:bg-red-50 transition-all active:scale-95 disabled:opacity-50"
                       >
                         Decline
                       </button>
@@ -606,102 +602,99 @@ export default function HostDashboard({ user }: { user: User | null }) {
         )}
 
         {/* Attendee List */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between px-1">
-            <h2 className="text-lg font-bold text-slate-900 tracking-tight">Going</h2>
+        <section className="bg-white rounded-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-5 pt-4 pb-3">
+            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Going</p>
             <button 
               onClick={() => setShowAddModal(true)}
-              className="text-brand-600 font-bold text-xs flex items-center gap-1.5 hover:bg-brand-50 px-3 py-1.5 rounded-lg transition-all"
+              className="text-brand-600 font-bold text-xs flex items-center gap-1 hover:text-brand-500 transition-all active:scale-95"
             >
-              <Plus className="w-4 h-4" /> Add Person
+              <Plus className="w-3.5 h-3.5" /> Add Person
             </button>
           </div>
-          <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-            {confirmed.length === 0 ? (
-              <p className="p-10 text-center text-slate-400 text-sm italic">No one has said they're in yet.</p>
-            ) : (
-              <div className="divide-y divide-slate-50">
-                {confirmed.map((a) => (
-                  <div key={a.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-all group">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-brand-50 rounded-xl flex items-center justify-center">
-                        <CheckCircle2 className="w-5 h-5 text-brand-600" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
-                          {getAddedByLabel(a) && (
-                            <span className="text-[11px] text-slate-400 font-medium">{getAddedByLabel(a)}</span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-slate-400 font-medium">{a.guest_email}</p>
-                      </div>
+          {confirmed.length === 0 ? (
+            <div className="px-5 pb-6 pt-2">
+              <p className="text-sm text-slate-400 mb-3">No one's joined yet.</p>
+              <button
+                onClick={() => { void shareWhatsApp(); }}
+                className="text-sm font-bold text-brand-600 hover:text-brand-500 transition-all"
+              >
+                Share on WhatsApp to get people signing up →
+              </button>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {confirmed.map((a) => (
+                <div key={a.id} className="px-5 py-3 flex items-center justify-between hover:bg-slate-50 transition-all group">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
+                      {getAddedByLabel(a) && (
+                        <span className="text-[11px] text-slate-400">{getAddedByLabel(a)}</span>
+                      )}
                     </div>
-                    <button 
-                      onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getDisplayName(a.guest_name, a.guest_email) })} 
-                      className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{a.guest_email}</p>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  <button 
+                    onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getDisplayName(a.guest_name, a.guest_email) })} 
+                    className="p-2 text-slate-300 hover:text-red-400 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100 active:scale-95"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* Waitlist */}
-        {event.allow_waitlist && (
-          <section className="space-y-3">
-            <div className="flex items-center justify-between px-1">
-              <h2 className="text-lg font-bold text-slate-900 tracking-tight">Waitlist</h2>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{waitlist.length} People</span>
+        {event.allow_waitlist && waitlist.length > 0 && (
+          <section className="bg-white rounded-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 pt-4 pb-3">
+              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Waitlist</p>
+              <span className="text-xs text-slate-400">{waitlist.length}</span>
             </div>
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-              {waitlist.length === 0 ? (
-                <p className="p-10 text-center text-slate-400 text-sm italic">Waitlist is empty.</p>
-              ) : (
-                <div className="divide-y divide-slate-50">
-                  {waitlist.map((a, i) => (
-                    <div key={a.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-all group">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
-                          <Clock className="w-5 h-5 text-amber-600" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
-                            {getAddedByLabel(a) && (
-                              <span className="text-[11px] text-slate-400 font-medium">{getAddedByLabel(a)}</span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-slate-400 font-medium">#{i + 1} on waitlist</p>
-                        </div>
-                      </div>
-                      <button 
-                        onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getDisplayName(a.guest_name, a.guest_email) })} 
-                        className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+            <div className="divide-y divide-slate-50">
+              {waitlist.map((a, i) => (
+                <div key={a.id} className="px-5 py-3 flex items-center justify-between hover:bg-slate-50 transition-all group">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
+                      {getAddedByLabel(a) && (
+                        <span className="text-[11px] text-slate-400">{getAddedByLabel(a)}</span>
+                      )}
                     </div>
-                  ))}
+                    <p className="text-[11px] text-slate-400 mt-0.5">#{i + 1} on waitlist</p>
+                  </div>
+                  <button 
+                    onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getDisplayName(a.guest_name, a.guest_email) })} 
+                    className="p-2 text-slate-300 hover:text-red-400 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100 active:scale-95"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
-              )}
+              ))}
             </div>
           </section>
         )}
 
-        {/* Danger Zone */}
-        <section className="pt-8 pb-12">
+        {/* Secondary actions */}
+        <section className="pt-2 pb-12 flex flex-col items-center gap-4">
+          <button
+            onClick={copyEvent}
+            disabled={actionLoading}
+            className="text-sm text-slate-400 hover:text-slate-600 transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+          >
+            <Copy className="w-4 h-4" /> Duplicate for next week
+          </button>
           <button 
             onClick={() => {
               setConfirmText('');
               setShowDeleteModal({ show: true, type: 'event', id: event.id });
             }}
-            className="w-full p-4 rounded-2xl border border-red-100 text-red-500 text-sm font-bold hover:bg-red-50 transition-all flex items-center justify-center gap-2 active:scale-95"
+            className="text-sm text-red-400 hover:text-red-500 transition-all"
           >
-            <Trash2 className="w-4 h-4" /> Delete Activity
+            Delete activity
           </button>
         </section>
       </main>
@@ -830,11 +823,6 @@ export default function HostDashboard({ user }: { user: User | null }) {
         )}
       </AnimatePresence>
 
-      <footer className="max-w-2xl mx-auto px-6 mt-12 pb-10 text-center">
-        <p className="text-slate-300 text-[9px] font-bold uppercase tracking-[0.2em]">
-          Powered by Lalo
-        </p>
-      </footer>
     </div>
   );
 }

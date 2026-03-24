@@ -45,8 +45,24 @@ export default function Bookings() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600"></div>
+      <div className="min-h-screen bg-slate-50">
+        <div className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
+          <div className="max-w-xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div className="w-9 h-9 bg-slate-100 rounded-xl animate-pulse" />
+            <div className="w-28 h-4 bg-slate-100 rounded-full animate-pulse" />
+            <div className="w-9 h-9 bg-slate-100 rounded-xl animate-pulse" />
+          </div>
+        </div>
+        <main className="max-w-xl mx-auto px-6 pt-8">
+          <div className="bg-white rounded-2xl overflow-hidden">
+            {[1,2,3].map(i => (
+              <div key={i} className="px-5 py-4 border-b border-slate-50 last:border-0 space-y-2 animate-pulse">
+                <div className="h-4 bg-slate-100 rounded-full w-1/2" />
+                <div className="h-3 bg-slate-100 rounded-full w-1/3" />
+              </div>
+            ))}
+          </div>
+        </main>
       </div>
     );
   }
@@ -74,65 +90,54 @@ export default function Bookings() {
           </p>
         </header>
 
-        <div className="space-y-4">
-          {bookings.length === 0 ? (
-            <div className="bg-white rounded-3xl p-12 text-center border border-slate-100">
-              <AlertCircle className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-              <p className="text-slate-500 font-bold">No activities found.</p>
-              <button 
-                onClick={() => navigate('/')}
-                className="mt-6 text-brand-600 font-black text-sm uppercase tracking-widest hover:bg-brand-50 px-6 py-3 rounded-xl transition-all"
-              >
-                What's On
-              </button>
-            </div>
-          ) : (
-            groupedBookings.map((groupedBooking: GroupedBooking) => (
+        {bookings.length === 0 ? (
+          <div className="text-center py-20">
+            <AlertCircle className="w-8 h-8 text-slate-200 mx-auto mb-4" />
+            <p className="text-slate-400 text-sm mb-6">No activities found.</p>
+            <button 
+              onClick={() => navigate('/calendar')}
+              className="text-brand-600 font-bold text-sm hover:text-brand-500 transition-all"
+            >
+              Browse what's on →
+            </button>
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl overflow-hidden">
+            {groupedBookings.map((groupedBooking: GroupedBooking, idx: number) => (
               <motion.div
                 key={groupedBooking.events.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
                 onClick={() => navigate(buildEventPath(groupedBooking.events as any, { preferPrivateAccess: true }))}
-                className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 hover:border-brand-600/20 hover:shadow-md transition-all cursor-pointer group"
+                className={`px-5 py-4 hover:bg-slate-50 transition-all cursor-pointer active:scale-[0.99] ${idx < groupedBookings.length - 1 ? 'border-b border-slate-50' : ''}`}
               >
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="space-y-1">
-                      <h3 className="text-xl font-black text-slate-900 group-hover:text-brand-600 transition-colors">
-                        {groupedBooking.events.title}
-                      </h3>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {groupedBooking.attendees.map((name: string, i: number) => (
-                          <span key={i} className="text-[10px] font-bold text-brand-600 uppercase tracking-widest bg-brand-50 px-2 py-0.5 rounded-md">
-                            {name}
-                          </span>
-                        ))}
-                      </div>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-bold text-slate-900 leading-tight">{groupedBooking.events.title}</h3>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {groupedBooking.attendees.map((name: string, i: number) => (
+                        <span key={i} className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md">
+                          {name}
+                        </span>
+                      ))}
                     </div>
-                    <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border ${
-                      groupedBooking.status === 'confirmed' 
-                        ? 'bg-brand-50 text-brand-600 border-brand-100' 
-                        : 'bg-amber-50 text-amber-600 border-amber-100'
-                    }`}>
-                      {groupedBooking.status}
-                    </span>
+                    <p className="text-xs text-slate-400 mt-1">{formatDate(groupedBooking.events.starts_at, groupedBooking.events.timezone)}</p>
+                    {groupedBooking.events.location_text && (
+                      <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                        <MapPin className="w-3 h-3" />{groupedBooking.events.location_text}
+                      </p>
+                    )}
                   </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-slate-500">
-                    <Calendar className="w-4 h-4" />
-                    <span className="text-sm font-bold">{formatDate(groupedBooking.events.starts_at, groupedBooking.events.timezone)}</span>
-                  </div>
-                  {groupedBooking.events.location_text && (
-                    <div className="flex items-center gap-2 text-slate-400">
-                      <MapPin className="w-4 h-4" />
-                      <span className="text-sm font-medium">{groupedBooking.events.location_text}</span>
-                    </div>
-                  )}
+                  <span className={`text-[9px] font-bold uppercase tracking-widest shrink-0 ${
+                    groupedBooking.status === 'confirmed' ? 'text-brand-600' : 'text-amber-500'
+                  }`}>
+                    {groupedBooking.status}
+                  </span>
                 </div>
               </motion.div>
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </main>
     </div>
   );

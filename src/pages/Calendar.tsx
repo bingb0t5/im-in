@@ -142,24 +142,31 @@ export default function Calendar({ user }: { user: User | null }) {
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-20">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div>
+          <div className="bg-white rounded-2xl overflow-hidden">
+            {[1,2,3,4].map(i => (
+              <div key={i} className="px-5 py-4 border-b border-slate-50 last:border-0 space-y-2 animate-pulse">
+                <div className="flex justify-between">
+                  <div className="h-4 bg-slate-100 rounded-full w-2/5" />
+                  <div className="h-4 bg-slate-100 rounded-full w-1/4" />
+                </div>
+                <div className="h-3 bg-slate-100 rounded-full w-1/3" />
+              </div>
+            ))}
           </div>
         ) : filteredEvents.length === 0 ? (
-          <div className="bg-white rounded-3xl p-12 text-center border border-slate-100 shadow-sm">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-slate-50 rounded-2xl mb-4">
-              <CalendarIcon className="w-8 h-8 text-slate-200" />
-            </div>
-            <h3 className="text-lg font-black text-slate-900 mb-2">No activities found</h3>
-            <p className="text-slate-500 text-sm font-medium mb-4">Try a different search or check back later.</p>
+          <div className="text-center py-20">
+            <CalendarIcon className="w-8 h-8 text-slate-200 mx-auto mb-4" />
+            <p className="text-slate-400 text-sm">
+              {normalizedSearch ? `No results for "${normalizedSearch}"` : 'Nothing on yet. Check back soon.'}
+            </p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {filteredEvents.map((event) => (
+          <div className="bg-white rounded-2xl overflow-hidden">
+            {filteredEvents.map((event, idx) => (
               <motion.div
                 key={event.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
               >
                 {(() => {
                   const visibility = event.visibility || (event.is_public ? 'public' : 'private');
@@ -167,60 +174,39 @@ export default function Calendar({ user }: { user: User | null }) {
                   const dayOnly = formatDay(event.starts_at, event.timezone);
                   const timeOnly = formatTime(event.starts_at, event.timezone);
                   const previewLocation = isSemiPublic
-                    ? event.public_location_text || 'Town/city shared by host'
-                    : event.location_text || event.public_location_text || 'No location set';
-                  const cta = isSemiPublic ? 'Request to View' : "I'm in";
+                    ? event.public_location_text || 'Location shared by host'
+                    : event.location_text || event.public_location_text || '';
                   const eventPath = privateAccessByEventId[event.id] || buildEventPath(event);
 
                   return (
-                <Link 
-                  to={eventPath}
-                  className="block bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:border-brand-100 hover:shadow-md transition-all active:scale-[0.98]"
-                >
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="space-y-1">
-                      <h3 className="text-lg font-black text-slate-900 leading-tight tracking-tight">{event.title}</h3>
-                      <div className="flex items-center gap-2 text-slate-400 text-xs font-bold">
-                        <MapPin className="w-3.5 h-3.5" />
-                        {previewLocation}
+                    <Link 
+                      to={eventPath}
+                      className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${idx < filteredEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-sm font-bold text-slate-900 leading-tight">{event.title}</h3>
+                          <div className="flex items-center gap-3 mt-1">
+                            {previewLocation && (
+                              <span className="text-xs text-slate-400 flex items-center gap-1 truncate">
+                                <MapPin className="w-3 h-3 shrink-0" />{previewLocation}
+                              </span>
+                            )}
+                            <span className="text-xs text-slate-400 flex items-center gap-1 shrink-0">
+                              <Users className="w-3 h-3" />{event.confirmed_count}/{event.capacity}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs font-bold text-slate-700">{dayOnly}</p>
+                          {!isSemiPublic ? (
+                            <p className="text-xs text-slate-400">{timeOnly}</p>
+                          ) : (
+                            <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest mt-0.5">Semi public</p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                        {dayOnly}
-                      </span>
-                      {!isSemiPublic && (
-                        <span className="text-[10px] font-black text-brand-600 uppercase tracking-widest">
-                          {timeOnly}
-                        </span>
-                      )}
-                      {isSemiPublic && (
-                        <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-2 py-1 rounded-lg">
-                          Semi Public
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center justify-between pt-4 border-t border-slate-50">
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-1.5 text-slate-600 font-bold">
-                        <Users className="w-4 h-4 text-brand-600" />
-                        <span className="text-xs">
-                          {event.confirmed_count} / {event.capacity}
-                        </span>
-                      </div>
-                      {event.confirmed_count! >= event.capacity && event.allow_waitlist && (
-                        <span className="text-[9px] font-black text-amber-600 uppercase tracking-widest bg-amber-50 px-2 py-1 rounded-lg">
-                          Waitlist
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 text-brand-600 font-black text-xs">
-                      {cta} <ChevronRight className="w-4 h-4" />
-                    </div>
-                  </div>
-                </Link>
+                    </Link>
                   );
                 })()}
               </motion.div>
@@ -229,11 +215,6 @@ export default function Calendar({ user }: { user: User | null }) {
         )}
       </main>
 
-      <footer className="max-w-2xl mx-auto px-6 mt-16 pb-10 text-center">
-        <p className="text-slate-300 text-[9px] font-bold uppercase tracking-[0.2em]">
-          Powered by Lalo
-        </p>
-      </footer>
     </div>
   );
 }

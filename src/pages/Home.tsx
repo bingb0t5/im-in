@@ -267,7 +267,7 @@ export default function Home({ user }: { user: User | null }) {
                 <button
                   onClick={() => {
                     // Scaffolded contact flow
-                    window.location.href = `mailto:hello@rcnz.net?subject=Helping build I'm In`;
+                    window.location.href = `mailto:hello@getimin.com?subject=Helping build I'm In`;
                   }}
                   className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 mt-8 transition-all active:scale-95"
                 >
@@ -345,57 +345,40 @@ export default function Home({ user }: { user: User | null }) {
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-20">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div>
+          <div className="bg-white rounded-2xl overflow-hidden">
+            {[1,2,3].map(i => (
+              <div key={i} className="px-5 py-4 border-b border-slate-50 last:border-0 space-y-2 animate-pulse">
+                <div className="h-4 bg-slate-100 rounded-full w-1/2" />
+                <div className="h-3 bg-slate-100 rounded-full w-1/3" />
+              </div>
+            ))}
           </div>
         ) : view === 'hosting' ? (
           /* Hosting View */
           hostedEvents.length === 0 ? (
-            <div className="bg-white rounded-3xl p-12 text-center border border-slate-100 shadow-sm">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-slate-50 rounded-2xl mb-4">
-                <MessageSquare className="w-8 h-8 text-slate-200" />
-              </div>
-              <h3 className="text-lg font-black text-slate-900 mb-2">Nothing scheduled</h3>
-              <p className="text-slate-500 mb-8 text-sm font-medium">Create an activity and share the link with your community.</p>
-              <Link to="/create-event" className="text-brand-600 font-black text-sm hover:text-brand-500 transition-colors inline-flex items-center gap-2">
+            <div className="text-center py-16">
+              <MessageSquare className="w-8 h-8 text-slate-200 mx-auto mb-4" />
+              <h3 className="text-base font-bold text-slate-900 mb-1">Nothing scheduled</h3>
+              <p className="text-slate-400 mb-6 text-sm">Create an activity and share the link.</p>
+              <Link to="/create-event" className="text-brand-600 font-bold text-sm hover:text-brand-500 transition-colors inline-flex items-center gap-1.5">
                 Create your first activity <ChevronRight className="w-4 h-4" />
               </Link>
             </div>
           ) : (
-            <div className="space-y-4">
-              {hostedEvents.map((event) => (
+            <div className="bg-white rounded-2xl overflow-hidden">
+              {hostedEvents.map((event, idx) => (
                 <Link 
                   key={event.id} 
                   to={`/host/events/${event.id}`}
-                  className="block bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:border-brand-100 hover:shadow-md transition-all active:scale-[0.98]"
+                  className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${idx < hostedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
                 >
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="space-y-1">
-                      <h3 className="text-lg font-black text-slate-900 leading-tight tracking-tight">{event.title}</h3>
-                      <div className="flex items-center gap-2 text-slate-400 text-xs font-bold">
-                        <MapPin className="w-3.5 h-3.5" />
-                        {event.location_text || 'No location set'}
-                      </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-sm font-bold text-slate-900 leading-tight truncate">{event.title}</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">{formatDate(event.starts_at, event.timezone)}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{event.location_text || 'No location'} · {(event as any).confirmed_count || 0} going</p>
                     </div>
-                    <span className={`text-[9px] uppercase tracking-widest font-black px-2 py-1 rounded-lg ${
-                      event.status === 'scheduled' ? 'bg-brand-50 text-brand-600' : 'bg-slate-100 text-slate-500'
-                    }`}>
-                      {event.status}
-                    </span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between pt-4 border-t border-slate-50">
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-1.5 text-slate-600 font-bold">
-                        <CalendarIcon className="w-4 h-4 text-brand-600" />
-                        <span className="text-xs">{formatDate(event.starts_at, event.timezone)}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-slate-600 font-bold">
-                        <Users className="w-4 h-4 text-brand-600" />
-                        <span className="text-xs">{(event as any).confirmed_count || 0} Going</span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-slate-300" />
+                    <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
                   </div>
                 </Link>
               ))}
@@ -404,54 +387,35 @@ export default function Home({ user }: { user: User | null }) {
         ) : (
           /* Attending View */
           joinedEvents.length === 0 ? (
-            <div className="bg-white rounded-3xl p-12 text-center border border-slate-100 shadow-sm">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-slate-50 rounded-2xl mb-4">
-                <CalendarIcon className="w-8 h-8 text-slate-200" />
-              </div>
-              <h3 className="text-lg font-black text-slate-900 mb-2">No activities yet</h3>
-              <p className="text-slate-500 mb-8 text-sm font-medium">Browse the calendar to find something to join.</p>
-              <Link to="/calendar" className="text-brand-600 font-black text-sm hover:text-brand-500 transition-colors inline-flex items-center gap-2">
+            <div className="text-center py-16">
+              <CalendarIcon className="w-8 h-8 text-slate-200 mx-auto mb-4" />
+              <h3 className="text-base font-bold text-slate-900 mb-1">No activities yet</h3>
+              <p className="text-slate-400 mb-6 text-sm">Browse to find something to join.</p>
+              <Link to="/calendar" className="text-brand-600 font-bold text-sm hover:text-brand-500 transition-colors inline-flex items-center gap-1.5">
                 What's On <ChevronRight className="w-4 h-4" />
               </Link>
             </div>
           ) : (
-            <div className="space-y-4">
-              {groupedJoinedEvents.map((groupedBooking: any) => (
+            <div className="bg-white rounded-2xl overflow-hidden">
+              {groupedJoinedEvents.map((groupedBooking: any, idx: number) => (
                 <Link 
                   key={groupedBooking.events.id} 
                   to={buildEventPath(groupedBooking.events, { preferPrivateAccess: true })}
-                  className="block bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:border-brand-100 hover:shadow-md transition-all active:scale-[0.98]"
+                  className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${idx < groupedJoinedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
                 >
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="space-y-1">
-                      <h3 className="text-lg font-black text-slate-900 leading-tight tracking-tight">{groupedBooking.events.title}</h3>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-sm font-bold text-slate-900 leading-tight truncate">{groupedBooking.events.title}</h3>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {groupedBooking.attendees.map((name: string, i: number) => (
-                          <span key={i} className="text-[10px] font-bold text-brand-600 uppercase tracking-widest bg-brand-50 px-2 py-0.5 rounded-md">
+                          <span key={i} className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md">
                             {name}
                           </span>
                         ))}
                       </div>
-                      <div className="flex items-center gap-2 text-slate-400 text-xs font-bold mt-2">
-                        <MapPin className="w-3.5 h-3.5" />
-                        {groupedBooking.events.location_text || 'No location set'}
-                      </div>
+                      <p className="text-xs text-slate-400 mt-1">{formatDate(groupedBooking.events.starts_at, groupedBooking.events.timezone)}</p>
                     </div>
-                    <span className={`text-[9px] uppercase tracking-widest font-black px-2 py-1 rounded-lg ${
-                      groupedBooking.status === 'confirmed' ? 'bg-brand-50 text-brand-600' : 'bg-amber-50 text-amber-600'
-                    }`}>
-                      {groupedBooking.status}
-                    </span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between pt-4 border-t border-slate-50">
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-1.5 text-slate-600 font-bold">
-                        <CalendarIcon className="w-4 h-4 text-brand-600" />
-                        <span className="text-xs">{formatDate(groupedBooking.events.starts_at, groupedBooking.events.timezone)}</span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-slate-300" />
+                    <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
                   </div>
                 </Link>
               ))}
@@ -460,11 +424,6 @@ export default function Home({ user }: { user: User | null }) {
         )}
       </main>
 
-      <footer className="max-w-2xl mx-auto px-6 mt-16 pb-10 text-center">
-        <p className="text-slate-300 text-[9px] font-bold uppercase tracking-[0.2em]">
-          Powered by Lalo
-        </p>
-      </footer>
     </div>
   );
 }
