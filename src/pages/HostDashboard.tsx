@@ -307,11 +307,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
       newStartsAt.setDate(newStartsAt.getDate() + 7);
       
       let newEndsAt = null;
-      if (event.ends_at) {
-        const d = new Date(event.ends_at);
-        d.setDate(d.getDate() + 7);
-        newEndsAt = d.toISOString();
-      }
+      const durationMinutes = event.duration_minutes || 60;
+      newEndsAt = new Date(newStartsAt.getTime() + durationMinutes * 60 * 1000).toISOString();
 
       const newSlug = `${generateSlug(event.title)}-${Math.random().toString(36).substring(2, 7)}`;
 
@@ -326,6 +323,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
           google_maps_url: event.google_maps_url,
           starts_at: newStartsAt.toISOString(),
           ends_at: newEndsAt,
+          timezone: event.timezone || 'Asia/Ho_Chi_Minh',
+          duration_minutes: durationMinutes,
           capacity: event.capacity,
           host_name: event.host_name,
           host_contact_text: event.host_contact_text,
@@ -373,7 +372,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       if (!url || !event) return;
       const confirmedCount = attendees.filter(a => a.status === 'confirmed').length;
       const spotsLeft = Math.max(0, event.capacity - confirmedCount);
-      const text = `${event.title}\n${formatDate(event.starts_at)}\n${spotsLeft} spots left.\n\nPrivate event link:\n${url}`;
+      const text = `${event.title}\n${formatDate(event.starts_at, event.timezone)}\n${spotsLeft} spots left.\n\nPrivate event link:\n${url}`;
       window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
     } catch (error: any) {
       alert(error.message || 'Could not prepare WhatsApp share');

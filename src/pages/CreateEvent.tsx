@@ -4,7 +4,15 @@ import { User } from '@supabase/supabase-js';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Calendar, MapPin, Users, ArrowLeft, Save, AlertCircle, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { generateSlug } from '../utils';
+import {
+  buildDurationOptions,
+  DEFAULT_EVENT_TIMEZONE,
+  deriveDurationMinutes,
+  EVENT_TIMEZONE_OPTIONS,
+  generateSlug,
+  toUtcIsoFromStartAndDuration,
+  utcIsoToEventLocalInput,
+} from '../utils';
 import { pickWaitlistAttendeesForPromotion } from '../lib/rsvp';
 import { buildAuthRedirectUrl } from '../lib/authRedirect';
 
@@ -20,7 +28,8 @@ type CreateEventDraft = {
     location_text: string;
     google_maps_url: string;
     starts_at: string;
-    ends_at: string;
+    timezone: string;
+    duration_minutes: number;
     capacity: number;
     host_name: string;
     host_contact_text: string;
@@ -49,7 +58,8 @@ export default function CreateEvent({ user }: { user: User | null }) {
     location_text: '',
     google_maps_url: '',
     starts_at: '',
-    ends_at: '',
+    timezone: DEFAULT_EVENT_TIMEZONE,
+    duration_minutes: 60,
     capacity: 10,
     host_name: '',
     host_contact_text: '',
@@ -93,7 +103,12 @@ export default function CreateEvent({ user }: { user: User | null }) {
     try {
       const draft = JSON.parse(draftRaw) as CreateEventDraft;
       if (draft?.formData) {
-        setFormData(draft.formData);
+        setFormData((prev) => ({
+          ...prev,
+          ...draft.formData,
+          timezone: draft.formData.timezone || prev.timezone,
+          duration_minutes: draft.formData.duration_minutes || prev.duration_minutes,
+        }));
       }
       setAuthEmail(draft.authEmail || '');
       setNeedsProfileDetails(!!draft.needsProfileDetails);
@@ -202,12 +217,8 @@ export default function CreateEvent({ user }: { user: User | null }) {
       console.error(error);
       navigate('/');
     } else {
-      // Format dates for datetime-local input
-      const formatForInput = (dateStr: string | null) => {
-        if (!dateStr) return '';
-        const d = new Date(dateStr);
-        return d.toISOString().slice(0, 16);
-      };
+      const timezone = data.timezone || DEFAULT_EVENT_TIMEZONE;
+      const durationMinutes = data.duration_minutes || deriveDurationMinutes(data.starts_at, data.ends_at);
 
       setFormData({
         title: data.title || '',
@@ -216,8 +227,9 @@ export default function CreateEvent({ user }: { user: User | null }) {
         public_location_text: data.public_location_text || '',
         location_text: data.location_text || '',
         google_maps_url: data.google_maps_url || '',
-        starts_at: formatForInput(data.starts_at),
-        ends_at: formatForInput(data.ends_at),
+        starts_at: utcIsoToEventLocalInput(data.starts_at, timezone),
+        timezone,
+        duration_minutes: durationMinutes,
         capacity: data.capacity ?? 10,
         host_name: data.host_name || '',
         host_contact_text: data.host_contact_text || '',
@@ -264,9 +276,20 @@ export default function CreateEvent({ user }: { user: User | null }) {
       if (!resolvedHostName) {
         throw new Error('Host name is required to create an event.');
       }
+      if (!formData.starts_at) {
+        throw new Error('Start time is required.');
+      }
+
+      const { startsAtUtcIso, endsAtUtcIso } = toUtcIsoFromStartAndDuration(
+        formData.starts_at,
+        formData.duration_minutes,
+        formData.timezone || DEFAULT_EVENT_TIMEZONE,
+      );
 
       const submissionData: any = {
         ...formData,
+        starts_at: startsAtUtcIso,
+        ends_at: endsAtUtcIso,
         host_user_id: user.id,
         host_name: resolvedHostName,
         visibility: resolvedVisibility,
@@ -276,7 +299,8 @@ export default function CreateEvent({ user }: { user: User | null }) {
         location_text: formData.location_text.trim() || null,
         public_location_text: formData.public_location_text.trim() || null,
         google_maps_url: formData.google_maps_url.trim() || null,
-        ends_at: formData.ends_at || null,
+        timezone: formData.timezone || DEFAULT_EVENT_TIMEZONE,
+        duration_minutes: formData.duration_minutes || 60,
         host_contact_text: resolvedHostContact || null,
       };
 
@@ -508,6 +532,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                 <input
                   required
                   type="datetime-local"
+                  step={900}
                   className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
                   value={formData.starts_at}
                   onChange={(e) => setFormData({ ...formData, starts_at: e.target.value })}
@@ -515,15 +540,48 @@ export default function CreateEvent({ user }: { user: User | null }) {
               </div>
               <div>
                 <label className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">
-                  <Calendar className="w-3.5 h-3.5 text-slate-300" /> Ends At (Optional)
+                  <Calendar className="w-3.5 h-3.5 text-slate-300" /> Duration
                 </label>
-                <input
-                  type="datetime-local"
+                <select
                   className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
-                  value={formData.ends_at}
-                  onChange={(e) => setFormData({ ...formData, ends_at: e.target.value })}
-                />
+                  value={String(formData.duration_minutes)}
+                  onChange={(e) => setFormData({ ...formData, duration_minutes: parseInt(e.target.value, 10) })}
+                >
+                  {buildDurationOptions(360, 15).map((minutes) => {
+                    const hours = Math.floor(minutes / 60);
+                    const remainder = minutes % 60;
+                    const label =
+                      hours > 0 && remainder > 0
+                        ? `${hours}h ${remainder}m`
+                        : hours > 0
+                          ? `${hours}h`
+                          : `${minutes}m`;
+                    return (
+                      <option key={minutes} value={minutes}>
+                        {label}
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
+            </div>
+
+            <div>
+              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Timezone</label>
+              <select
+                className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                value={formData.timezone}
+                onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
+              >
+                {EVENT_TIMEZONE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-400 font-medium mt-2 px-1">
+                All event times are saved in UTC and shown using this timezone.
+              </p>
             </div>
 
             <div>

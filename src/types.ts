@@ -8,6 +8,8 @@ export interface Event {
   public_location_text?: string;
   google_maps_url?: string;
   starts_at: string;
+  timezone?: string;
+  duration_minutes?: number;
   ends_at?: string;
   capacity: number;
   host_user_id: string;

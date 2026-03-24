@@ -3,7 +3,7 @@ import { supabase } from '../supabase';
 import { useNavigate, Link } from 'react-router-dom';
 import { Calendar as CalendarIcon, ChevronRight, MapPin, Users, ArrowLeft, Search } from 'lucide-react';
 import { motion } from 'motion/react';
-import { formatDate } from '../utils';
+import { formatDay, formatTime } from '../utils';
 import { Event } from '../types';
 import { withConfirmedCounts, buildEventPath } from '../lib/events';
 import { User } from '@supabase/supabase-js';
@@ -24,10 +24,8 @@ export default function Calendar({ user }: { user: User | null }) {
   }, [user?.id, user?.email]);
 
   const fetchPublicEvents = async () => {
-    // Show events from the start of today onwards
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const startOfToday = today.toISOString();
+    // Show upcoming scheduled events in UTC.
+    const nowIso = new Date().toISOString();
 
     const { data, error } = await supabase
       .from('events')
@@ -37,7 +35,7 @@ export default function Calendar({ user }: { user: User | null }) {
       `)
       .eq('status', 'scheduled')
       .eq('is_public', true)
-      .gte('starts_at', startOfToday)
+      .gte('starts_at', nowIso)
       .order('starts_at', { ascending: true });
 
     if (error) {
@@ -144,8 +142,8 @@ export default function Calendar({ user }: { user: User | null }) {
                 {(() => {
                   const visibility = event.visibility || (event.is_public ? 'public' : 'private');
                   const isSemiPublic = visibility === 'semi_public';
-                  const dayOnly = formatDate(event.starts_at).split(' at ')[0];
-                  const timeOnly = formatDate(event.starts_at).split(' at ')[1];
+                  const dayOnly = formatDay(event.starts_at, event.timezone);
+                  const timeOnly = formatTime(event.starts_at, event.timezone);
                   const previewLocation = isSemiPublic
                     ? event.public_location_text || 'Town/city shared by host'
                     : event.location_text || event.public_location_text || 'No location set';

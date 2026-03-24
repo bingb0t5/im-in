@@ -119,7 +119,7 @@ export default function Bookings() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-slate-500">
                     <Calendar className="w-4 h-4" />
-                    <span className="text-sm font-bold">{formatDate(groupedBooking.events.starts_at)}</span>
+                    <span className="text-sm font-bold">{formatDate(groupedBooking.events.starts_at, groupedBooking.events.timezone)}</span>
                   </div>
                   {groupedBooking.events.location_text && (
                     <div className="flex items-center gap-2 text-slate-400">

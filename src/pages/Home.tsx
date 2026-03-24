@@ -369,7 +369,7 @@ export default function Home({ user }: { user: User | null }) {
                     <div className="flex items-center gap-4">
                       <div className="flex items-center gap-1.5 text-slate-600 font-bold">
                         <CalendarIcon className="w-4 h-4 text-brand-600" />
-                        <span className="text-xs">{formatDate(event.starts_at)}</span>
+                        <span className="text-xs">{formatDate(event.starts_at, event.timezone)}</span>
                       </div>
                       <div className="flex items-center gap-1.5 text-slate-600 font-bold">
                         <Users className="w-4 h-4 text-brand-600" />
@@ -429,7 +429,7 @@ export default function Home({ user }: { user: User | null }) {
                     <div className="flex items-center gap-4">
                       <div className="flex items-center gap-1.5 text-slate-600 font-bold">
                         <CalendarIcon className="w-4 h-4 text-brand-600" />
-                        <span className="text-xs">{formatDate(groupedBooking.events.starts_at)}</span>
+                        <span className="text-xs">{formatDate(groupedBooking.events.starts_at, groupedBooking.events.timezone)}</span>
                       </div>
                     </div>
                     <ChevronRight className="w-5 h-5 text-slate-300" />
