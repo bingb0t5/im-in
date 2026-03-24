@@ -6,7 +6,6 @@ import { Users, Share2, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Cl
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, generateSlug } from '../utils';
 import { Event, Attendee } from '../types';
-import { getNextWaitlistAttendee } from '../lib/attendees';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 
 export default function HostDashboard({ user }: { user: User | null }) {
@@ -18,6 +17,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newAttendee, setNewAttendee] = useState({ name: '', email: '' });
   const [actionLoading, setActionLoading] = useState(false);
+  const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
     show: boolean;
@@ -33,6 +33,45 @@ export default function HostDashboard({ user }: { user: User | null }) {
     const localPart = (email || '').split('@')[0] || '';
     const fallback = localPart.replace(/[._-]+/g, ' ').trim();
     return fallback || 'Guest';
+  };
+
+  const getAddedByLabel = (attendee: Attendee) => {
+    if (!attendee.added_by_type || attendee.added_by_type === 'self') return null;
+    if (attendee.added_by_type === 'host') return 'added by host';
+    if (attendee.added_by_type === 'proxy') {
+      const adderId = attendee.added_by_attendee_profile_id || '';
+      const adderName = adderNamesByProfileId[adderId];
+      return adderName ? `added by ${adderName}` : 'added by attendee';
+    }
+    return null;
+  };
+
+  const hydrateAdderNames = async (attendeeRows: Attendee[]) => {
+    const ids = Array.from(
+      new Set(
+        attendeeRows
+          .map((a) => a.added_by_attendee_profile_id || '')
+          .filter(Boolean)
+      )
+    );
+
+    if (ids.length === 0) {
+      setAdderNamesByProfileId({});
+      return;
+    }
+
+    const { data } = await supabase
+      .from('attendee_profiles')
+      .select('id, full_name, email')
+      .in('id', ids);
+
+    const map: Record<string, string> = {};
+    (data || []).forEach((profile: any) => {
+      const fullName = (profile.full_name || '').trim();
+      const fallback = ((profile.email || '').split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
+      map[profile.id] = fullName || fallback || 'attendee';
+    });
+    setAdderNamesByProfileId(map);
   };
 
   useEffect(() => {
@@ -81,37 +120,24 @@ export default function HostDashboard({ user }: { user: User | null }) {
       .neq('status', 'cancelled')
       .order('joined_at', { ascending: true });
 
-    if (data) setAttendees(data);
+    if (data) {
+      setAttendees(data);
+      await hydrateAdderNames(data as Attendee[]);
+    }
     setLoading(false);
   };
 
   const removeAttendee = async (attendeeId: string) => {
     setActionLoading(true);
     try {
-      // 1. Delete the attendee
-      const { error } = await supabase
-        .from('event_attendees')
-        .delete()
-        .eq('id', attendeeId);
+      // Use server-side cancel path to avoid fragile direct DELETE/UPDATE policy paths.
+      const { data, error } = await supabase.rpc('cancel_attendee_with_promotion', {
+        p_attendee_id: attendeeId,
+        p_session_token: null,
+      });
 
       if (error) throw error;
-
-      // 2. Manual Waitlist Promotion (if the removed person was confirmed)
-      const removedAttendee = attendees.find(a => a.id === attendeeId);
-      if (removedAttendee?.status === 'confirmed') {
-        // Count current confirmed (after removal)
-        const currentConfirmed = attendees.filter(a => a.id !== attendeeId && a.status === 'confirmed').length;
-        
-        if (currentConfirmed < event!.capacity) {
-          const firstOnWaitlist = getNextWaitlistAttendee(attendees, attendeeId);
-          if (firstOnWaitlist) {
-            await supabase
-              .from('event_attendees')
-              .update({ status: 'confirmed', promoted_at: new Date().toISOString() })
-              .eq('id', firstOnWaitlist.id);
-          }
-        }
-      }
+      if (data?.error) throw new Error(data.error);
 
       fetchAttendees(event!.id);
       setShowDeleteModal({ show: false, type: 'attendee', id: '' });
@@ -161,6 +187,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
           .update({
             status,
             guest_name: newAttendee.name,
+            added_by_type: 'host',
+            added_by_attendee_profile_id: null,
             joined_at: new Date().toISOString(),
             cancelled_at: null
           })
@@ -174,7 +202,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
             event_id: event.id,
             guest_name: newAttendee.name,
             guest_email: email,
-            status
+            status,
+            added_by_type: 'host',
+            added_by_attendee_profile_id: null
           }]);
         
         if (error) throw error;
@@ -369,13 +399,18 @@ export default function HostDashboard({ user }: { user: User | null }) {
                         <CheckCircle2 className="w-5 h-5 text-brand-600" />
                       </div>
                       <div>
-                        <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
+                          {getAddedByLabel(a) && (
+                            <span className="text-[11px] text-slate-400 font-medium">{getAddedByLabel(a)}</span>
+                          )}
+                        </div>
                         <p className="text-[11px] text-slate-400 font-medium">{a.guest_email}</p>
                       </div>
                     </div>
                     <button 
                       onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getDisplayName(a.guest_name, a.guest_email) })} 
-                      className="p-2 text-slate-200 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                      className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -405,13 +440,18 @@ export default function HostDashboard({ user }: { user: User | null }) {
                           <Clock className="w-5 h-5 text-amber-600" />
                         </div>
                         <div>
-                          <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
+                            {getAddedByLabel(a) && (
+                              <span className="text-[11px] text-slate-400 font-medium">{getAddedByLabel(a)}</span>
+                            )}
+                          </div>
                           <p className="text-[11px] text-slate-400 font-medium">#{i + 1} on waitlist</p>
                         </div>
                       </div>
                       <button 
                         onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getDisplayName(a.guest_name, a.guest_email) })} 
-                        className="p-2 text-slate-200 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                        className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

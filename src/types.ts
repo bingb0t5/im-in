@@ -23,6 +23,8 @@ export interface Attendee {
   event_id: string;
   user_id?: string;
   attendee_profile_id?: string;
+  added_by_type?: 'self' | 'proxy' | 'host' | null;
+  added_by_attendee_profile_id?: string | null;
   guest_name: string;
   guest_email: string;
   status: 'confirmed' | 'waitlist' | 'cancelled';

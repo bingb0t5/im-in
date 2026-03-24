@@ -25,7 +25,9 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [proxyError, setProxyError] = useState<string | null>(null);
   const [guestInfo, setGuestInfo] = useState({ name: '', email: '' });
   const [guestProfile, setGuestProfile] = useState<AttendeeProfile | null>(null);
+  const [signedInPreferredName, setSignedInPreferredName] = useState('');
   const [myRsvps, setMyRsvps] = useState<Attendee[]>([]);
+  const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
   const [rsvpToCancel, setRsvpToCancel] = useState<Attendee | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
@@ -61,6 +63,49 @@ export default function EventDetail({ user }: { user: User | null }) {
     return pickFirstNonEmpty(person.guest_name, fallbackNameFromEmail(person.guest_email)) || 'Guest';
   };
 
+  const getAddedByLabel = (attendee: Attendee) => {
+    if (!attendee.added_by_type || attendee.added_by_type === 'self') return null;
+    if (attendee.added_by_type === 'host') return 'added by host';
+    if (attendee.added_by_type === 'proxy') {
+      const adderId = attendee.added_by_attendee_profile_id || '';
+      if (guestProfile?.id && adderId && guestProfile.id === adderId && signedInPreferredName) {
+        return `added by ${signedInPreferredName}`;
+      }
+      const adderName = adderNamesByProfileId[adderId];
+      if (adderName) return `added by ${adderName}`;
+      return 'added by attendee';
+    }
+    return null;
+  };
+
+  const hydrateAdderNames = async (attendeeRows: Attendee[]) => {
+    const ids = Array.from(
+      new Set(
+        attendeeRows
+          .map((a) => a.added_by_attendee_profile_id || '')
+          .filter(Boolean)
+      )
+    );
+
+    if (ids.length === 0) {
+      setAdderNamesByProfileId({});
+      return;
+    }
+
+    const { data } = await supabase
+      .from('attendee_profiles')
+      .select('id, full_name, email')
+      .in('id', ids);
+
+    const map: Record<string, string> = {};
+    (data || []).forEach((profile: any) => {
+      const fullName = (profile.full_name || '').trim();
+      const fallback = fallbackNameFromEmail(profile.email);
+      map[profile.id] = fullName || fallback || 'attendee';
+    });
+    setAdderNamesByProfileId(map);
+  };
+
   useEffect(() => {
     const checkGuestSession = async () => {
       const token = guestService.getStoredSession();
@@ -80,10 +125,46 @@ export default function EventDetail({ user }: { user: User | null }) {
   useEffect(() => {
     if (!user) return;
     setGuestInfo((prev) => ({
-      name: pickFirstNonEmpty(prev.name, user.user_metadata?.full_name, fallbackNameFromEmail(user.email)),
+      name: pickFirstNonEmpty(prev.name, user.user_metadata?.full_name, signedInPreferredName, fallbackNameFromEmail(user.email)),
       email: user.email || prev.email,
     }));
-  }, [user]);
+  }, [user, signedInPreferredName]);
+
+  useEffect(() => {
+    const hydrateSignedInPreferredName = async () => {
+      if (!user) {
+        setSignedInPreferredName('');
+        return;
+      }
+
+      const immediate = pickFirstNonEmpty(
+        user.user_metadata?.full_name,
+        event?.host_user_id === user.id ? event?.host_name : '',
+      );
+      if (immediate) {
+        setSignedInPreferredName(immediate);
+        return;
+      }
+
+      const { data } = await supabase
+        .from('events')
+        .select('host_name, created_at')
+        .eq('host_user_id', user.id)
+        .not('host_name', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const hostedName = pickFirstNonEmpty(data?.host_name);
+      if (hostedName) {
+        setSignedInPreferredName(hostedName);
+      } else {
+        setSignedInPreferredName('');
+      }
+    };
+
+    hydrateSignedInPreferredName();
+  }, [user, event?.id]);
 
   useEffect(() => {
     fetchEvent();
@@ -141,7 +222,10 @@ export default function EventDetail({ user }: { user: User | null }) {
       .neq('status', 'cancelled')
       .order('joined_at', { ascending: true });
 
-    if (data) setAttendees(data);
+    if (data) {
+      setAttendees(data);
+      await hydrateAdderNames(data as Attendee[]);
+    }
     setLoading(false);
   };
 
@@ -154,6 +238,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     const name = pickFirstNonEmpty(
       user?.id && event.host_user_id === user.id ? event.host_name : '',
       user?.user_metadata?.full_name,
+      signedInPreferredName,
       guestProfile?.full_name,
       guestInfo.name,
       fallbackNameFromEmail(email),
@@ -320,6 +405,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     pickFirstNonEmpty(
       user?.id && event.host_user_id === user.id ? event.host_name : '',
       user?.user_metadata?.full_name,
+      signedInPreferredName,
       guestProfile?.full_name,
       guestInfo.name,
       fallbackNameFromEmail(confirmedDetailsEmail),
@@ -432,7 +518,12 @@ export default function EventDetail({ user }: { user: User | null }) {
                       <div className="w-8 h-8 bg-slate-50 rounded-lg flex items-center justify-center text-[10px] font-black text-slate-400">
                         {i + 1}
                       </div>
-                      <span className="font-bold text-slate-700 text-sm">{getDisplayName(attendee)}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-700 text-sm">{getDisplayName(attendee)}</span>
+                        {getAddedByLabel(attendee) && (
+                          <span className="text-[11px] text-slate-400 font-medium">{getAddedByLabel(attendee)}</span>
+                        )}
+                      </div>
                     </div>
                     {attendee.status === 'waitlist' && (
                       <span className="text-[9px] uppercase tracking-widest font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg">
