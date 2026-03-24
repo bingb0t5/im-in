@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
-import { Users, Share2, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Clock, Edit2, Plus, X, AlertCircle } from 'lucide-react';
+import { Users, Share2, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Clock, Edit2, Plus, X, AlertCircle, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { formatDate, generateSlug } from '../utils';
+import { formatDate, formatDurationMinutes, generateSlug } from '../utils';
 import { Event, Attendee, EventAccessRequest } from '../types';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { goBackOr } from '../lib/navigation';
@@ -473,6 +473,22 @@ export default function HostDashboard({ user }: { user: User | null }) {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 pt-6 space-y-6">
+        {/* Date/Time */}
+        <section className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 bg-brand-50 rounded-xl flex items-center justify-center shrink-0">
+              <Calendar className="w-5 h-5 text-brand-600" />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">When</p>
+              <p className="text-base font-black text-slate-900">{formatDate(event.starts_at, event.timezone)}</p>
+              <p className="text-xs text-slate-500 font-medium">
+                {event.timezone || 'Asia/Ho_Chi_Minh'} · Duration {formatDurationMinutes(event.duration_minutes)}
+              </p>
+            </div>
+          </div>
+        </section>
+
         {/* Quick Stats */}
         <section className="grid grid-cols-2 gap-4">
           <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
