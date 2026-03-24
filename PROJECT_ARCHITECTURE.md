@@ -100,6 +100,7 @@ Important nuance:
 - `README.md`: setup/deployment guide
 - `PROJECT_ARCHITECTURE.md`: architecture documentation
 - `AI_DEV_RULES.md`: coding and safety guidance for contributors/agents
+- `AUTH_UNIFICATION_PLAN.md`: review and phased plan for potentially unifying guest/auth identity
 - `IMPLEMENTATION_CHECKLIST.md`: implementation roadmap/history
 - `SCHEMA_ALIGNMENT.md`: schema drift notes
 - `supabase_schema.sql`: repo snapshot schema
@@ -183,6 +184,18 @@ This is an important product behavior and should be preserved unless intentional
 - authenticated users still map to attendee/guest profile records
 - guest identity is real application state, not disposable UI state
 - guest recovery exists, but the recovery email sending path is still lightweight/demo-grade
+
+### Auth Migration Note
+
+There is now a dedicated planning document for the question of whether the app should collapse guest users and signed-in users into a single model:
+
+- `AUTH_UNIFICATION_PLAN.md`
+
+That document recommends treating this as a deliberate auth migration project, not a small cleanup task. The current recommended direction is:
+
+- preserve low-friction first use
+- avoid forcing magic-link auth at first touch
+- prefer an anonymous-first unified session model if auth unification is pursued later
 
 ## Airtable Integration
 

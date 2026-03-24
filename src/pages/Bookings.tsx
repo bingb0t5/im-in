@@ -24,8 +24,11 @@ export default function Bookings() {
           return;
         }
         setProfile(session.profile);
-        const data = await guestService.getMyBookings(session.token);
-        setBookings(data);
+        const [bookingRows, interestRows] = await Promise.all([
+          guestService.getMyBookings(session.token),
+          guestService.getMyInterests(session.token),
+        ]);
+        setBookings([...(bookingRows || []), ...(interestRows || [])]);
       } catch (error) {
         console.error('Fetch Bookings Error:', error);
       } finally {
@@ -109,11 +112,14 @@ export default function Bookings() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 onClick={() => navigate(buildEventPath(groupedBooking.events as any, { preferPrivateAccess: true }))}
-                className={`px-5 py-4 hover:bg-slate-50 transition-all cursor-pointer active:scale-[0.99] ${idx < groupedBookings.length - 1 ? 'border-b border-slate-50' : ''}`}
+                className={`px-5 py-4 hover:bg-slate-50 transition-all cursor-pointer active:scale-[0.99] ${groupedBooking.status === 'thinking' ? 'bg-indigo-50/60' : ''} ${idx < groupedBookings.length - 1 ? 'border-b border-slate-50' : ''}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <h3 className="text-sm font-bold text-slate-900 leading-tight">{groupedBooking.events.title}</h3>
+                    {groupedBooking.status === 'thinking' && (
+                      <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-0.5">I'm thinking about it</p>
+                    )}
                     <div className="flex flex-wrap gap-1 mt-1">
                       {groupedBooking.attendees.map((name: string, i: number) => (
                         <span key={i} className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md">
@@ -129,7 +135,11 @@ export default function Bookings() {
                     )}
                   </div>
                   <span className={`text-[9px] font-bold uppercase tracking-widest shrink-0 ${
-                    groupedBooking.status === 'confirmed' ? 'text-brand-600' : 'text-amber-500'
+                    groupedBooking.status === 'confirmed'
+                      ? 'text-brand-600'
+                      : groupedBooking.status === 'thinking'
+                        ? 'text-indigo-500'
+                        : 'text-amber-500'
                   }`}>
                     {groupedBooking.status}
                   </span>

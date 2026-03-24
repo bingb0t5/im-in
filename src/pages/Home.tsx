@@ -62,13 +62,37 @@ export default function Home({ user }: { user: User | null }) {
 
       if (joinedError) throw joinedError;
 
+      // 3. Fetch Thinking-About-It events
+      const thinkingIdentityFilters = [
+        user.id ? `user_id.eq.${user.id}` : '',
+        user.email ? `guest_email.eq.${user.email}` : '',
+      ].filter(Boolean);
+      const thinkingQuery = supabase
+        .from('event_interests')
+        .select(`
+          *,
+          events (*)
+        `)
+        .order('created_at', { ascending: false });
+      const { data: thinking, error: thinkingError } =
+        thinkingIdentityFilters.length > 0
+          ? await thinkingQuery.or(thinkingIdentityFilters.join(','))
+          : await thinkingQuery.limit(0);
+
+      if (thinkingError) throw thinkingError;
+
       const hostedWithCounts = withConfirmedCounts((hosted || []) as any[]);
+      const thinkingRows = (thinking || []).map((row: any) => ({
+        ...row,
+        status: 'thinking',
+      }));
+      const combinedJoined = [...(joined || []), ...thinkingRows];
 
       setHostedEvents(hostedWithCounts);
-      setJoinedEvents(joined || []);
+      setJoinedEvents(combinedJoined);
 
-      // 3. Smart Default Logic (Only if not already set)
-      if (hostedWithCounts.length === 0 && (joined || []).length > 0) {
+      // 4. Smart Default Logic (Only if not already set)
+      if (hostedWithCounts.length === 0 && combinedJoined.length > 0) {
         setView('attending');
       }
     } catch (error) {
@@ -401,11 +425,14 @@ export default function Home({ user }: { user: User | null }) {
                 <Link 
                   key={groupedBooking.events.id} 
                   to={buildEventPath(groupedBooking.events, { preferPrivateAccess: true })}
-                  className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${idx < groupedJoinedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
+                  className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${groupedBooking.status === 'thinking' ? 'bg-indigo-50/60' : ''} ${idx < groupedJoinedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <h3 className="text-sm font-bold text-slate-900 leading-tight truncate">{groupedBooking.events.title}</h3>
+                      {groupedBooking.status === 'thinking' && (
+                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-0.5">I'm thinking about it</p>
+                      )}
                       <div className="flex flex-wrap gap-1 mt-1">
                         {groupedBooking.attendees.map((name: string, i: number) => (
                           <span key={i} className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md">

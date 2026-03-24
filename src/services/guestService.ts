@@ -145,6 +145,28 @@ export const guestService = {
     return data;
   },
 
+  async getMyInterests(token: string): Promise<BookingRow[]> {
+    const profile = await this.validateSession(token);
+    if (!profile) return [];
+
+    const { data, error } = await supabase
+      .from('event_interests')
+      .select(`
+        *,
+        events (*)
+      `)
+      .eq('attendee_profile_id', profile.id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return (data || []).map((row: any) => ({
+      ...row,
+      status: 'thinking',
+      guest_name: row.guest_name,
+      events: row.events,
+    }));
+  },
+
   async sendRecoveryEmail(email: string): Promise<void> {
     const normalizedEmail = normalizeEmail(email);
 

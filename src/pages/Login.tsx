@@ -4,7 +4,6 @@ import { User } from '@supabase/supabase-js';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { Mail, ArrowRight, CheckCircle2, ArrowLeft, Search } from 'lucide-react';
 import { motion } from 'motion/react';
-import { guestService } from '../services/guestService';
 import { buildAuthRedirectUrl } from '../lib/authRedirect';
 import { goBackOr } from '../lib/navigation';
 
@@ -50,9 +49,18 @@ export default function Login({ user }: { user: User | null }) {
   const handleRecovery = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError(null);
     try {
-      await guestService.sendRecoveryEmail(recoveryEmail);
+      const normalizedEmail = recoveryEmail.trim().toLowerCase();
+      const { error } = await supabase.auth.signInWithOtp({
+        email: normalizedEmail,
+        options: {
+          emailRedirectTo: buildAuthRedirectUrl('/'),
+        },
+      });
+      if (error) throw error;
       setRecoverySent(true);
+      setRecoveryEmail(normalizedEmail);
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'Failed to send recovery link');
     } finally {
@@ -127,6 +135,11 @@ export default function Login({ user }: { user: User | null }) {
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 outline-none transition-all font-bold text-sm"
                   />
                 </div>
+                {error && (
+                  <p className="text-red-500 text-xs font-bold bg-red-50 p-3 rounded-xl border border-red-100">
+                    {error}
+                  </p>
+                )}
                 <button
                   type="submit"
                   disabled={loading}

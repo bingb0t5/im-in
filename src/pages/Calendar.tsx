@@ -38,7 +38,8 @@ export default function Calendar({ user }: { user: User | null }) {
       .from('events')
       .select(`
         *,
-        event_attendees(status)
+        event_attendees(status),
+        event_interests(id)
       `)
       .eq('status', 'scheduled')
       .eq('is_public', true)
@@ -194,6 +195,9 @@ export default function Calendar({ user }: { user: User | null }) {
                             )}
                             <span className="text-xs text-slate-400 flex items-center gap-1 shrink-0">
                               <Users className="w-3 h-3" />{event.confirmed_count}/{event.capacity}
+                            </span>
+                            <span className="text-xs text-slate-400 shrink-0">
+                              {event.thinking_count || 0} thinking about it
                             </span>
                           </div>
                         </div>
