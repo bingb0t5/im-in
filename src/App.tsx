@@ -104,7 +104,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home user={user} />} />
           <Route path="/login" element={<Login user={user} />} />
-          <Route path="/create-event" element={user ? <CreateEvent user={user} /> : <Navigate to="/login" />} />
+          <Route path="/create-event" element={<CreateEvent user={user} />} />
           <Route path="/host/events/:id/edit" element={user ? <CreateEvent user={user} /> : <Navigate to="/login" />} />
           <Route path="/events/:slug" element={<EventDetail user={user} />} />
           <Route path="/host/events/:id" element={user ? <HostDashboard user={user} /> : <Navigate to="/login" />} />

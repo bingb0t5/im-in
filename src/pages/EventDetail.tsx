@@ -44,6 +44,23 @@ export default function EventDetail({ user }: { user: User | null }) {
     return fallback;
   };
 
+  const fallbackNameFromEmail = (email?: string | null) => {
+    const localPart = (email || '').split('@')[0] || '';
+    return localPart.replace(/[._-]+/g, ' ').trim();
+  };
+
+  const pickFirstNonEmpty = (...values: Array<string | null | undefined>) => {
+    for (const value of values) {
+      const trimmed = (value || '').trim();
+      if (trimmed) return trimmed;
+    }
+    return '';
+  };
+
+  const getDisplayName = (person: Pick<Attendee, 'guest_name' | 'guest_email'>) => {
+    return pickFirstNonEmpty(person.guest_name, fallbackNameFromEmail(person.guest_email)) || 'Guest';
+  };
+
   useEffect(() => {
     const checkGuestSession = async () => {
       const token = guestService.getStoredSession();
@@ -59,6 +76,14 @@ export default function EventDetail({ user }: { user: User | null }) {
     };
     checkGuestSession();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    setGuestInfo((prev) => ({
+      name: pickFirstNonEmpty(prev.name, user.user_metadata?.full_name, fallbackNameFromEmail(user.email)),
+      email: user.email || prev.email,
+    }));
+  }, [user]);
 
   useEffect(() => {
     fetchEvent();
@@ -126,7 +151,13 @@ export default function EventDetail({ user }: { user: User | null }) {
     setRsvpLoading(true);
 
     const email = user?.email || guestInfo.email;
-    const name = user?.user_metadata?.full_name || guestInfo.name;
+    const name = pickFirstNonEmpty(
+      user?.id && event.host_user_id === user.id ? event.host_name : '',
+      user?.user_metadata?.full_name,
+      guestProfile?.full_name,
+      guestInfo.name,
+      fallbackNameFromEmail(email),
+    );
 
     if (!email || !name) {
       if (user?.email && !guestInfo.email) {
@@ -140,13 +171,8 @@ export default function EventDetail({ user }: { user: User | null }) {
     try {
       let currentProfileId = guestProfile?.id;
 
-      // 1. If logged in, get or create profile
-      if (user) {
-        const profile = await guestService.getOrCreateProfileForUser(user, name);
-        currentProfileId = profile.id;
-      } 
-      // 2. If not logged in and no profile, create one
-      else if (!currentProfileId) {
+      // 1. For guests, create a profile/session if missing.
+      if (!user && !currentProfileId) {
         const names = name.split(' ');
         const firstName = names[0];
         const lastName = names.slice(1).join(' ') || '';
@@ -155,58 +181,16 @@ export default function EventDetail({ user }: { user: User | null }) {
         setGuestProfile(profile);
       }
 
-      // 3. Check for existing RSVP
-      const { data: existing } = await supabase
-        .from('event_attendees')
-        .select('id, status')
-        .eq('event_id', event.id)
-        .or(`guest_email.eq.${email}${currentProfileId ? `,attendee_profile_id.eq.${currentProfileId}` : ''}`)
-        .maybeSingle();
+      // 2. Use server-side RSVP path to avoid fragile RLS/auth.users interactions.
+      const { data, error } = await supabase.rpc('submit_rsvp', {
+        p_event_id: event.id,
+        p_guest_name: name,
+        p_guest_email: email,
+        p_attendee_profile_id: currentProfileId || null,
+      });
 
-      if (existing && existing.status !== 'cancelled') {
-        alert('You have already said you\'re in!');
-        setRsvpLoading(false);
-        return;
-      }
-
-      // 4. Determine status from shared RSVP strategy
-      const decision = decideRsvpStatus(getConfirmedCount(attendees), event.capacity, event.allow_waitlist);
-      if (isRsvpBlocked(decision)) {
-        alert(decision.reason);
-        setRsvpLoading(false);
-        return;
-      }
-      const status = decision.status;
-
-      // 5. Insert or Update RSVP
-      if (existing) {
-        const { error } = await supabase
-          .from('event_attendees')
-          .update({
-            status,
-            guest_name: name,
-            user_id: user?.id || null,
-            attendee_profile_id: currentProfileId || null,
-            joined_at: new Date().toISOString(),
-            cancelled_at: null
-          })
-          .eq('id', existing.id);
-        
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('event_attendees')
-          .insert([{
-            event_id: event.id,
-            user_id: user?.id || null,
-            attendee_profile_id: currentProfileId || null,
-            guest_name: name,
-            guest_email: email,
-            status
-          }]);
-        
-        if (error) throw error;
-      }
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
 
       setShowRsvpModal(false);
       setShowSuccessModal(true);
@@ -331,6 +315,15 @@ export default function EventDetail({ user }: { user: User | null }) {
   }
 
   const { confirmedCount, waitlistCount, isFull, spotsRemaining } = getAttendanceSummary(attendees, event.capacity);
+  const confirmedDetailsEmail = user?.email || guestProfile?.email || guestInfo.email;
+  const confirmedDetailsName =
+    pickFirstNonEmpty(
+      user?.id && event.host_user_id === user.id ? event.host_name : '',
+      user?.user_metadata?.full_name,
+      guestProfile?.full_name,
+      guestInfo.name,
+      fallbackNameFromEmail(confirmedDetailsEmail),
+    ) || 'Guest';
 
   return (
     <div className="min-h-screen bg-slate-50 pb-40">
@@ -439,7 +432,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                       <div className="w-8 h-8 bg-slate-50 rounded-lg flex items-center justify-center text-[10px] font-black text-slate-400">
                         {i + 1}
                       </div>
-                      <span className="font-bold text-slate-700 text-sm">{attendee.guest_name}</span>
+                      <span className="font-bold text-slate-700 text-sm">{getDisplayName(attendee)}</span>
                     </div>
                     {attendee.status === 'waitlist' && (
                       <span className="text-[9px] uppercase tracking-widest font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg">
@@ -492,7 +485,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                     <div className="flex-1 bg-brand-50 text-brand-600 font-bold py-3 rounded-xl flex items-center justify-between px-4 text-xs">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="w-4 h-4" />
-                        <span>{rsvp.guest_name}</span>
+                        <span>{getDisplayName(rsvp)}</span>
                       </div>
                       {rsvp.status === 'confirmed' ? (
                         <span>In</span>
@@ -571,7 +564,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               </div>
               
               <form onSubmit={handleRsvp} className="space-y-5">
-                {!guestProfile && (!user || !user.user_metadata?.full_name) ? (
+                {!guestProfile && (!user || !pickFirstNonEmpty(user.user_metadata?.full_name, guestInfo.name, fallbackNameFromEmail(user.email))) ? (
                   <>
                     <div>
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">Your Name</label>
@@ -602,8 +595,8 @@ export default function EventDetail({ user }: { user: User | null }) {
                   <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between">
                     <div>
                       <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Confirmed Details</p>
-                      <p className="font-black text-slate-900">{user?.user_metadata?.full_name || guestProfile?.full_name}</p>
-                      <p className="text-xs text-slate-500">{user?.email || guestProfile?.email}</p>
+                      <p className="font-black text-slate-900">{confirmedDetailsName}</p>
+                      {confirmedDetailsEmail && <p className="text-xs text-slate-500">{confirmedDetailsEmail}</p>}
                     </div>
                     {!user && (
                       <button 
