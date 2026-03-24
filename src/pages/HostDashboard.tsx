@@ -225,7 +225,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
         .maybeSingle();
 
       if (existing && existing.status !== 'cancelled') {
-        alert('This email is already registered for this event');
+        alert('This email is already registered for this activity');
         setActionLoading(false);
         return;
       }
@@ -293,8 +293,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
       if (error) throw error;
       navigate('/');
     } catch (error: any) {
-      console.error('Delete Event Error:', error);
-      alert(error.message || 'Failed to delete event');
+      console.error('Delete Activity Error:', error);
+      alert(error.message || 'Failed to delete activity');
     } finally {
       setActionLoading(false);
     }
@@ -343,8 +343,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
       if (error) throw error;
       navigate(`/host/events/${newEvent.id}/edit`);
     } catch (error: any) {
-      console.error('Copy Event Error:', error);
-      alert(error.message || 'Failed to copy event');
+      console.error('Copy Activity Error:', error);
+      alert(error.message || 'Failed to copy activity');
     } finally {
       setActionLoading(false);
     }
@@ -373,7 +373,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       if (!url || !event) return;
       const confirmedCount = attendees.filter(a => a.status === 'confirmed').length;
       const spotsLeft = Math.max(0, event.capacity - confirmedCount);
-      const text = `${event.title}\n${formatDate(event.starts_at, event.timezone)}\n${spotsLeft} spots left.\n\nPrivate event link:\n${url}`;
+      const text = `${event.title}\n${formatDate(event.starts_at, event.timezone)}\n${spotsLeft} spots left.\n\nPrivate activity link:\n${url}`;
       window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
     } catch (error: any) {
       alert(error.message || 'Could not prepare WhatsApp share');
@@ -396,10 +396,10 @@ export default function HostDashboard({ user }: { user: User | null }) {
     let text = '';
     if (mode === 'approve') {
       status = 'approved';
-      text = `Hi ${request.requester_name}, thanks for requesting access to ${event.title}. Here is the private event link:\n${eventLink}`;
+      text = `Hi ${request.requester_name}, thanks for requesting access to ${event.title}. Here is the private activity link:\n${eventLink}`;
     } else if (mode === 'decline') {
       status = 'declined';
-      text = `Hi ${request.requester_name}, thanks for your request for ${event.title}. Sorry, we can't share this event right now.`;
+      text = `Hi ${request.requester_name}, thanks for your request for ${event.title}. Sorry, we can't share this activity right now.`;
     } else {
       text = `Hi ${request.requester_name}, thanks for requesting access to ${event.title}. Can you please tell me a little more before I share the link?`;
     }
@@ -446,7 +446,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
           <div className="flex flex-col items-center">
-            <h1 className="text-base font-bold text-slate-900 tracking-tight">Manage Event</h1>
+            <h1 className="text-base font-bold text-slate-900 tracking-tight">Manage Activity</h1>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate max-w-[150px]">{event.title}</span>
           </div>
           <div className="flex items-center gap-1">
@@ -461,7 +461,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <button 
               onClick={() => navigate(`/host/events/${event.id}/edit`)}
               className="p-2 text-slate-400 hover:text-brand-600 hover:bg-slate-50 rounded-xl transition-all"
-              title="Edit Event"
+              title="Edit Activity"
             >
               <Edit2 className="w-5 h-5" />
             </button>
@@ -488,7 +488,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
         {/* Share Tools */}
         <section className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
           <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-            <Share2 className="w-4 h-4" /> Share Event
+            <Share2 className="w-4 h-4" /> Share Activity
           </h2>
           {(event.visibility || (event.is_public ? 'public' : 'private')) === 'semi_public' ? (
             <div className="space-y-3">
@@ -685,7 +685,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
             }}
             className="w-full p-4 rounded-2xl border border-red-100 text-red-500 text-sm font-bold hover:bg-red-50 transition-all flex items-center justify-center gap-2 active:scale-95"
           >
-            <Trash2 className="w-4 h-4" /> Delete Event
+            <Trash2 className="w-4 h-4" /> Delete Activity
           </button>
         </section>
       </main>
@@ -712,11 +712,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
               </div>
               
               <h2 className="text-xl font-bold text-center text-slate-900 tracking-tight mb-2">
-                {showDeleteModal.type === 'event' ? 'Delete Event?' : 'Remove Attendee?'}
+                {showDeleteModal.type === 'event' ? 'Delete Activity?' : 'Remove Attendee?'}
               </h2>
               <p className="text-slate-500 text-center mb-8 text-sm font-medium leading-relaxed px-2">
                 {showDeleteModal.type === 'event' 
-                  ? 'This will permanently delete the event and all attendee records. This action cannot be undone.'
+                  ? 'This will permanently delete the activity and all attendee records. This action cannot be undone.'
                   : `Are you sure you want to remove ${showDeleteModal.name} from the list?`}
               </p>
 
@@ -806,7 +806,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                   disabled={actionLoading}
                   className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold py-4 rounded-2xl shadow-lg shadow-brand-600/10 mt-2 disabled:opacity-50 active:scale-95"
                 >
-                  {actionLoading ? 'Adding...' : 'Add to Event'}
+                  {actionLoading ? 'Adding...' : 'Add to Activity'}
                 </button>
               </form>
             </motion.div>

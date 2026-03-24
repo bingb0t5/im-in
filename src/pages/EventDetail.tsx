@@ -354,7 +354,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       fetchAttendees();
     } catch (error: any) {
       console.error('RSVP Error:', error);
-      alert(error.message || 'Failed to join event. Please try again.');
+      alert(error.message || 'Failed to join activity. Please try again.');
     } finally {
       setRsvpLoading(false);
     }
@@ -492,7 +492,7 @@ export default function EventDetail({ user }: { user: User | null }) {
         .maybeSingle();
 
       if (existingPending?.id) {
-        setRequestError('You already have a pending request for this event.');
+        setRequestError('You already have a pending request for this activity.');
         setRequestLoading(false);
         return;
       }
@@ -529,8 +529,8 @@ export default function EventDetail({ user }: { user: User | null }) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-slate-50">
         <AlertCircle className="w-16 h-16 text-slate-200 mb-6" />
-        <h1 className="text-3xl font-black text-slate-900 tracking-tight">Event not found</h1>
-        <p className="text-slate-500 mt-2 max-w-xs mx-auto">The link might be broken or the event was deleted.</p>
+        <h1 className="text-3xl font-black text-slate-900 tracking-tight">Activity not found</h1>
+        <p className="text-slate-500 mt-2 max-w-xs mx-auto">The link might be broken or the activity was deleted.</p>
         <button onClick={() => navigate('/')} className="mt-10 text-brand-600 font-bold hover:text-brand-500 transition-colors">Go Home</button>
       </div>
     );
@@ -581,7 +581,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   if (!hasFullEventAccess) {
     const dayOnly = formatDay(event.starts_at, event.timezone);
     const previewLocation = event.public_location_text || 'Town/city shared by host';
-    const previewSummary = event.public_summary || 'Request access to view full details and join this event.';
+    const previewSummary = event.public_summary || 'Request access to view full details and join this activity.';
 
     return (
       <div className="min-h-screen bg-slate-50 pb-24">
@@ -590,7 +590,7 @@ export default function EventDetail({ user }: { user: User | null }) {
             <button onClick={() => goBackOr(navigate, '/calendar')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
               <ArrowLeft className="w-5 h-5 text-slate-600" />
             </button>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Event Preview</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Activity Preview</span>
             <div className="w-9" />
           </div>
         </div>
@@ -736,7 +736,7 @@ export default function EventDetail({ user }: { user: User | null }) {
           <button onClick={() => goBackOr(navigate, '/calendar')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Event Details</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Activity Details</span>
           <button 
             onClick={() => {
               if (eventVisibility === 'semi_public' && hasFullEventAccess) {
@@ -763,7 +763,7 @@ export default function EventDetail({ user }: { user: User | null }) {
           <div className="mb-6 flex">
             {eventVisibility === 'public' ? (
               <span className="inline-flex items-center gap-1.5 bg-brand-50 text-brand-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-brand-100">
-                <Users className="w-3 h-3" /> Public Event
+                <Users className="w-3 h-3" /> Public Activity
               </span>
             ) : eventVisibility === 'semi_public' ? (
               <span className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-indigo-100">
@@ -820,7 +820,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                 </p>
                 {isFull ? (
                   <p className="text-xs text-amber-600 font-bold">
-                    {event.allow_waitlist ? `${waitlistCount} on waitlist` : 'Event is full'}
+                    {event.allow_waitlist ? `${waitlistCount} on waitlist` : 'Activity is full'}
                   </p>
                 ) : (
                   <p className="text-xs text-brand-600 font-bold">{spotsRemaining} spots left</p>
@@ -883,7 +883,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               <p className="text-xs text-slate-500 hidden sm:block font-medium">{event.host_contact_text}</p>
               {event.host_contact_text.replace(/\D/g, '') && (
                 <a 
-                  href={`https://wa.me/${event.host_contact_text.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi ${event.host_name}, I'm interested in your event: ${event.title}`)}`}
+                  href={`https://wa.me/${event.host_contact_text.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi ${event.host_name}, I'm interested in your activity: ${event.title}`)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-12 h-12 bg-brand-600 hover:bg-brand-500 text-white rounded-xl flex items-center justify-center shadow-md shadow-brand-600/10 transition-all active:scale-95"
@@ -1100,8 +1100,8 @@ export default function EventDetail({ user }: { user: User | null }) {
               </h2>
               <p className="text-slate-500 font-medium mb-8 text-sm leading-relaxed">
                 {successType === 'proxy'
-                  ? "We've added them to the list. You can manage this event in your bookings."
-                  : "We've added you to the list. You can manage all your bookings in one place."}
+                  ? "We've added them to the list. You can manage this activity in your bookings."
+                  : "We've added you to the list. You can manage all your activities in one place."}
               </p>
               
               <div className="space-y-3">
@@ -1120,7 +1120,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                   onClick={() => navigate('/bookings')}
                   className="w-full bg-slate-50 hover:bg-slate-100 text-brand-600 font-black py-4 rounded-2xl transition-all active:scale-95"
                 >
-                  Manage My Bookings
+                  Manage My Activities
                 </button>
                 <button
                   onClick={() => setShowSuccessModal(false)}

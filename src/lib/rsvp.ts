@@ -35,7 +35,7 @@ export function decideRsvpStatus(
     return { allowed: true, status: 'waitlist' };
   }
 
-  return { allowed: false, reason: 'Event is full and waitlist is disabled' };
+  return { allowed: false, reason: 'Activity is full and waitlist is disabled' };
 }
 
 export function pickWaitlistAttendeesForPromotion<T extends { joined_at: string }>(

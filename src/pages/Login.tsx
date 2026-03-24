@@ -69,7 +69,7 @@ export default function Login({ user }: { user: User | null }) {
           </button>
           <div className="flex flex-col items-center">
             <h1 className="text-base font-black text-slate-900 tracking-tight">Sign In</h1>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Manage your events</span>
+            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Manage your activities</span>
           </div>
           <div className="w-10" />
         </div>
@@ -89,7 +89,7 @@ export default function Login({ user }: { user: User | null }) {
             {showRecovery ? 'Find my bookings' : 'Welcome Back'}
           </h1>
           <p className="text-slate-500 mt-2 font-medium text-sm">
-            {showRecovery ? 'Enter your email to get a recovery link.' : 'Sign in to manage your events.'}
+            {showRecovery ? 'Enter your email to get a recovery link.' : 'Sign in to manage your activities.'}
           </p>
         </div>
 

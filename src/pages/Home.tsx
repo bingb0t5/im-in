@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { useNavigate, Link } from 'react-router-dom';
-import { Plus, Calendar as CalendarIcon, ChevronRight, LogOut, MessageSquare, Users, MapPin, X, Heart, Info, ThumbsUp } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, ChevronRight, LogOut, MessageSquare, Users, MapPin, X, Heart, Info, ThumbsUp, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate } from '../utils';
 import { Event } from '../types';
@@ -18,6 +18,7 @@ export default function Home({ user }: { user: User | null }) {
   const [showWhyModal, setShowWhyModal] = useState(false);
   const [showBuildModal, setShowBuildModal] = useState(false);
   const [hasGuestSession, setHasGuestSession] = useState(false);
+  const [publicSearchQuery, setPublicSearchQuery] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -82,6 +83,12 @@ export default function Home({ user }: { user: User | null }) {
     navigate('/login');
   };
 
+  const handlePublicSearchChange = (value: string) => {
+    setPublicSearchQuery(value);
+    const nextPath = value.trim() ? `/calendar?q=${encodeURIComponent(value)}` : '/calendar';
+    navigate(nextPath);
+  };
+
   const groupedJoinedEvents = groupBookingsByEvent(joinedEvents);
 
   if (!user) {
@@ -106,7 +113,7 @@ export default function Home({ user }: { user: User | null }) {
                 to="/create-event" 
                 className="block w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all flex items-center justify-center gap-2 active:scale-95"
               >
-                Create an Event
+                Create an Activity
                 <ChevronRight className="w-5 h-5" />
               </Link>
 
@@ -122,7 +129,7 @@ export default function Home({ user }: { user: User | null }) {
                 to={hasGuestSession ? "/bookings" : "/login?recovery=true"} 
                 className="block w-full bg-brand-50 hover:bg-brand-100 text-brand-600 font-black py-4 rounded-2xl border border-brand-100 shadow-sm transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
               >
-                Events I'm In
+                Activities I'm In
                 <ThumbsUp className="w-5 h-5" />
               </Link>
               
@@ -190,7 +197,7 @@ export default function Home({ user }: { user: User | null }) {
                   <div className="pt-4">
                     <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">What it's for</h3>
                     <ul className="space-y-2">
-                      {['classes and activities', 'sports and games', 'casual meetups', 'recurring community events'].map((item, i) => (
+                      {['classes and activities', 'sports and games', 'casual meetups', 'recurring community activities'].map((item, i) => (
                         <li key={i} className="flex items-center gap-2">
                           <div className="w-1.5 h-1.5 bg-brand-600 rounded-full" />
                           {item}
@@ -244,7 +251,7 @@ export default function Home({ user }: { user: User | null }) {
                     <ul className="space-y-2">
                       {[
                         'test the app and give feedback',
-                        'help organise or moderate pages/events',
+                        'help organise or moderate pages/activities',
                         'contribute design, copy, or code',
                         'help shape how the project grows over time'
                       ].map((item, i) => (
@@ -294,6 +301,18 @@ export default function Home({ user }: { user: User | null }) {
       </header>
 
       <main className="max-w-2xl mx-auto px-6 pt-8">
+        {/* Public Search */}
+        <div className="relative group mb-6">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-brand-600 transition-colors" />
+          <input
+            type="text"
+            placeholder="Search public activities"
+            className="w-full pl-12 pr-4 py-4 bg-white rounded-2xl border border-slate-100 shadow-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-medium"
+            value={publicSearchQuery}
+            onChange={(e) => handlePublicSearchChange(e.target.value)}
+          />
+        </div>
+
         {/* View Toggle */}
         <div className="flex p-1 bg-slate-200/50 rounded-2xl mb-8">
           <button 
@@ -316,7 +335,7 @@ export default function Home({ user }: { user: User | null }) {
 
         <div className="flex items-center justify-between mb-8">
           <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-            {view === 'hosting' ? 'My Events' : "Events I'm In"}
+            {view === 'hosting' ? 'My Activities' : "Activities I'm In"}
           </h2>
           {view === 'hosting' && (
             <Link to="/create-event" className="bg-brand-600 hover:bg-brand-500 text-white px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 shadow-sm transition-all active:scale-[0.98]">
@@ -337,9 +356,9 @@ export default function Home({ user }: { user: User | null }) {
                 <MessageSquare className="w-8 h-8 text-slate-200" />
               </div>
               <h3 className="text-lg font-black text-slate-900 mb-2">Nothing scheduled</h3>
-              <p className="text-slate-500 mb-8 text-sm font-medium">Create an event and share the link with your community.</p>
+              <p className="text-slate-500 mb-8 text-sm font-medium">Create an activity and share the link with your community.</p>
               <Link to="/create-event" className="text-brand-600 font-black text-sm hover:text-brand-500 transition-colors inline-flex items-center gap-2">
-                Create your first event <ChevronRight className="w-4 h-4" />
+                Create your first activity <ChevronRight className="w-4 h-4" />
               </Link>
             </div>
           ) : (
@@ -389,7 +408,7 @@ export default function Home({ user }: { user: User | null }) {
               <div className="inline-flex items-center justify-center w-16 h-16 bg-slate-50 rounded-2xl mb-4">
                 <CalendarIcon className="w-8 h-8 text-slate-200" />
               </div>
-              <h3 className="text-lg font-black text-slate-900 mb-2">No bookings yet</h3>
+              <h3 className="text-lg font-black text-slate-900 mb-2">No activities yet</h3>
               <p className="text-slate-500 mb-8 text-sm font-medium">Browse the calendar to find something to join.</p>
               <Link to="/calendar" className="text-brand-600 font-black text-sm hover:text-brand-500 transition-colors inline-flex items-center gap-2">
                 What's On <ChevronRight className="w-4 h-4" />

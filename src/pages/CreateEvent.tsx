@@ -130,9 +130,9 @@ export default function CreateEvent({ user }: { user: User | null }) {
       }
       if (needsProfileDetails && !fallbackName && !formData.host_name.trim()) {
         setShowProfileModal(true);
-        setAuthMessage('Welcome! Add your name to finish creating your event.');
+        setAuthMessage('Welcome! Add your name to finish creating your activity.');
       } else {
-        setAuthMessage("You're signed in. Click Create Event to finish saving.");
+        setAuthMessage("You're signed in. Click Create Activity to finish saving.");
       }
       localStorage.removeItem(CREATE_EVENT_PENDING_AUTH_KEY);
     }
@@ -275,7 +275,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
       const resolvedHostContact = formData.host_contact_text.trim();
       const resolvedVisibility = formData.visibility || 'semi_public';
       if (!resolvedHostName) {
-        throw new Error('Host name is required to create an event.');
+        throw new Error('Host name is required to create an activity.');
       }
       if (!formData.starts_at) {
         throw new Error('Start time is required.');
@@ -374,8 +374,8 @@ export default function CreateEvent({ user }: { user: User | null }) {
         navigate(`/host/events/${result.data.id}`);
       }
     } catch (err: any) {
-      console.error('Error saving event:', err);
-      setError(err.message || 'Failed to save event. Please try again.');
+      console.error('Error saving activity:', err);
+      setError(err.message || 'Failed to save activity. Please try again.');
       setLoading(false);
     }
   };
@@ -434,7 +434,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
     }
 
     setShowEmailModal(false);
-    setAuthMessage(`Magic link sent to ${normalizedEmail}. After signing in, return here and click Create Event.`);
+    setAuthMessage(`Magic link sent to ${normalizedEmail}. After signing in, return here and click Create Activity.`);
     setAuthLoading(false);
   };
 
@@ -452,7 +452,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
     }));
     setNeedsProfileDetails(false);
     setShowProfileModal(false);
-    setAuthMessage('Details saved. Click Create Event to finish.');
+    setAuthMessage('Details saved. Click Create Activity to finish.');
   };
 
   if (initialLoading) {
@@ -470,7 +470,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
           <button onClick={() => goBackOr(navigate, isEditing ? `/host/events/${id}` : '/')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
-          <h1 className="text-lg font-black text-slate-900 tracking-tight">{isEditing ? 'Edit Event' : 'New Event'}</h1>
+          <h1 className="text-lg font-black text-slate-900 tracking-tight">{isEditing ? 'Edit Activity' : 'New Activity'}</h1>
           <div className="w-10" /> {/* Spacer */}
         </div>
       </header>
@@ -485,7 +485,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
           {/* Basic Info */}
           <section className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100 space-y-6">
             <div>
-              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Event Title</label>
+              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Activity Title</label>
               <input
                 required
                 type="text"
@@ -498,11 +498,11 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
             <div>
               <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">
-                {formData.visibility === 'public' ? 'Event Description (Public)' : 'Full Event Description'}
+                {formData.visibility === 'public' ? 'Activity Description (Public)' : 'Full Activity Description'}
               </label>
               <textarea
                 rows={4}
-                placeholder={formData.visibility === 'public' ? 'What should people know?' : 'Visible only via the direct event link'}
+                placeholder={formData.visibility === 'public' ? 'What should people know?' : 'Visible only via the direct activity link'}
                 className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 outline-none transition-all font-medium text-sm"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
@@ -514,7 +514,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                 <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Public Summary</label>
                 <textarea
                   rows={3}
-                  placeholder="Shown on the public events list"
+                  placeholder="Shown on the public activities list"
                   className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 outline-none transition-all font-medium text-sm"
                   value={formData.public_summary}
                   onChange={(e) => setFormData({ ...formData, public_summary: e.target.value })}
@@ -581,7 +581,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                 ))}
               </select>
               <p className="text-xs text-slate-400 font-medium mt-2 px-1">
-                All event times are saved in UTC and shown using this timezone.
+                All activity times are saved in UTC and shown using this timezone.
               </p>
             </div>
 
@@ -591,7 +591,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
               </label>
               <input
                 type="text"
-                placeholder={formData.visibility === 'public' ? 'Where is it happening?' : 'Exact location (shown on direct event link)'}
+                placeholder={formData.visibility === 'public' ? 'Where is it happening?' : 'Exact location (shown on direct activity link)'}
                 className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
                 value={formData.location_text}
                 onChange={(e) => setFormData({ ...formData, location_text: e.target.value })}
@@ -675,7 +675,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                   <option value="private">Private link only</option>
                 </select>
                 <p className="text-xs text-slate-400 font-medium mt-2 px-1">
-                  Semi-public events appear in public browse with limited info. Full details are only visible via your shared link.
+                  Semi-public activities appear in public browse with limited info. Full details are only visible via your shared link.
                 </p>
               </div>
 
@@ -727,7 +727,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
           ) : (
             <section className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
               <p className="text-sm font-medium text-slate-600">
-                You can fill out your event now. On save, we will ask for your email and send a magic link to finish.
+                You can fill out your activity now. On save, we will ask for your email and send a magic link to finish.
               </p>
             </section>
           )}
@@ -750,7 +750,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
             disabled={loading}
             className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-lg py-4 rounded-2xl shadow-lg shadow-brand-600/10 mt-2 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
           >
-            {loading ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Event'}
+            {loading ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Activity'}
             {!loading && <Save className="w-5 h-5" />}
           </button>
         </motion.form>
@@ -774,7 +774,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
             >
               <h2 className="text-xl font-black text-slate-900 tracking-tight mb-2">Finish with Magic Link</h2>
               <p className="text-sm text-slate-500 font-medium mb-6">
-                To create this event, enter your email and we will send you a magic link.
+                To create this activity, enter your email and we will send you a magic link.
               </p>
 
               <form onSubmit={handleSendMagicLink} className="space-y-4">
@@ -829,7 +829,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
             >
               <h2 className="text-xl font-black text-slate-900 tracking-tight mb-2">One Last Step</h2>
               <p className="text-sm text-slate-500 font-medium mb-6">
-                Add your host details for this event.
+                Add your host details for this activity.
               </p>
               <form onSubmit={handleProfileDetailsSubmit} className="space-y-4">
                 <div>
