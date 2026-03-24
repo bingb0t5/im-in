@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, generateSlug } from '../utils';
 import { Event, Attendee, EventAccessRequest } from '../types';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
+import { goBackOr } from '../lib/navigation';
 
 export default function HostDashboard({ user }: { user: User | null }) {
   const { id } = useParams();
@@ -441,7 +442,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
     <div className="min-h-screen bg-slate-50 pb-24">
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-20">
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
-          <button onClick={() => navigate('/')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+          <button onClick={() => goBackOr(navigate, '/')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
           <div className="flex flex-col items-center">

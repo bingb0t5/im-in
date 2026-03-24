@@ -9,6 +9,7 @@ import { Event, Attendee } from '../types';
 import { guestService, AttendeeProfile } from '../services/guestService';
 import { findMyRsvps, getAttendanceSummary } from '../lib/attendees';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
+import { goBackOr } from '../lib/navigation';
 
 export default function EventDetail({ user }: { user: User | null }) {
   const { slug } = useParams();
@@ -586,7 +587,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       <div className="min-h-screen bg-slate-50 pb-24">
         <div className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
           <div className="max-w-xl mx-auto px-6 h-16 flex items-center justify-between">
-            <button onClick={() => navigate('/calendar')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+            <button onClick={() => goBackOr(navigate, '/calendar')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
               <ArrowLeft className="w-5 h-5 text-slate-600" />
             </button>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Event Preview</span>
@@ -732,7 +733,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       {/* Header */}
       <div className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
         <div className="max-w-xl mx-auto px-6 h-16 flex items-center justify-between">
-          <button onClick={() => navigate('/')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+          <button onClick={() => goBackOr(navigate, '/calendar')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Event Details</span>

@@ -6,6 +6,7 @@ import { motion } from 'motion/react';
 import { formatDay, formatTime } from '../utils';
 import { Event } from '../types';
 import { withConfirmedCounts, buildEventPath } from '../lib/events';
+import { goBackOr } from '../lib/navigation';
 import { User } from '@supabase/supabase-js';
 
 export default function Calendar({ user }: { user: User | null }) {
@@ -95,7 +96,7 @@ export default function Calendar({ user }: { user: User | null }) {
     <div className="min-h-screen bg-slate-50 pb-32">
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-6 h-16 flex items-center justify-between">
-          <button onClick={() => navigate('/')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+          <button onClick={() => goBackOr(navigate, '/')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
           <div className="flex flex-col items-center">
