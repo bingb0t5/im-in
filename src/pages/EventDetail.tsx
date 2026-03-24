@@ -519,8 +519,25 @@ export default function EventDetail({ user }: { user: User | null }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600"></div>
+      <div className="min-h-screen bg-slate-50 pb-24">
+        <div className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
+          <div className="max-w-xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div className="w-9 h-9 bg-slate-100 rounded-xl animate-pulse" />
+            <div className="w-24 h-4 bg-slate-100 rounded-full animate-pulse" />
+            <div className="w-16 h-8 bg-slate-100 rounded-xl animate-pulse" />
+          </div>
+        </div>
+        <main className="max-w-xl mx-auto px-6 pt-8 space-y-6">
+          <div className="space-y-3">
+            <div className="h-8 bg-slate-100 rounded-xl animate-pulse w-3/4" />
+            <div className="h-5 bg-slate-100 rounded-xl animate-pulse w-1/2" />
+            <div className="h-5 bg-slate-100 rounded-xl animate-pulse w-2/3" />
+          </div>
+          <div className="h-24 bg-slate-100 rounded-2xl animate-pulse" />
+          <div className="space-y-3">
+            {[1,2,3].map(i => <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />)}
+          </div>
+        </main>
       </div>
     );
   }
@@ -595,39 +612,31 @@ export default function EventDetail({ user }: { user: User | null }) {
           </div>
         </div>
 
-        <main className="max-w-xl mx-auto px-6 pt-8 space-y-6">
-          <section className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
-            <span className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-indigo-100 mb-4">
+        <main className="max-w-xl mx-auto px-6 pt-8 space-y-8">
+          <section className="space-y-6">
+            <span className="inline-flex items-center gap-1.5 text-indigo-500 text-[10px] font-bold uppercase tracking-widest">
               <Users className="w-3 h-3" /> Semi Public
             </span>
-            <h1 className="text-3xl font-black tracking-tight leading-tight text-slate-900 mb-6">{event.title}</h1>
+            <h1 className="text-3xl font-black tracking-tight leading-tight text-slate-900">{event.title}</h1>
 
-            <div className="space-y-4">
-              <div className="flex items-start gap-4">
-                <div className="w-10 h-10 bg-brand-50 rounded-xl flex items-center justify-center shrink-0">
-                  <Calendar className="w-5 h-5 text-brand-600" />
-                </div>
-                <p className="font-bold text-slate-900 text-base">{dayOnly}</p>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                <p className="font-bold text-slate-800 text-sm">{dayOnly}</p>
               </div>
-              <div className="flex items-start gap-4">
-                <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0">
-                  <MapPin className="w-5 h-5 text-blue-600" />
-                </div>
-                <p className="font-bold text-slate-900 text-base">{previewLocation}</p>
+              <div className="flex items-center gap-3">
+                <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                <p className="font-bold text-slate-800 text-sm">{previewLocation}</p>
               </div>
               {event.show_host_publicly && event.host_name && (
-                <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center shrink-0">
-                    <Users className="w-5 h-5 text-slate-600" />
-                  </div>
-                  <p className="font-bold text-slate-900 text-base">Hosted by {event.host_name}</p>
+                <div className="flex items-center gap-3">
+                  <Users className="w-4 h-4 text-slate-400 shrink-0" />
+                  <p className="font-bold text-slate-800 text-sm">Hosted by {event.host_name}</p>
                 </div>
               )}
             </div>
 
-            <div className="mt-8 pt-8 border-t border-slate-50">
-              <p className="text-slate-600 leading-relaxed whitespace-pre-wrap font-medium text-sm">{previewSummary}</p>
-            </div>
+            <p className="text-slate-500 leading-relaxed whitespace-pre-wrap text-sm">{previewSummary}</p>
           </section>
 
           <button
@@ -636,7 +645,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               setRequestSuccess(false);
               setShowRequestModal(true);
             }}
-            className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-lg py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
+            className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all active:scale-95"
           >
             Request to View
           </button>
@@ -755,172 +764,132 @@ export default function EventDetail({ user }: { user: User | null }) {
 
       <main className="max-w-xl mx-auto px-6 pt-8 space-y-8">
         {/* Hero Info */}
-        <section className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
-          <h1 className="text-3xl font-black tracking-tight leading-tight text-slate-900 mb-6">
+        <section className="space-y-5">
+          <div className="flex items-center gap-2">
+            {eventVisibility === 'public' ? (
+              <span className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">Public</span>
+            ) : eventVisibility === 'semi_public' ? (
+              <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Semi Public</span>
+            ) : (
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Private Link</span>
+            )}
+          </div>
+
+          <h1 className="text-3xl font-black tracking-tight leading-tight text-slate-900">
             {event.title}
           </h1>
           
-          <div className="mb-6 flex">
-            {eventVisibility === 'public' ? (
-              <span className="inline-flex items-center gap-1.5 bg-brand-50 text-brand-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-brand-100">
-                <Users className="w-3 h-3" /> Public Activity
-              </span>
-            ) : eventVisibility === 'semi_public' ? (
-              <span className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-indigo-100">
-                <Users className="w-3 h-3" /> Semi Public
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full border border-slate-200">
-                <Users className="w-3 h-3" /> Private Link
-              </span>
-            )}
-          </div>
-          
-          <div className="space-y-5">
-            <div className="flex items-start gap-4">
-              <div className="w-10 h-10 bg-brand-50 rounded-xl flex items-center justify-center shrink-0">
-                <Calendar className="w-5 h-5 text-brand-600" />
-              </div>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
               <div>
-                <p className="font-bold text-slate-900 text-base">{formatDate(event.starts_at, event.timezone)}</p>
-                <p className="text-xs text-slate-400 font-medium">
-                  Duration {formatDurationMinutes(event.duration_minutes)} - Timezone: {event.timezone || 'Asia/Ho_Chi_Minh'}
-                </p>
+                <p className="font-bold text-slate-800 text-sm">{formatDate(event.starts_at, event.timezone)}</p>
+                <p className="text-xs text-slate-400">{formatDurationMinutes(event.duration_minutes)}</p>
               </div>
             </div>
 
             {event.location_text && (
-              <div className="flex items-start gap-4">
-                <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0">
-                  <MapPin className="w-5 h-5 text-blue-600" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-bold text-slate-900 text-base">{event.location_text}</p>
+              <div className="flex items-start gap-3">
+                <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-slate-800 text-sm">{event.location_text}</p>
                   {event.google_maps_url && (
                     <button
                       type="button"
                       onClick={openDirections}
-                      className="mt-2 inline-flex items-center gap-2 text-xs font-black text-brand-600 hover:text-brand-500 transition-all"
+                      className="mt-1 text-xs font-bold text-brand-600 hover:text-brand-500 transition-all active:scale-95"
                     >
-                      <MapPin className="w-3.5 h-3.5" />
-                      Directions
+                      Get directions →
                     </button>
                   )}
                 </div>
               </div>
             )}
 
-            <div className="flex items-start gap-4">
-              <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center shrink-0">
-                <Users className="w-5 h-5 text-amber-600" />
-              </div>
+            <div className="flex items-center gap-3">
+              <Users className="w-4 h-4 text-slate-400 shrink-0" />
               <div>
-                <p className="font-bold text-slate-900 text-base">
-                  {confirmedCount} / {event.capacity} Going
-                </p>
+                <p className="font-bold text-slate-800 text-sm">{confirmedCount} / {event.capacity} going</p>
                 {isFull ? (
-                  <p className="text-xs text-amber-600 font-bold">
-                    {event.allow_waitlist ? `${waitlistCount} on waitlist` : 'Activity is full'}
+                  <p className="text-xs text-amber-500">
+                    {event.allow_waitlist ? `${waitlistCount} on waitlist` : 'Full'}
                   </p>
                 ) : (
-                  <p className="text-xs text-brand-600 font-bold">{spotsRemaining} spots left</p>
+                  <p className="text-xs text-slate-400">{spotsRemaining} spots left</p>
                 )}
               </div>
             </div>
           </div>
 
           {event.description && (
-            <div className="mt-8 pt-8 border-t border-slate-50">
-              <p className="text-slate-600 leading-relaxed whitespace-pre-wrap font-medium text-sm">{event.description}</p>
-            </div>
+            <p className="text-slate-500 leading-relaxed whitespace-pre-wrap text-sm pt-2">{event.description}</p>
           )}
         </section>
 
         {/* Attendee Preview */}
-        <section className="space-y-4">
-          <h2 className="text-xl font-black text-slate-900 tracking-tight px-1">Going</h2>
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
-            {attendees.length === 0 ? (
-              <p className="text-slate-400 text-center py-4 font-medium italic text-sm">Be the first to join!</p>
-            ) : (
-              <div className="space-y-4">
-                {attendees.map((attendee, i) => (
-                  <div key={attendee.id} className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-slate-50 rounded-lg flex items-center justify-center text-[10px] font-black text-slate-400">
-                        {i + 1}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-700 text-sm">{getDisplayName(attendee)}</span>
-                        {getAddedByLabel(attendee) && (
-                          <span className="text-[11px] text-slate-400 font-medium">{getAddedByLabel(attendee)}</span>
-                        )}
-                      </div>
+        {attendees.length > 0 && (
+          <section className="bg-white rounded-2xl overflow-hidden">
+            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest px-5 pt-4 pb-3">Going</p>
+            <div className="divide-y divide-slate-50">
+              {attendees.map((attendee, i) => (
+                <div key={attendee.id} className="px-5 py-3 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-bold text-slate-300 w-5 text-right">{i + 1}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-700 text-sm">{getDisplayName(attendee)}</span>
+                      {getAddedByLabel(attendee) && (
+                        <span className="text-[11px] text-slate-400">{getAddedByLabel(attendee)}</span>
+                      )}
                     </div>
-                    {attendee.status === 'waitlist' && (
-                      <span className="text-[9px] uppercase tracking-widest font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg">
-                        Waitlist
-                      </span>
-                    )}
-                    {attendee.status === 'confirmed' && (
-                      <CheckCircle2 className="w-5 h-5 text-brand-600" />
-                    )}
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
+                  {attendee.status === 'waitlist' && (
+                    <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">
+                      Waitlist
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {attendees.length === 0 && (
+          <p className="text-slate-400 text-sm px-1">Be the first to join!</p>
+        )}
 
         {/* Host Info */}
-        <section className="bg-slate-100 rounded-3xl p-6 flex items-center justify-between">
+        <section className="flex items-center justify-between py-4 border-t border-slate-100">
           <div>
-            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Hosted By</p>
-            <p className="text-lg font-black text-slate-800">{event.host_name || 'Anonymous'}</p>
+            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-0.5">Hosted by</p>
+            <p className="text-base font-bold text-slate-800">{event.host_name || 'Anonymous'}</p>
           </div>
-          {event.host_contact_text && (
-            <div className="flex items-center gap-3">
-              <p className="text-xs text-slate-500 hidden sm:block font-medium">{event.host_contact_text}</p>
-              {event.host_contact_text.replace(/\D/g, '') && (
-                <a 
-                  href={`https://wa.me/${event.host_contact_text.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi ${event.host_name}, I'm interested in your activity: ${event.title}`)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-12 h-12 bg-brand-600 hover:bg-brand-500 text-white rounded-xl flex items-center justify-center shadow-md shadow-brand-600/10 transition-all active:scale-95"
-                  title="Message on WhatsApp"
-                >
-                  <MessageCircle className="w-6 h-6" />
-                </a>
-              )}
-            </div>
+          {event.host_contact_text && event.host_contact_text.replace(/\D/g, '') && (
+            <a 
+              href={`https://wa.me/${event.host_contact_text.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi ${event.host_name}, I'm interested in your activity: ${event.title}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-11 h-11 bg-brand-600 hover:bg-brand-500 text-white rounded-xl flex items-center justify-center transition-all active:scale-95"
+              title="Message on WhatsApp"
+            >
+              <MessageCircle className="w-5 h-5" />
+            </a>
           )}
         </section>
       </main>
 
       {/* Fixed CTA */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 backdrop-blur-lg border-t border-slate-100 z-20">
-        <div className="max-w-xl mx-auto">
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-lg border-t border-slate-100 z-20">
+        <div className="max-w-xl mx-auto space-y-3">
           {myRsvps.length > 0 ? (
-            <div className="flex flex-col gap-3">
-              {hasManagedRsvps && !hasSelfRsvp && (
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
-                  People you added
-                </p>
-              )}
+            <>
               <div className="space-y-2 max-h-32 overflow-y-auto">
                 {myRsvps.map(rsvp => (
-                  <div key={rsvp.id} className="flex gap-2">
-                    <div className="flex-1 bg-brand-50 text-brand-600 font-bold py-3 rounded-xl flex items-center justify-between px-4 text-xs">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>{getDisplayName(rsvp)}</span>
-                      </div>
-                      {rsvp.status === 'confirmed' ? (
-                        <span>In</span>
-                      ) : (
-                        <span className="text-[9px] uppercase tracking-widest font-black bg-amber-50 text-amber-600 px-2 py-1 rounded-lg">
-                          Waitlist
-                        </span>
+                  <div key={rsvp.id} className="flex items-center justify-between bg-brand-50 rounded-xl px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-brand-600" />
+                      <span className="text-sm font-bold text-brand-700">{getDisplayName(rsvp)}</span>
+                      {rsvp.status === 'waitlist' && (
+                        <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Waitlist</span>
                       )}
                     </div>
                     <button 
@@ -930,7 +899,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                         setShowCancelModal(true);
                       }}
                       disabled={rsvpLoading}
-                      className="bg-slate-100 hover:bg-slate-200 text-slate-500 font-bold px-4 rounded-xl transition-all active:scale-95 text-[10px] uppercase tracking-widest"
+                      className="text-xs text-slate-400 hover:text-red-400 transition-all active:scale-95"
                     >
                       Cancel
                     </button>
@@ -941,42 +910,34 @@ export default function EventDetail({ user }: { user: User | null }) {
                 <button
                   onClick={() => handleRsvp()}
                   disabled={rsvpLoading || (isFull && !event.allow_waitlist)}
-                  className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-lg py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
+                  className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
                 >
                   {rsvpLoading ? 'Just a sec...' : isFull ? "Join Waitlist" : "I'm in"}
                 </button>
               )}
               <button 
-                onClick={() => {
-                  setProxyError(null);
-                  setShowProxyModal(true);
-                }}
-                className="w-full bg-white border border-brand-100 text-brand-600 font-black py-4 rounded-2xl shadow-sm hover:bg-brand-50 transition-all flex items-center justify-center gap-2 active:scale-95"
+                onClick={() => { setProxyError(null); setShowProxyModal(true); }}
+                className="w-full text-sm font-bold text-brand-600 hover:text-brand-500 py-2 transition-all flex items-center justify-center gap-1.5 active:scale-95"
               >
-                <Plus className="w-5 h-5" />
-                Add someone else
+                <Plus className="w-4 h-4" /> Add someone else
               </button>
-            </div>
+            </>
           ) : (
-            <div className="flex flex-col gap-3">
+            <>
               <button
                 onClick={() => handleRsvp()}
                 disabled={rsvpLoading || (isFull && !event.allow_waitlist)}
-                className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-lg py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
+                className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
               >
                 {rsvpLoading ? 'Just a sec...' : isFull ? "Join Waitlist" : "I'm in"}
               </button>
               <button
-                onClick={() => {
-                  setProxyError(null);
-                  setShowProxyModal(true);
-                }}
-                className="w-full bg-white border border-brand-100 text-brand-600 font-black py-3 rounded-2xl shadow-sm hover:bg-brand-50 transition-all flex items-center justify-center gap-2 active:scale-95 text-sm"
+                onClick={() => { setProxyError(null); setShowProxyModal(true); }}
+                className="w-full text-sm font-bold text-slate-400 hover:text-brand-600 py-2 transition-all flex items-center justify-center gap-1.5 active:scale-95"
               >
-                <Plus className="w-4 h-4" />
-                Add someone else
+                <Plus className="w-4 h-4" /> Add someone else
               </button>
-            </div>
+            </>
           )}
         </div>
       </div>
@@ -1321,11 +1282,6 @@ export default function EventDetail({ user }: { user: User | null }) {
         )}
       </AnimatePresence>
 
-      <footer className="max-w-xl mx-auto px-6 mt-12 pb-10 text-center">
-        <p className="text-slate-300 text-[9px] font-bold uppercase tracking-[0.2em]">
-          Powered by Lalo
-        </p>
-      </footer>
     </div>
   );
 }

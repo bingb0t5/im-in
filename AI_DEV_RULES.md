@@ -4,26 +4,29 @@
 
 These rules are for any AI assistant or developer working in this codebase.
 
-The goal is to keep changes safe in a frontend-first React/Supabase app where small UI edits can still affect auth, RSVP state, guest identity, and production data behavior.
+The app is small, but it has several high-risk flows: auth bootstrap, delayed-auth activity creation, guest identity, RSVP/waitlist logic, semi-public/private access behavior, and Supabase schema drift. Treat those flows carefully.
 
 ## Core Principles
 
-1. Treat this as a `React + Vite + Supabase` app, not an AI Studio or Airtable app.
-2. Assume Supabase schema, RLS, and client writes are tightly coupled.
+1. Treat this as a `React + Vite + Supabase` app, not an Airtable app or AI Studio/Gemini app.
+2. Assume frontend code, Supabase schema, RLS, and RPC behavior are tightly coupled.
 3. Prefer small, verifiable changes over broad refactors.
-4. Do not assume the checked-in SQL schema fully matches production.
+4. Do not assume the checked-in SQL fully matches production.
 5. Preserve existing user flows unless the task explicitly changes product behavior.
+6. Keep user-facing copy as **activity / activities**, even though routes/tables still use `event` naming internally.
 
 ## Architectural Truths
 
-Always work from these assumptions unless the repository is updated:
+Unless the repository is intentionally changed, always assume:
 
-- The app is a browser SPA with no first-party backend server in this repo.
-- Supabase is the real backend integration.
-- There is no Airtable integration in this codebase.
-- Signed-in users use Supabase Auth.
-- Guests use `attendee_profiles` + `attendee_sessions` + local token storage.
-- RSVP and waitlist behavior currently exist partly in client code and partly in SQL logic.
+- this is a browser SPA with no first-party backend server in this repo
+- Supabase is the real backend integration
+- there is no Airtable integration
+- signed-in users use Supabase Auth
+- guests use `attendee_profiles` + `attendee_sessions` + local token storage
+- the create flow supports delayed auth: fill the form first, authenticate only at save time
+- visibility modes matter: `public`, `semi_public`, and `private`
+- RSVP and waitlist integrity depend on both shared frontend logic and database-backed operations
 
 ## Files That Matter Most
 
@@ -32,56 +35,80 @@ Be especially careful when editing these:
 - `src/App.tsx`
 - `src/supabase.ts`
 - `src/services/guestService.ts`
+- `src/pages/CreateEvent.tsx`
 - `src/pages/EventDetail.tsx`
 - `src/pages/HostDashboard.tsx`
-- `src/pages/CreateEvent.tsx`
 - `src/pages/Login.tsx`
 - `src/pages/Bookings.tsx`
 - `src/pages/Recovery.tsx`
+- `src/lib/events.ts`
+- `src/lib/rsvp.ts`
+- `src/lib/navigation.ts`
+- `src/lib/authRedirect.ts`
+- `src/utils.ts`
 - `supabase_schema.sql`
+- `supabase_reconcile_live_schema.sql`
+- `SCHEMA_ALIGNMENT.md`
 
 ## Mandatory Safety Checks Before Changing Data Flows
 
-Before changing RSVP, waitlist, bookings, auth, or guest recovery logic:
+Before changing RSVP, waitlist, auth, guest recovery, bookings, access requests, or visibility behavior:
 
-1. Read the relevant page or service file completely.
-2. Check `supabase_schema.sql` for related tables, triggers, functions, and RLS.
-3. Compare the app code against the SQL schema for drift.
+1. Read the relevant page/service/helper files completely.
+2. Check both `supabase_schema.sql` and `supabase_reconcile_live_schema.sql` for related tables, RLS, RPCs, triggers, and constraints.
+3. Compare the frontend code against schema/docs for drift.
 4. Confirm whether the flow depends on:
    - `auth.users`
    - `attendee_profiles`
    - `attendee_sessions`
    - `event_attendees`
    - `event_waitlist_positions`
-5. Document any mismatch you discover instead of silently coding past it.
+   - `event_access_requests`
+   - `events.visibility`
+   - `events.access_code`
+5. Document mismatches instead of silently coding past them.
 
 ## Do Not Assume The Schema Is Complete
 
-`supabase_schema.sql` is a snapshot and may lag the live Supabase schema.
+`supabase_schema.sql` is a repository snapshot and may lag the live Supabase schema.
 
 Rules:
 
-- Do not state that the checked-in SQL is the full production schema unless you verify it elsewhere.
-- If you add code that touches guest identity, call out schema dependencies explicitly.
-- If a task requires reliable schema documentation, update docs and migrations together.
+- Do not claim the checked-in SQL is the full production truth unless you verify it.
+- If you touch guest identity, access requests, timezone/duration fields, or RSVP behavior, call out the schema dependencies explicitly.
+- If a task changes schema expectations, update docs and migrations/scripts together.
+- Treat `SCHEMA_ALIGNMENT.md` as relevant context when schema truth is unclear.
 
 ## Auth And Identity Rules
 
 ### Signed-In Users
 
 - Protected host routes depend on Supabase `user`.
-- Login supports both magic link and Google OAuth.
-- `App.tsx` syncs the signed-in user into the guest-profile system.
+- Login is currently **magic-link only**.
+- `App.tsx` syncs signed-in users into the guest-profile system.
 
 Rules:
 
 - Do not break `supabase.auth.getSession()` bootstrap behavior.
-- Do not remove `onAuthStateChange` syncing without replacing it with equivalent behavior.
+- Do not remove `onAuthStateChange` syncing without equivalent replacement.
+- Do not reintroduce Google OAuth or UI for it unless explicitly requested.
 - Do not add host-only UI without protecting the route or action.
+- Preserve deployment-aware redirect handling when touching auth flows.
+
+### Delayed-Auth Create Flow
+
+`CreateEvent.tsx` intentionally allows signed-out users to fill the form before they authenticate.
+
+Rules:
+
+- Do not force login at page entry unless explicitly requested.
+- Do not break create-form draft persistence.
+- If you change create/edit fields, verify draft restore behavior.
+- If you touch auth redirects in the create flow, verify the user can still finish saving after login.
 
 ### Guest Users
 
-Guest identity is not just anonymous UI state. It is persisted through:
+Guest identity is real application state, persisted through:
 
 - `localStorage`
 - `attendee_profiles`
@@ -90,30 +117,32 @@ Guest identity is not just anonymous UI state. It is persisted through:
 Rules:
 
 - Do not clear or overwrite guest session tokens casually.
-- Do not change token storage keys without migration/backward-compat handling.
+- Do not change storage keys without backward-compat handling.
 - Do not assume guest bookings can be derived from email alone.
 - Preserve recovery-link behavior unless explicitly redesigning it.
 
 ## RSVP And Waitlist Rules
 
-This is the most fragile part of the codebase.
+This is one of the most fragile areas in the app.
 
 Rules:
 
-- Do not introduce new RSVP paths without checking existing insert/update logic in:
+- Do not introduce new RSVP paths without checking existing logic in:
   - `src/pages/EventDetail.tsx`
   - `src/pages/HostDashboard.tsx`
-  - `src/pages/CreateEvent.tsx`
-  - `supabase_schema.sql`
-- Do not change waitlist behavior in only one place if the same concept exists in both SQL and client code.
-- Current project decision: treat the frontend RSVP flow as authoritative for now, and keep RSVP status/promotion logic centralized in shared frontend helpers.
-- If you touch attendee status transitions, inspect:
+  - `src/lib/rsvp.ts`
+  - `src/lib/attendees.ts`
+  - `supabase_reconcile_live_schema.sql`
+- Do not change waitlist behavior in only one place if the same concept exists elsewhere.
+- Prefer existing RPCs for fragile attendee operations instead of adding new direct write paths casually.
+- If you touch attendee transitions, inspect:
   - `confirmed`
   - `waitlist`
   - `cancelled`
   - `promoted_at`
   - `cancelled_at`
-- Prefer a single source of truth when possible, but do not force that refactor unless requested.
+  - proxy-added attendees
+  - host-added attendees
 
 When editing RSVP logic, explicitly think through:
 
@@ -123,14 +152,48 @@ When editing RSVP logic, explicitly think through:
 - cancellation promotion
 - guest vs authenticated attendee matching
 - proxy RSVP behavior
+- semi-public/private path behavior after join
+
+## Visibility / Sharing Rules
+
+Current visibility contract:
+
+- `is_public = true` => discoverable in public browse
+- `is_public = false` => hidden from public browse
+- `visibility = semi_public` => public preview + host-shared private link
+- `visibility = private` => unlisted/link-only behavior
+
+Rules:
+
+- Keep visibility behavior consistent across:
+  - calendar browse
+  - event path building
+  - share/copy actions
+  - host preview/manage pages
+- When editing navigation, confirm joined users still get the correct private/public path.
+- When editing semi-public flows, check access-request behavior and host actions together.
+
+## Time / Timezone Rules
+
+The app now stores schedule data using:
+
+- `starts_at` in UTC
+- `timezone` as authoring/display context
+- `duration_minutes` instead of authoring around end time
+
+Rules:
+
+- Do not reintroduce device-time assumptions accidentally.
+- If you touch scheduling UI, verify create, edit, display, and copy/duplicate behavior.
+- Keep `utils.ts` timezone helpers aligned with UI behavior.
 
 ## Supabase Access Rules
 
 - Keep database access patterns readable and localized.
-- Use existing table names and field names exactly.
-- Do not invent schema fields without also updating docs/migrations.
+- Use existing table names and fields exactly.
+- Do not invent schema fields without updating migrations/docs.
 - Be careful with client-side writes because security depends on RLS, not hidden server code.
-- If a change needs stronger guarantees, recommend moving logic to a stored procedure or server-side path.
+- If a change needs stronger guarantees, prefer an RPC or clearly documented server-side pattern.
 
 ## Environment Variable Rules
 
@@ -138,128 +201,145 @@ Current meaningful env vars:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+- `VITE_APP_URL`
 
-Optional/legacy env vars:
+Legacy optional:
 
 - `APP_URL`
-- `DISABLE_HMR`
 
 Rules:
 
-- Do not add new env vars unless they are truly needed.
-- If you add a new env var, update:
+- Do not add new env vars unless truly needed.
+- If you add or change an env var, update:
   - `.env.example`
-  - relevant docs
+  - `README.md`
+  - `PROJECT_ARCHITECTURE.md`
   - deployment notes
 - Remember that `VITE_*` vars are exposed to the client bundle.
 
 ## UI / Routing Rules
 
 - Maintain compatibility with `BrowserRouter`.
-- Preserve deep-link behavior for `/events/:slug`, `/host/events/:id`, `/bookings`, and `/recover`.
-- When adding routes, ensure they make sense for static hosting with SPA rewrites.
-- Visibility contract (current):
-  - `is_public = true` => show in public calendar discovery.
-  - `is_public = false` => hide from public listings.
-  - private events are currently unlisted, not access-restricted, on `/events/:slug`.
-- Keep this contract consistent unless product/RLS policy is intentionally changed.
+- Preserve deep-link behavior for:
+  - `/events/:slug`
+  - `/host/events/:id`
+  - `/host/events/:id/edit`
+  - `/calendar`
+  - `/bookings`
+  - `/recover`
+- When adding routes, ensure they still work with static-host SPA rewrites.
+- After broad UI refactors, do route-by-route smoke checks.
 
 ## Documentation Rules
 
-When architecture changes, update docs in the same task when practical.
+When architecture or product behavior changes, update docs in the same task when practical.
 
 At minimum, update docs if you change:
 
 - routes/pages
 - auth flow
+- create/edit behavior
 - env vars
 - deployment assumptions
 - schema expectations
+- visibility/share-link rules
 - guest recovery behavior
+- timezone/duration behavior
 
-Docs should prefer the current real architecture:
+Docs should describe the current real architecture:
 
 - Supabase, not Airtable
-- events app, not Gemini app
+- activities app, not Gemini app
+- magic-link only auth
+- delayed-auth create flow
 
 ## Dependency Rules
-
-There are likely unused dependencies in this repo.
 
 Rules:
 
 - Do not add packages casually for small problems.
 - Before adding a dependency, check whether existing utilities already solve it.
-- If removing a dependency, confirm it is unused first.
-- If touching setup docs, avoid reinforcing stale AI Studio/Gemini assumptions unless the code is restored to use them.
+- If removing a dependency, confirm it is actually unused.
+- Avoid reintroducing stale setup assumptions into docs or code.
 
 ## Testing Expectations
 
 There is no automated test suite right now, so manual verification matters.
 
-After any meaningful change, verify the relevant flows manually when possible:
+After meaningful changes, verify the relevant flows manually when possible:
 
-1. App boots with valid Supabase env vars.
-2. Login page still works.
+1. App boots with valid env vars.
+2. Login still works.
 3. Protected routes still redirect correctly.
-4. Event creation/edit flow still saves.
+4. Create activity still works for:
+   - signed-in user
+   - signed-out delayed-auth save flow
+   - edit mode
 5. Public calendar still loads.
-6. Event detail page still fetches attendees.
+6. Activity detail page still loads attendees.
 7. RSVP still works for:
    - signed-in user
    - guest user
    - waitlist case
+   - proxy/add-another-person case
 8. Cancellation still works.
-9. Guest bookings still load.
-10. Recovery link flow still restores session.
+9. Semi-public share/access-request behavior still works.
+10. Guest bookings still load.
+11. Recovery link flow still restores session.
+12. Host manage page still supports preview/share/edit paths.
 
-If you cannot run verification, say so clearly.
+If you cannot verify a flow, say so clearly.
 
 ## Deployment Rules
 
 Assume static deployment unless the repo changes significantly.
 
-For Render:
+For Render/static hosting:
 
 - build output is `dist`
 - SPA rewrites are required
 - `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` must be available at build time
+- `VITE_APP_URL` should be considered when auth redirect correctness matters
 
 If changing deployment behavior:
 
 - update `PROJECT_ARCHITECTURE.md`
-- update setup/deployment docs
-- call out any required Render setting changes
+- update `README.md`
+- call out required host configuration changes
 
 ## Good Change Patterns
 
 Preferred patterns:
 
 - small focused edits
-- explicit comments only where logic is non-obvious
+- explicit comments only when logic is non-obvious
 - updates that keep schema/docs/code aligned
-- preserving existing UI behavior unless product changes are requested
+- preserving current behavior unless product changes are requested
+- route-by-route smoke checks after broad UI changes
 
 Avoid:
 
-- broad stylistic rewrites
-- renaming core fields without migrations
-- mixing unrelated refactors into behavior fixes
-- silently changing auth or guest-session semantics
+- broad stylistic rewrites bundled into behavior fixes
+- renaming core route/table/schema fields without migrations
+- mixing unrelated refactors into fragile flow changes
+- silently changing auth, guest-session, or visibility semantics
 
 ## Known Hotspots
 
 Watch for these known risks:
 
-- schema drift between frontend and SQL
+- schema drift between frontend expectations and SQL
 - stale README/setup instructions
-- RPC and frontend logic drift for RSVP/cancel flows
-- duplicated waitlist/business logic across client and SQL
+- RPC/frontend logic drift for RSVP/cancel flows
+- duplicated business logic across client and SQL
 - demo-grade recovery token/email flow
+- auth redirect drift between localhost and deployed environments
+- regressions in semi-public/private link handling
+- regressions in timezone/duration save/display behavior
 
 ## If Unsure
 
-When a task touches data integrity, auth, or deployment and the safest behavior is unclear:
+When a task touches data integrity, auth, visibility, or deployment and the safest behavior is unclear:
 
 1. stop broad implementation
 2. explain the ambiguity
@@ -270,7 +350,8 @@ When a task touches data integrity, auth, or deployment and the safest behavior 
 
 - Supabase is the backend.
 - Airtable is not used.
-- Guest identity is real application state, not temporary UI state.
-- RSVP/waitlist changes are high risk.
-- Schema and code are currently not perfectly aligned.
+- Guest identity is real application state.
+- Magic-link auth and delayed-auth create flow are important product behavior.
+- RSVP/waitlist and visibility/link behavior are high risk.
+- Schema and code are not perfectly aligned.
 - Keep changes small, explicit, and documented.
