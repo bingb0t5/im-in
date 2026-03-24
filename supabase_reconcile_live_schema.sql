@@ -202,6 +202,120 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 GRANT EXECUTE ON FUNCTION public.cancel_attendee_with_promotion(UUID, TEXT) TO anon, authenticated;
 
 -- -------------------------------------------------------------------
+-- 6b) Reliable RSVP RPC (avoids fragile direct INSERT/UPDATE policy paths)
+-- -------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.submit_rsvp(
+    p_event_id UUID,
+    p_guest_name TEXT,
+    p_guest_email TEXT,
+    p_attendee_profile_id UUID DEFAULT NULL
+) RETURNS JSON AS $$
+DECLARE
+    v_capacity INTEGER;
+    v_allow_waitlist BOOLEAN;
+    v_confirmed_count INTEGER;
+    v_status TEXT;
+    v_existing_id UUID;
+    v_existing_status TEXT;
+    v_attendee_id UUID;
+    v_guest_name TEXT;
+    v_guest_email TEXT;
+BEGIN
+    v_guest_name := trim(coalesce(p_guest_name, ''));
+    v_guest_email := lower(trim(coalesce(p_guest_email, '')));
+
+    IF p_event_id IS NULL OR v_guest_name = '' OR v_guest_email = '' THEN
+        RETURN json_build_object('error', 'Missing RSVP details');
+    END IF;
+
+    SELECT e.capacity, e.allow_waitlist
+    INTO v_capacity, v_allow_waitlist
+    FROM public.events e
+    WHERE e.id = p_event_id
+      AND e.status = 'scheduled';
+
+    IF v_capacity IS NULL THEN
+        RETURN json_build_object('error', 'Event not found');
+    END IF;
+
+    SELECT ea.id, ea.status
+    INTO v_existing_id, v_existing_status
+    FROM public.event_attendees ea
+    WHERE ea.event_id = p_event_id
+      AND (
+        lower(ea.guest_email) = v_guest_email
+        OR (p_attendee_profile_id IS NOT NULL AND ea.attendee_profile_id = p_attendee_profile_id)
+      )
+    ORDER BY
+      CASE WHEN ea.status = 'cancelled' THEN 1 ELSE 0 END,
+      ea.joined_at DESC
+    LIMIT 1;
+
+    IF v_existing_id IS NOT NULL AND v_existing_status <> 'cancelled' THEN
+        RETURN json_build_object('error', 'You have already said you''re in!');
+    END IF;
+
+    SELECT count(*) INTO v_confirmed_count
+    FROM public.event_attendees ea
+    WHERE ea.event_id = p_event_id
+      AND ea.status = 'confirmed';
+
+    IF v_confirmed_count < v_capacity THEN
+        v_status := 'confirmed';
+    ELSIF v_allow_waitlist THEN
+        v_status := 'waitlist';
+    ELSE
+        RETURN json_build_object('error', 'Event is full and waitlist is disabled');
+    END IF;
+
+    IF v_existing_id IS NOT NULL THEN
+        UPDATE public.event_attendees
+        SET
+            status = v_status,
+            guest_name = v_guest_name,
+            guest_email = v_guest_email,
+            attendee_profile_id = p_attendee_profile_id,
+            user_id = NULL,
+            joined_at = now(),
+            promoted_at = null,
+            cancelled_at = null
+        WHERE id = v_existing_id
+        RETURNING id INTO v_attendee_id;
+    ELSE
+        INSERT INTO public.event_attendees (
+            event_id,
+            user_id,
+            attendee_profile_id,
+            guest_name,
+            guest_email,
+            status
+        )
+        VALUES (
+            p_event_id,
+            NULL,
+            p_attendee_profile_id,
+            v_guest_name,
+            v_guest_email,
+            v_status
+        )
+        RETURNING id INTO v_attendee_id;
+    END IF;
+
+    RETURN json_build_object(
+        'success', true,
+        'status', v_status,
+        'attendee_id', v_attendee_id
+    );
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN json_build_object('error', SQLERRM);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.submit_rsvp(UUID, TEXT, TEXT, UUID) TO anon, authenticated;
+
+-- -------------------------------------------------------------------
 -- 7) Reliable proxy-add RPC (avoids fragile direct INSERT policy paths)
 -- -------------------------------------------------------------------
 

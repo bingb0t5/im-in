@@ -27,6 +27,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
   }>({ show: false, type: 'event', id: '' });
   const [confirmText, setConfirmText] = useState('');
 
+  const getDisplayName = (name?: string | null, email?: string | null) => {
+    const explicitName = (name || '').trim();
+    if (explicitName) return explicitName;
+    const localPart = (email || '').split('@')[0] || '';
+    const fallback = localPart.replace(/[._-]+/g, ' ').trim();
+    return fallback || 'Guest';
+  };
+
   useEffect(() => {
     if (!user) return;
     fetchEvent();
@@ -361,12 +369,12 @@ export default function HostDashboard({ user }: { user: User | null }) {
                         <CheckCircle2 className="w-5 h-5 text-brand-600" />
                       </div>
                       <div>
-                        <p className="font-bold text-slate-800 text-sm">{a.guest_name}</p>
+                        <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
                         <p className="text-[11px] text-slate-400 font-medium">{a.guest_email}</p>
                       </div>
                     </div>
                     <button 
-                      onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: a.guest_name })} 
+                      onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getDisplayName(a.guest_name, a.guest_email) })} 
                       className="p-2 text-slate-200 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -397,12 +405,12 @@ export default function HostDashboard({ user }: { user: User | null }) {
                           <Clock className="w-5 h-5 text-amber-600" />
                         </div>
                         <div>
-                          <p className="font-bold text-slate-800 text-sm">{a.guest_name}</p>
+                          <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
                           <p className="text-[11px] text-slate-400 font-medium">#{i + 1} on waitlist</p>
                         </div>
                       </div>
                       <button 
-                        onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: a.guest_name })} 
+                        onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getDisplayName(a.guest_name, a.guest_email) })} 
                         className="p-2 text-slate-200 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                       >
                         <Trash2 className="w-4 h-4" />

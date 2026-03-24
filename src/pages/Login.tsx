@@ -5,6 +5,7 @@ import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { Mail, ArrowRight, CheckCircle2, ArrowLeft, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { guestService } from '../services/guestService';
+import { buildAuthRedirectUrl } from '../lib/authRedirect';
 
 export default function Login({ user }: { user: User | null }) {
   const [searchParams] = useSearchParams();
@@ -33,7 +34,7 @@ export default function Login({ user }: { user: User | null }) {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo: buildAuthRedirectUrl('/'),
       },
     });
 
@@ -51,7 +52,7 @@ export default function Login({ user }: { user: User | null }) {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin,
+        redirectTo: buildAuthRedirectUrl('/'),
       },
     });
     if (error) setError(error.message);

@@ -26,7 +26,8 @@ Required for the app to run:
 
 Optional:
 
-- `APP_URL` (only needed in some hosted setups)
+- `VITE_APP_URL` (optional auth redirect override for hosted/proxied setups)
+- `APP_URL` (legacy optional)
 
 ## Local Development
 
