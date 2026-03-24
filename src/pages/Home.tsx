@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { useNavigate, Link } from 'react-router-dom';
-import { Plus, Calendar as CalendarIcon, ChevronRight, LogOut, MessageSquare, Users, MapPin, X, Heart, Info } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, ChevronRight, LogOut, MessageSquare, Users, MapPin, X, Heart, Info, ThumbsUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate } from '../utils';
 import { Event } from '../types';
@@ -103,10 +103,10 @@ export default function Home({ user }: { user: User | null }) {
           <div className="space-y-6">
             <div className="space-y-4">
               <Link 
-                to="/login" 
+                to="/create-event" 
                 className="block w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all flex items-center justify-center gap-2 active:scale-95"
               >
-                Get Started
+                Create an Event
                 <ChevronRight className="w-5 h-5" />
               </Link>
 
@@ -114,7 +114,7 @@ export default function Home({ user }: { user: User | null }) {
                 to="/calendar" 
                 className="block w-full bg-white hover:bg-slate-50 text-slate-900 font-black py-4 rounded-2xl border border-slate-100 shadow-sm transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
               >
-                Browse Events
+                What's On
                 <CalendarIcon className="w-5 h-5 text-brand-600" />
               </Link>
 
@@ -122,8 +122,8 @@ export default function Home({ user }: { user: User | null }) {
                 to={hasGuestSession ? "/bookings" : "/login?recovery=true"} 
                 className="block w-full bg-brand-50 hover:bg-brand-100 text-brand-600 font-black py-4 rounded-2xl border border-brand-100 shadow-sm transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
               >
-                My Bookings
-                <ChevronRight className="w-5 h-5" />
+                Events I'm In
+                <ThumbsUp className="w-5 h-5" />
               </Link>
               
               <div className="flex items-center justify-center gap-6">
@@ -284,7 +284,7 @@ export default function Home({ user }: { user: User | null }) {
           </div>
           <div className="flex items-center gap-4">
             <Link to="/calendar" className="text-slate-600 hover:text-brand-600 text-xs font-black flex items-center gap-1.5 transition-colors">
-              <CalendarIcon className="w-4 h-4" /> Browse Events
+              <CalendarIcon className="w-4 h-4" /> What's On
             </Link>
             <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all">
               <LogOut className="w-5 h-5" />
@@ -392,7 +392,7 @@ export default function Home({ user }: { user: User | null }) {
               <h3 className="text-lg font-black text-slate-900 mb-2">No bookings yet</h3>
               <p className="text-slate-500 mb-8 text-sm font-medium">Browse the calendar to find something to join.</p>
               <Link to="/calendar" className="text-brand-600 font-black text-sm hover:text-brand-500 transition-colors inline-flex items-center gap-2">
-                Browse Events <ChevronRight className="w-4 h-4" />
+                What's On <ChevronRight className="w-4 h-4" />
               </Link>
             </div>
           ) : (
