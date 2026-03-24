@@ -4,7 +4,7 @@ import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, X, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { formatDate, formatDay, formatDurationMinutes } from '../utils';
+import { buildGoogleCalendarEventUrl, formatDate, formatDay, formatDurationMinutes } from '../utils';
 import { Event, Attendee, EventInterest } from '../types';
 import { guestService, AttendeeProfile } from '../services/guestService';
 import { findMyRsvps, getAttendanceSummary } from '../lib/attendees';
@@ -756,6 +756,28 @@ export default function EventDetail({ user }: { user: User | null }) {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
+  const openGoogleCalendar = () => {
+    const activityUrl = eventVisibility === 'semi_public' ? privateEventUrl : window.location.href;
+    const detailsLines = [
+      event.description?.trim() || '',
+      '',
+      `View activity: ${activityUrl}`,
+      event.google_maps_url?.trim() ? `Directions: ${event.google_maps_url.trim()}` : '',
+    ].filter(Boolean);
+
+    const calendarUrl = buildGoogleCalendarEventUrl({
+      title: event.title,
+      startsAtIso: event.starts_at,
+      endsAtIso: event.ends_at || null,
+      durationMinutes: event.duration_minutes || 60,
+      timezone: event.timezone,
+      location: event.location_text || '',
+      details: detailsLines.join('\n'),
+    });
+
+    window.open(calendarUrl, '_blank', 'noopener,noreferrer');
+  };
+
   if (!hasFullEventAccess) {
     const dayOnly = formatDay(event.starts_at, event.timezone);
     const previewLocation = event.public_location_text || 'Town/city shared by host';
@@ -981,6 +1003,17 @@ export default function EventDetail({ user }: { user: User | null }) {
               </div>
             </div>
           </div>
+
+          {hasSelfRsvp && (
+            <button
+              type="button"
+              onClick={openGoogleCalendar}
+              className="inline-flex items-center gap-2 mt-2 text-sm font-bold text-brand-600 hover:text-brand-500 transition-all active:scale-95"
+            >
+              <Calendar className="w-4 h-4" />
+              Add to Google Calendar
+            </button>
+          )}
 
           {event.description && (
             <p className="text-slate-500 leading-relaxed whitespace-pre-wrap text-sm pt-2">{event.description}</p>
