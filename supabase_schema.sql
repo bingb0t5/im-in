@@ -171,6 +171,180 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
+-- Thinking-about-it rows
+CREATE TABLE IF NOT EXISTS public.event_interests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    attendee_profile_id UUID REFERENCES public.attendee_profiles(id) ON DELETE SET NULL,
+    guest_name TEXT NOT NULL,
+    guest_email TEXT NOT NULL,
+    visibility_mode TEXT NOT NULL DEFAULT 'named' CHECK (visibility_mode IN ('count_only', 'named')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS event_interests_event_id_created_at_idx
+    ON public.event_interests (event_id, created_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_interests_event_user_uidx
+    ON public.event_interests (event_id, user_id)
+    WHERE user_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_interests_event_profile_uidx
+    ON public.event_interests (event_id, attendee_profile_id)
+    WHERE attendee_profile_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_interests_event_email_uidx
+    ON public.event_interests (event_id, lower(guest_email));
+
+ALTER TABLE public.event_interests ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Public can view count-only interest rows" ON public.event_interests
+    FOR SELECT USING (visibility_mode = 'count_only');
+
+CREATE POLICY "Hosts and members can view named interest rows" ON public.event_interests
+    FOR SELECT USING (
+        auth.uid() IS NOT NULL
+        AND (
+            auth.uid() IN (
+                SELECT e.host_user_id
+                FROM public.events e
+                WHERE e.id = event_id
+            )
+            OR auth.uid() IN (
+                SELECT ea.user_id
+                FROM public.event_attendees ea
+                WHERE ea.event_id = event_id
+                  AND ea.status <> 'cancelled'
+                  AND ea.user_id IS NOT NULL
+            )
+            OR auth.uid() IN (
+                SELECT ap.user_id
+                FROM public.attendee_profiles ap
+                WHERE ap.id = attendee_profile_id
+            )
+        )
+    );
+
+CREATE OR REPLACE FUNCTION public.touch_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER event_interests_touch_updated_at
+    BEFORE UPDATE ON public.event_interests
+    FOR EACH ROW
+    EXECUTE FUNCTION public.touch_updated_at();
+
+CREATE OR REPLACE FUNCTION public.toggle_event_interest(
+    p_event_id UUID,
+    p_guest_name TEXT,
+    p_guest_email TEXT,
+    p_visibility_mode TEXT DEFAULT 'named',
+    p_user_id UUID DEFAULT NULL,
+    p_attendee_profile_id UUID DEFAULT NULL
+) RETURNS JSON AS $$
+DECLARE
+    v_name TEXT;
+    v_email TEXT;
+    v_existing_id UUID;
+    v_existing_visibility_mode TEXT;
+    v_active_rsvp_id UUID;
+    v_interest_id UUID;
+BEGIN
+    v_name := trim(coalesce(p_guest_name, ''));
+    v_email := lower(trim(coalesce(p_guest_email, '')));
+
+    IF p_event_id IS NULL OR v_name = '' OR v_email = '' THEN
+        RETURN json_build_object('error', 'Missing interest details');
+    END IF;
+
+    IF p_visibility_mode NOT IN ('count_only', 'named') THEN
+        RETURN json_build_object('error', 'Invalid visibility mode');
+    END IF;
+
+    SELECT ea.id
+    INTO v_active_rsvp_id
+    FROM public.event_attendees ea
+    WHERE ea.event_id = p_event_id
+      AND ea.status <> 'cancelled'
+      AND coalesce(ea.added_by_type, 'self') <> 'proxy'
+      AND (
+        lower(ea.guest_email) = v_email
+        OR (p_attendee_profile_id IS NOT NULL AND ea.attendee_profile_id = p_attendee_profile_id)
+        OR (p_user_id IS NOT NULL AND ea.user_id = p_user_id)
+      )
+    LIMIT 1;
+
+    IF v_active_rsvp_id IS NOT NULL THEN
+        RETURN json_build_object('error', 'You are already in this activity');
+    END IF;
+
+    SELECT ei.id, ei.visibility_mode
+    INTO v_existing_id, v_existing_visibility_mode
+    FROM public.event_interests ei
+    WHERE ei.event_id = p_event_id
+      AND (
+        (p_user_id IS NOT NULL AND ei.user_id = p_user_id)
+        OR (p_attendee_profile_id IS NOT NULL AND ei.attendee_profile_id = p_attendee_profile_id)
+        OR lower(ei.guest_email) = v_email
+      )
+    ORDER BY ei.created_at DESC
+    LIMIT 1;
+
+    IF v_existing_id IS NOT NULL THEN
+        IF v_existing_visibility_mode = p_visibility_mode THEN
+            DELETE FROM public.event_interests
+            WHERE id = v_existing_id;
+            RETURN json_build_object('success', true, 'removed', true);
+        END IF;
+
+        UPDATE public.event_interests
+        SET
+            guest_name = v_name,
+            guest_email = v_email,
+            user_id = p_user_id,
+            attendee_profile_id = p_attendee_profile_id,
+            visibility_mode = p_visibility_mode,
+            updated_at = now()
+        WHERE id = v_existing_id;
+
+        RETURN json_build_object('success', true, 'removed', false);
+    END IF;
+
+    INSERT INTO public.event_interests (
+        event_id,
+        user_id,
+        attendee_profile_id,
+        guest_name,
+        guest_email,
+        visibility_mode
+    )
+    VALUES (
+        p_event_id,
+        p_user_id,
+        p_attendee_profile_id,
+        v_name,
+        v_email,
+        p_visibility_mode
+    )
+    RETURNING id INTO v_interest_id;
+
+    RETURN json_build_object('success', true, 'removed', false, 'interest_id', v_interest_id);
+EXCEPTION
+    WHEN unique_violation THEN
+        RETURN json_build_object('error', 'Interest already exists for this activity');
+    WHEN OTHERS THEN
+        RETURN json_build_object('error', SQLERRM);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.toggle_event_interest(UUID, TEXT, TEXT, TEXT, UUID, UUID) TO anon, authenticated;
+
 CREATE TRIGGER on_attendee_cancelled
     AFTER UPDATE ON public.event_attendees
     FOR EACH ROW

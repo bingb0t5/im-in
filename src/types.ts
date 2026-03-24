@@ -24,6 +24,7 @@ export interface Event {
   created_at: string;
   updated_at: string;
   confirmed_count?: number;
+  thinking_count?: number;
 }
 
 export interface EventAccessRequest {
@@ -50,6 +51,18 @@ export interface Attendee {
   joined_at: string;
   promoted_at?: string;
   cancelled_at?: string;
+}
+
+export interface EventInterest {
+  id: string;
+  event_id: string;
+  user_id?: string | null;
+  attendee_profile_id?: string | null;
+  guest_name: string;
+  guest_email: string;
+  visibility_mode: 'count_only' | 'named';
+  created_at: string;
+  updated_at: string;
 }
 
 export interface WaitlistPosition {

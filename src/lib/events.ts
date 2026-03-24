@@ -2,12 +2,14 @@ import { Event } from '../types';
 
 type EventWithAttendeeStatuses = Event & {
   event_attendees?: Array<{ status?: string }>;
+  event_interests?: Array<{ id?: string }>;
 };
 
 export function withConfirmedCounts(events: EventWithAttendeeStatuses[]): Event[] {
   return events.map((event) => ({
     ...event,
     confirmed_count: event.event_attendees?.filter((a) => a.status === 'confirmed').length || 0,
+    thinking_count: event.event_interests?.length || 0,
   }));
 }
 

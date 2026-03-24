@@ -24,7 +24,11 @@ export function groupBookingsByEvent(bookings: BookingRow[]): GroupedBooking[] {
         };
       } else {
         acc[eventId].attendees.push(booking.guest_name);
-        if (booking.status === 'confirmed') acc[eventId].status = 'confirmed';
+        if (booking.status === 'confirmed') {
+          acc[eventId].status = 'confirmed';
+        } else if (booking.status === 'waitlist' && acc[eventId].status !== 'confirmed') {
+          acc[eventId].status = 'waitlist';
+        }
       }
 
       return acc;

@@ -5,7 +5,7 @@ import { User } from '@supabase/supabase-js';
 import { Users, Share2, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Clock, Edit2, Plus, X, AlertCircle, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, formatDurationMinutes, generateSlug } from '../utils';
-import { Event, Attendee, EventAccessRequest } from '../types';
+import { Event, Attendee, EventAccessRequest, EventInterest } from '../types';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { goBackOr } from '../lib/navigation';
 
@@ -22,6 +22,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [accessRequests, setAccessRequests] = useState<EventAccessRequest[]>([]);
   const [requestActionLoadingId, setRequestActionLoadingId] = useState<string | null>(null);
   const [showDeclinedRequests, setShowDeclinedRequests] = useState(false);
+  const [interests, setInterests] = useState<EventInterest[]>([]);
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
     show: boolean;
@@ -137,6 +138,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
       }, () => {
         fetchAccessRequests(id!);
       })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'event_interests',
+        filter: `event_id=eq.${id}`
+      }, () => {
+        fetchInterests(id!);
+      })
       .subscribe();
 
     return () => {
@@ -158,6 +167,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       setEvent(data);
       fetchAttendees(data.id);
       fetchAccessRequests(data.id);
+      fetchInterests(data.id);
     }
   };
 
@@ -184,6 +194,16 @@ export default function HostDashboard({ user }: { user: User | null }) {
       .order('created_at', { ascending: false });
 
     if (data) setAccessRequests(data as EventAccessRequest[]);
+  };
+
+  const fetchInterests = async (eventId: string) => {
+    const { data } = await supabase
+      .from('event_interests')
+      .select('*')
+      .eq('event_id', eventId)
+      .order('created_at', { ascending: false });
+
+    if (data) setInterests(data as EventInterest[]);
   };
 
   const removeAttendee = async (attendeeId: string) => {
@@ -448,6 +468,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
   const confirmed = attendees.filter(a => a.status === 'confirmed');
   const waitlist = attendees.filter(a => a.status === 'waitlist');
+  const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+  const namedInterests = interests.filter((interest) => interest.visibility_mode === 'named');
   const pendingRequests = accessRequests.filter((r) => r.status === 'pending');
   const activeRequests = accessRequests.filter((r) => r.status !== 'declined');
   const declinedRequests = accessRequests.filter((r) => r.status === 'declined');
@@ -490,6 +512,27 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-1">Waitlist</p>
             <p className="text-lg font-bold text-slate-900 tracking-tight">{waitlist.length}</p>
           </div>
+        </section>
+
+        <section className="bg-white rounded-2xl p-5">
+          <div className="flex items-center justify-between">
+            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Thinking About It</p>
+            <span className="text-sm font-bold text-slate-800">{interests.length}</span>
+          </div>
+          {visibility === 'public' ? (
+            <p className="text-xs text-slate-400 mt-2">Public activities show count only.</p>
+          ) : namedInterests.length > 0 ? (
+            <div className="mt-3 divide-y divide-slate-50">
+              {namedInterests.slice(0, 6).map((interest) => (
+                <div key={interest.id} className="py-2.5">
+                  <p className="text-sm font-bold text-slate-800">{getDisplayName(interest.guest_name, interest.guest_email)}</p>
+                  <p className="text-[11px] text-slate-400">{interest.guest_email}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400 mt-2">No named interest yet.</p>
+          )}
         </section>
 
         {/* Share Tools */}

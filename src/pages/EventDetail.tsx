@@ -5,10 +5,11 @@ import { User } from '@supabase/supabase-js';
 import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, X, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, formatDay, formatDurationMinutes } from '../utils';
-import { Event, Attendee } from '../types';
+import { Event, Attendee, EventInterest } from '../types';
 import { guestService, AttendeeProfile } from '../services/guestService';
 import { findMyRsvps, getAttendanceSummary } from '../lib/attendees';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
+import { findMyInterest, getNamedThinkingInterests, getThinkingCount } from '../lib/interests';
 import { goBackOr } from '../lib/navigation';
 
 export default function EventDetail({ user }: { user: User | null }) {
@@ -33,6 +34,9 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [signedInPreferredName, setSignedInPreferredName] = useState('');
   const [signedInProfileId, setSignedInProfileId] = useState<string | null>(null);
   const [myRsvps, setMyRsvps] = useState<Attendee[]>([]);
+  const [interests, setInterests] = useState<EventInterest[]>([]);
+  const [thinkingLoading, setThinkingLoading] = useState(false);
+  const [showThinkingModal, setShowThinkingModal] = useState(false);
   const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
   const [successType, setSuccessType] = useState<'self' | 'proxy'>('self');
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -62,7 +66,14 @@ export default function EventDetail({ user }: { user: User | null }) {
 
   const fallbackNameFromEmail = (email?: string | null) => {
     const localPart = (email || '').split('@')[0] || '';
-    return localPart.replace(/[._-]+/g, ' ').trim();
+    const words = localPart
+      .replace(/[._-]+/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    return words
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   };
 
   const pickFirstNonEmpty = (...values: Array<string | null | undefined>) => {
@@ -71,6 +82,14 @@ export default function EventDetail({ user }: { user: User | null }) {
       if (trimmed) return trimmed;
     }
     return '';
+  };
+
+  const shouldReplaceAutoFilledName = (currentValue: string, fallbackValue: string) => {
+    const current = currentValue.trim();
+    const fallback = fallbackValue.trim();
+    if (!current) return true;
+    if (!fallback) return false;
+    return current.toLowerCase() === fallback.toLowerCase();
   };
 
   const getDisplayName = (person: Pick<Attendee, 'guest_name' | 'guest_email'>) => {
@@ -158,27 +177,35 @@ export default function EventDetail({ user }: { user: User | null }) {
       guestInfo.name,
       fallbackNameFromEmail(user?.email || guestInfo.email),
     );
-    if (defaultName && !requestName.trim()) {
+    const currentRequestName = requestName.trim();
+    const fallbackHandleName = fallbackNameFromEmail(user?.email || guestInfo.email);
+    const shouldReplace = shouldReplaceAutoFilledName(currentRequestName, fallbackHandleName);
+    if (defaultName && shouldReplace) {
       setRequestName(defaultName);
     }
   }, [user, signedInPreferredName, guestProfile?.full_name, guestInfo.name, guestInfo.email, requestName]);
 
   useEffect(() => {
-    if (user) {
-      setProxyOwnerName(
-        pickFirstNonEmpty(
+    const fallbackHandleName = fallbackNameFromEmail(user?.email || guestInfo.email);
+    const defaultProxyOwnerName = user
+      ? pickFirstNonEmpty(
           user.user_metadata?.full_name,
           signedInPreferredName,
           guestInfo.name,
-          fallbackNameFromEmail(user.email),
-        ),
-      );
+          fallbackHandleName,
+        )
+      : pickFirstNonEmpty(guestInfo.name, fallbackHandleName);
+
+    if (defaultProxyOwnerName && shouldReplaceAutoFilledName(proxyOwnerName, fallbackHandleName)) {
+      setProxyOwnerName(defaultProxyOwnerName);
+    }
+
+    if (user) {
       setProxyOwnerEmail(user.email || '');
       return;
     }
-    setProxyOwnerName(guestInfo.name || '');
     setProxyOwnerEmail(guestInfo.email || '');
-  }, [user, signedInPreferredName, guestInfo.name, guestInfo.email]);
+  }, [user, signedInPreferredName, guestInfo.name, guestInfo.email, proxyOwnerName]);
 
   useEffect(() => {
     const hydrateSignedInProfile = async () => {
@@ -208,8 +235,22 @@ export default function EventDetail({ user }: { user: User | null }) {
         return;
       }
 
+      const { data: profileData } = await supabase
+        .from('attendee_profiles')
+        .select('full_name, first_name, last_name, updated_at')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const profileName = pickFirstNonEmpty(
+        profileData?.full_name,
+        `${profileData?.first_name || ''} ${profileData?.last_name || ''}`.trim(),
+      );
+
       const immediate = pickFirstNonEmpty(
         user.user_metadata?.full_name,
+        profileName,
         event?.host_user_id === user.id ? event?.host_name : '',
       );
       if (immediate) {
@@ -245,6 +286,9 @@ export default function EventDetail({ user }: { user: User | null }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'event_attendees' }, () => {
         fetchAttendees();
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'event_interests' }, () => {
+        fetchInterests();
+      })
       .subscribe();
 
     return () => {
@@ -279,6 +323,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     } else {
       setEvent(data);
       fetchAttendees(data.id);
+      fetchInterests(data.id);
     }
   };
 
@@ -298,6 +343,111 @@ export default function EventDetail({ user }: { user: User | null }) {
       await hydrateAdderNames(data as Attendee[]);
     }
     setLoading(false);
+  };
+
+  const fetchInterests = async (eventId?: string) => {
+    const id = eventId || event?.id;
+    if (!id) return;
+
+    const { data } = await supabase
+      .from('event_interests')
+      .select('*')
+      .eq('event_id', id)
+      .order('created_at', { ascending: true });
+
+    if (data) setInterests(data as EventInterest[]);
+  };
+
+  const clearMyInterest = async (
+    eventId: string,
+    currentProfileId: string | null,
+    email: string,
+  ) => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const { error } = await supabase
+      .from('event_interests')
+      .delete()
+      .eq('event_id', eventId)
+      .or(
+        [
+          user?.id ? `user_id.eq.${user.id}` : '',
+          currentProfileId ? `attendee_profile_id.eq.${currentProfileId}` : '',
+          normalizedEmail ? `guest_email.eq.${normalizedEmail}` : '',
+        ]
+          .filter(Boolean)
+          .join(','),
+      );
+    if (error) {
+      console.error('Could not clear thinking-about-it state after RSVP', error);
+    }
+  };
+
+  const handleToggleThinking = async () => {
+    if (!event) return;
+    if (hasSelfRsvp) {
+      alert('You are already in this activity.');
+      return;
+    }
+
+    const email = user?.email || guestInfo.email;
+    const name = pickFirstNonEmpty(
+      user?.id && event.host_user_id === user.id ? event.host_name : '',
+      user?.user_metadata?.full_name,
+      signedInPreferredName,
+      guestProfile?.full_name,
+      guestInfo.name,
+      fallbackNameFromEmail(email),
+    );
+
+    if (!email || !name) {
+      if (user?.email && !guestInfo.email) {
+        setGuestInfo(prev => ({ ...prev, email: user.email! }));
+      }
+      setShowRsvpModal(true);
+      return;
+    }
+
+    try {
+      setThinkingLoading(true);
+      let currentProfileId = guestProfile?.id || signedInProfileId;
+
+      if (user && !currentProfileId) {
+        const profile = await guestService.getOrCreateProfileForUser(user);
+        currentProfileId = profile.id;
+        setGuestProfile(profile);
+        setSignedInProfileId(profile.id);
+      }
+
+      if (!user && !currentProfileId) {
+        const names = name.split(' ');
+        const firstName = names[0];
+        const lastName = names.slice(1).join(' ') || '';
+        const { profile } = await guestService.createGuestSession(email, firstName, lastName);
+        currentProfileId = profile.id;
+        setGuestProfile(profile);
+      }
+
+      const eventVisibility = event.visibility || (event.is_public ? 'public' : 'private');
+      const visibilityMode = eventVisibility === 'public' ? 'count_only' : 'named';
+
+      const { data, error } = await supabase.rpc('toggle_event_interest', {
+        p_event_id: event.id,
+        p_guest_name: name,
+        p_guest_email: email,
+        p_visibility_mode: visibilityMode,
+        p_user_id: user?.id || null,
+        p_attendee_profile_id: currentProfileId || null,
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      await fetchInterests(event.id);
+    } catch (error: any) {
+      console.error('Thinking toggle error:', error);
+      alert(error.message || 'Could not update thinking-about-it status. Please try again.');
+    } finally {
+      setThinkingLoading(false);
+    }
   };
 
   const handleRsvp = async (e?: React.FormEvent) => {
@@ -351,7 +501,9 @@ export default function EventDetail({ user }: { user: User | null }) {
       setShowRsvpModal(false);
       setSuccessType('self');
       setShowSuccessModal(true);
+      await clearMyInterest(event.id, currentProfileId || null, email);
       fetchAttendees();
+      fetchInterests();
     } catch (error: any) {
       console.error('RSVP Error:', error);
       alert(error.message || 'Failed to join activity. Please try again.');
@@ -432,6 +584,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       setSuccessType('proxy');
       setShowSuccessModal(true);
       fetchAttendees();
+      fetchInterests();
     } catch (error: any) {
       console.error('Proxy RSVP Error:', error);
       setProxyError(error.message || 'Failed to add person. Please try again.');
@@ -461,6 +614,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       setRsvpToCancel(null);
       setShowCancelModal(false);
       fetchAttendees();
+      fetchInterests();
     } catch (error: unknown) {
       console.error('Cancel Error:', error);
       setCancelError(getErrorMessage(error, 'Failed to cancel RSVP'));
@@ -566,6 +720,13 @@ export default function EventDetail({ user }: { user: User | null }) {
   const { confirmedCount, waitlistCount, isFull, spotsRemaining } = getAttendanceSummary(attendees, event.capacity);
   const mySelfRsvps = myRsvps.filter((rsvp) => rsvp.added_by_type !== 'proxy');
   const myManagedRsvps = myRsvps.filter((rsvp) => rsvp.added_by_type === 'proxy');
+  const myInterest = findMyInterest(interests, {
+    userId: user?.id,
+    userEmail: user?.email,
+    guestProfileId: guestProfile?.id || signedInProfileId || undefined,
+  });
+  const thinkingCount = getThinkingCount(interests);
+  const namedThinkingInterests = getNamedThinkingInterests(interests);
   const hasSelfRsvp = mySelfRsvps.length > 0;
   const hasManagedRsvps = myManagedRsvps.length > 0;
   const confirmedDetailsEmail = user?.email || guestProfile?.email || guestInfo.email;
@@ -853,6 +1014,24 @@ export default function EventDetail({ user }: { user: User | null }) {
           </section>
         )}
 
+        <section className="bg-white rounded-2xl p-5">
+          <div className="flex items-center justify-between">
+            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Thinking about it</p>
+            <button
+              onClick={() => setShowThinkingModal(true)}
+              className="text-sm font-bold text-indigo-500 hover:text-indigo-400 transition-colors"
+              disabled={thinkingCount === 0 || (eventVisibility === 'public' && namedThinkingInterests.length === 0)}
+            >
+              {thinkingCount}
+            </button>
+          </div>
+          <p className="text-xs text-slate-400 mt-2">
+            {eventVisibility === 'public'
+              ? `${thinkingCount} people are thinking about it`
+              : `${namedThinkingInterests.length} people visible by name`}
+          </p>
+        </section>
+
         {attendees.length === 0 && (
           <p className="text-slate-400 text-sm px-1">Be the first to join!</p>
         )}
@@ -915,6 +1094,17 @@ export default function EventDetail({ user }: { user: User | null }) {
                   {rsvpLoading ? 'Just a sec...' : isFull ? "Join Waitlist" : "I'm in"}
                 </button>
               )}
+              <button
+                onClick={() => handleToggleThinking()}
+                disabled={thinkingLoading || hasSelfRsvp}
+                className="w-full text-sm font-bold text-indigo-500 hover:text-indigo-400 py-2 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 active:scale-95"
+              >
+                {thinkingLoading
+                  ? 'Saving...'
+                  : myInterest
+                    ? "Remove I'm thinking about it"
+                    : "I'm thinking about it"}
+              </button>
               <button 
                 onClick={() => { setProxyError(null); setShowProxyModal(true); }}
                 className="w-full text-sm font-bold text-brand-600 hover:text-brand-500 py-2 transition-all flex items-center justify-center gap-1.5 active:scale-95"
@@ -930,6 +1120,17 @@ export default function EventDetail({ user }: { user: User | null }) {
                 className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
               >
                 {rsvpLoading ? 'Just a sec...' : isFull ? "Join Waitlist" : "I'm in"}
+              </button>
+              <button
+                onClick={() => handleToggleThinking()}
+                disabled={thinkingLoading}
+                className="w-full text-sm font-bold text-indigo-500 hover:text-indigo-400 py-2 transition-all flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
+              >
+                {thinkingLoading
+                  ? 'Saving...'
+                  : myInterest
+                    ? "Remove I'm thinking about it"
+                    : "I'm thinking about it"}
               </button>
               <button
                 onClick={() => { setProxyError(null); setShowProxyModal(true); }}
@@ -1031,6 +1232,46 @@ export default function EventDetail({ user }: { user: User | null }) {
                   {rsvpLoading ? "Joining..." : "I'm in"}
                 </button>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showThinkingModal && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowThinkingModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              className="relative w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-black text-slate-900">Thinking about it</h2>
+                <button onClick={() => setShowThinkingModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+              {eventVisibility === 'public' ? (
+                <p className="text-sm text-slate-500">This public activity shows count only.</p>
+              ) : namedThinkingInterests.length === 0 ? (
+                <p className="text-sm text-slate-500">No one yet.</p>
+              ) : (
+                <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
+                  {namedThinkingInterests.map((interest) => (
+                    <div key={interest.id} className="py-2.5">
+                      <p className="text-sm font-bold text-slate-800">{interest.guest_name}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </motion.div>
           </div>
         )}
