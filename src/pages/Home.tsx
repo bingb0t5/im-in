@@ -267,7 +267,7 @@ export default function Home({ user }: { user: User | null }) {
                 <button
                   onClick={() => {
                     // Scaffolded contact flow
-                    window.location.href = `mailto:hello@getimin.com?subject=Helping build I'm In`;
+                    window.location.href = `mailto:hello@joinimin.com?subject=Helping build I'm In`;
                   }}
                   className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 mt-8 transition-all active:scale-95"
                 >
