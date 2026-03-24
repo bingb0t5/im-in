@@ -87,6 +87,35 @@ BEGIN
 END $$;
 
 -- -------------------------------------------------------------------
+-- 2b) Attendee provenance fields ("added by ...")
+-- -------------------------------------------------------------------
+
+ALTER TABLE public.event_attendees
+    ADD COLUMN IF NOT EXISTS added_by_type TEXT;
+
+ALTER TABLE public.event_attendees
+    ADD COLUMN IF NOT EXISTS added_by_attendee_profile_id UUID REFERENCES public.attendee_profiles(id) ON DELETE SET NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'event_attendees_added_by_type_check'
+    ) THEN
+        ALTER TABLE public.event_attendees
+            ADD CONSTRAINT event_attendees_added_by_type_check
+            CHECK (
+                added_by_type IS NULL
+                OR added_by_type IN ('self', 'proxy', 'host')
+            );
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS event_attendees_added_by_attendee_profile_id_idx
+    ON public.event_attendees (added_by_attendee_profile_id);
+
+-- -------------------------------------------------------------------
 -- 6) Reliable cancellation RPC (bypasses fragile RLS query paths)
 -- -------------------------------------------------------------------
 -- Why:
@@ -221,6 +250,8 @@ DECLARE
     v_attendee_id UUID;
     v_guest_name TEXT;
     v_guest_email TEXT;
+    v_exact_id UUID;
+    v_exact_status TEXT;
 BEGIN
     v_guest_name := trim(coalesce(p_guest_name, ''));
     v_guest_email := lower(trim(coalesce(p_guest_email, '')));
@@ -270,36 +301,110 @@ BEGIN
     END IF;
 
     IF v_existing_id IS NOT NULL THEN
-        UPDATE public.event_attendees
-        SET
-            status = v_status,
-            guest_name = v_guest_name,
-            guest_email = v_guest_email,
-            attendee_profile_id = p_attendee_profile_id,
-            user_id = NULL,
-            joined_at = now(),
-            promoted_at = null,
-            cancelled_at = null
-        WHERE id = v_existing_id
-        RETURNING id INTO v_attendee_id;
+        BEGIN
+            UPDATE public.event_attendees
+            SET
+                status = v_status,
+                guest_name = v_guest_name,
+                guest_email = v_guest_email,
+                attendee_profile_id = p_attendee_profile_id,
+                added_by_type = 'self',
+                added_by_attendee_profile_id = p_attendee_profile_id,
+                user_id = NULL,
+                joined_at = now(),
+                promoted_at = null,
+                cancelled_at = null
+            WHERE id = v_existing_id
+            RETURNING id INTO v_attendee_id;
+        EXCEPTION
+            WHEN unique_violation THEN
+                -- If renaming/reviving conflicts, resolve to exact email+name row.
+                SELECT ea.id, ea.status
+                INTO v_exact_id, v_exact_status
+                FROM public.event_attendees ea
+                WHERE ea.event_id = p_event_id
+                  AND lower(ea.guest_email) = v_guest_email
+                  AND lower(ea.guest_name) = lower(v_guest_name)
+                ORDER BY ea.joined_at DESC
+                LIMIT 1;
+
+                IF v_exact_id IS NULL THEN
+                    RETURN json_build_object('error', 'RSVP conflict detected, please retry');
+                END IF;
+
+                IF v_exact_status <> 'cancelled' THEN
+                    RETURN json_build_object('error', 'You have already said you''re in!');
+                END IF;
+
+                UPDATE public.event_attendees
+                SET
+                    status = v_status,
+                    guest_name = v_guest_name,
+                    guest_email = v_guest_email,
+                    attendee_profile_id = p_attendee_profile_id,
+                    added_by_type = 'self',
+                    added_by_attendee_profile_id = p_attendee_profile_id,
+                    user_id = NULL,
+                    joined_at = now(),
+                    promoted_at = null,
+                    cancelled_at = null
+                WHERE id = v_exact_id
+                RETURNING id INTO v_attendee_id;
+        END;
     ELSE
-        INSERT INTO public.event_attendees (
-            event_id,
-            user_id,
-            attendee_profile_id,
-            guest_name,
-            guest_email,
-            status
-        )
-        VALUES (
-            p_event_id,
-            NULL,
-            p_attendee_profile_id,
-            v_guest_name,
-            v_guest_email,
-            v_status
-        )
-        RETURNING id INTO v_attendee_id;
+        BEGIN
+            INSERT INTO public.event_attendees (
+                event_id,
+                user_id,
+                attendee_profile_id,
+                guest_name,
+                guest_email,
+                status,
+                added_by_type,
+                added_by_attendee_profile_id
+            )
+            VALUES (
+                p_event_id,
+                NULL,
+                p_attendee_profile_id,
+                v_guest_name,
+                v_guest_email,
+                v_status,
+                'self',
+                p_attendee_profile_id
+            )
+            RETURNING id INTO v_attendee_id;
+        EXCEPTION
+            WHEN unique_violation THEN
+                -- Compatibility fallback for schemas with uniqueness including name/email.
+                -- Revive/update the latest matching row instead of failing RSVP.
+                UPDATE public.event_attendees
+                SET
+                    status = v_status,
+                    guest_name = v_guest_name,
+                    guest_email = v_guest_email,
+                    attendee_profile_id = p_attendee_profile_id,
+                    added_by_type = 'self',
+                    added_by_attendee_profile_id = p_attendee_profile_id,
+                    user_id = NULL,
+                    joined_at = now(),
+                    promoted_at = null,
+                    cancelled_at = null
+                WHERE id = (
+                    SELECT ea.id
+                    FROM public.event_attendees ea
+                    WHERE ea.event_id = p_event_id
+                      AND lower(ea.guest_email) = v_guest_email
+                      AND lower(ea.guest_name) = lower(v_guest_name)
+                    ORDER BY ea.joined_at DESC
+                    LIMIT 1
+                )
+                RETURNING id INTO v_attendee_id;
+
+                IF v_attendee_id IS NULL THEN
+                    RETURN json_build_object('error', 'RSVP conflict detected, please retry');
+                END IF;
+        END;
     END IF;
 
     RETURN json_build_object(
@@ -413,6 +518,8 @@ BEGIN
             status = v_status,
             user_id = p_user_id,
             attendee_profile_id = p_attendee_profile_id,
+            added_by_type = 'proxy',
+            added_by_attendee_profile_id = p_attendee_profile_id,
             guest_name = trim(p_proxy_name),
             joined_at = now(),
             promoted_at = null,
@@ -438,7 +545,9 @@ BEGIN
                 attendee_profile_id,
                 guest_name,
                 guest_email,
-                status
+                status,
+                added_by_type,
+                added_by_attendee_profile_id
             )
             VALUES (
                 p_event_id,
@@ -446,7 +555,9 @@ BEGIN
                 p_attendee_profile_id,
                 trim(p_proxy_name),
                 v_guest_email,
-                v_status
+                v_status,
+                'proxy',
+                p_attendee_profile_id
             )
             RETURNING id INTO v_attendee_id;
         EXCEPTION
@@ -465,7 +576,9 @@ BEGIN
                     attendee_profile_id,
                     guest_name,
                     guest_email,
-                    status
+                    status,
+                    added_by_type,
+                    added_by_attendee_profile_id
                 )
                 VALUES (
                     p_event_id,
@@ -473,7 +586,9 @@ BEGIN
                     p_attendee_profile_id,
                     trim(p_proxy_name),
                     v_guest_email,
-                    v_status
+                    v_status,
+                    'proxy',
+                    p_attendee_profile_id
                 )
                 RETURNING id INTO v_attendee_id;
         END;
