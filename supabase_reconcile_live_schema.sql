@@ -274,6 +274,7 @@ BEGIN
     INTO v_existing_id, v_existing_status
     FROM public.event_attendees ea
     WHERE ea.event_id = p_event_id
+      AND coalesce(ea.added_by_type, 'self') <> 'proxy'
       AND (
         lower(ea.guest_email) = v_guest_email
         OR (p_attendee_profile_id IS NOT NULL AND ea.attendee_profile_id = p_attendee_profile_id)
