@@ -59,7 +59,7 @@ export default function Bookings() {
           <button onClick={() => goBackOr(navigate, '/')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">My Bookings</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Activities I'm In</span>
           <button onClick={handleLogout} className="p-2 hover:bg-red-50 rounded-xl transition-all group" title="Sign out of this device">
             <LogOut className="w-5 h-5 text-slate-400 group-hover:text-red-500" />
           </button>
@@ -68,7 +68,7 @@ export default function Bookings() {
 
       <main className="max-w-xl mx-auto px-6 pt-8 space-y-8">
         <header>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Your Events</h1>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Your Activities</h1>
           <p className="text-slate-500 font-medium text-sm mt-1">
             Logged in as <span className="text-slate-900 font-bold">{profile?.full_name}</span>
           </p>
@@ -78,7 +78,7 @@ export default function Bookings() {
           {bookings.length === 0 ? (
             <div className="bg-white rounded-3xl p-12 text-center border border-slate-100">
               <AlertCircle className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-              <p className="text-slate-500 font-bold">No bookings found.</p>
+              <p className="text-slate-500 font-bold">No activities found.</p>
               <button 
                 onClick={() => navigate('/')}
                 className="mt-6 text-brand-600 font-black text-sm uppercase tracking-widest hover:bg-brand-50 px-6 py-3 rounded-xl transition-all"

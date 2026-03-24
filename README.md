@@ -1,12 +1,12 @@
 # I'm In
 
-Lightweight community event app for creating, sharing, and joining events.
+Lightweight community activity app for creating, sharing, and joining activities.
 
 ## What It Does
 
-- Hosts create and manage events.
+- Hosts create and manage activities.
 - Guests and signed-in users can RSVP.
-- Full events can place attendees on a waitlist.
+- Full activities can place attendees on a waitlist.
 - Guests can recover bookings using a recovery link/session token flow.
 
 ## Stack

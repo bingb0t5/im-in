@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Calendar as CalendarIcon, ChevronRight, MapPin, Users, ArrowLeft, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatDay, formatTime } from '../utils';
@@ -13,7 +13,9 @@ export default function Calendar({ user }: { user: User | null }) {
   const [events, setEvents] = useState<Event[]>([]);
   const [privateAccessByEventId, setPrivateAccessByEventId] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryParam = searchParams.get('q') || '';
+  const [searchQuery, setSearchQuery] = useState(queryParam);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -23,6 +25,10 @@ export default function Calendar({ user }: { user: User | null }) {
   useEffect(() => {
     fetchMyPrivateAccessMap();
   }, [user?.id, user?.email]);
+
+  useEffect(() => {
+    setSearchQuery(queryParam);
+  }, [queryParam]);
 
   const fetchPublicEvents = async () => {
     // Show upcoming scheduled events in UTC.
@@ -40,7 +46,7 @@ export default function Calendar({ user }: { user: User | null }) {
       .order('starts_at', { ascending: true });
 
     if (error) {
-      console.error('Error fetching public events:', error);
+      console.error('Error fetching public activities:', error);
     } else if (data) {
       const eventsWithCounts = withConfirmedCounts(data as any[]);
       setEvents(eventsWithCounts);
@@ -86,11 +92,25 @@ export default function Calendar({ user }: { user: User | null }) {
     setPrivateAccessByEventId(map);
   };
 
-  const filteredEvents = events.filter(event => 
-    event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (event.location_text && event.location_text.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (event.public_location_text && event.public_location_text.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredEvents = normalizedSearch
+    ? events.filter(event => 
+        event.title.toLowerCase().includes(normalizedSearch) ||
+        (event.location_text && event.location_text.toLowerCase().includes(normalizedSearch)) ||
+        (event.public_location_text && event.public_location_text.toLowerCase().includes(normalizedSearch))
+      )
+    : events;
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    const nextParams = new URLSearchParams(searchParams);
+    if (value.trim()) {
+      nextParams.set('q', value);
+    } else {
+      nextParams.delete('q');
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 pb-32">
@@ -100,7 +120,7 @@ export default function Calendar({ user }: { user: User | null }) {
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
           <div className="flex flex-col items-center">
-            <h1 className="text-base font-black text-slate-900 tracking-tight">Public Events</h1>
+            <h1 className="text-base font-black text-slate-900 tracking-tight">Public Activities</h1>
             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">See what's on</span>
           </div>
           <div className="w-10" />
@@ -113,10 +133,11 @@ export default function Calendar({ user }: { user: User | null }) {
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-brand-600 transition-colors" />
           <input 
             type="text"
-            placeholder="Search activities..."
+            autoFocus={!!queryParam}
+            placeholder="Search public activities"
             className="w-full pl-12 pr-4 py-4 bg-white rounded-2xl border border-slate-100 shadow-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-medium"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
           />
         </div>
 
@@ -129,7 +150,7 @@ export default function Calendar({ user }: { user: User | null }) {
             <div className="inline-flex items-center justify-center w-16 h-16 bg-slate-50 rounded-2xl mb-4">
               <CalendarIcon className="w-8 h-8 text-slate-200" />
             </div>
-            <h3 className="text-lg font-black text-slate-900 mb-2">No events found</h3>
+            <h3 className="text-lg font-black text-slate-900 mb-2">No activities found</h3>
             <p className="text-slate-500 text-sm font-medium mb-4">Try a different search or check back later.</p>
           </div>
         ) : (
