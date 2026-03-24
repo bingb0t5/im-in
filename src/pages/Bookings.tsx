@@ -81,7 +81,7 @@ export default function Bookings() {
                 onClick={() => navigate('/')}
                 className="mt-6 text-brand-600 font-black text-sm uppercase tracking-widest hover:bg-brand-50 px-6 py-3 rounded-xl transition-all"
               >
-                Browse Events
+                What's On
               </button>
             </div>
           ) : (
