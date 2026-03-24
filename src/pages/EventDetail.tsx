@@ -23,11 +23,15 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [showProxyModal, setShowProxyModal] = useState(false);
   const [proxyName, setProxyName] = useState('');
   const [proxyError, setProxyError] = useState<string | null>(null);
+  const [proxyOwnerName, setProxyOwnerName] = useState('');
+  const [proxyOwnerEmail, setProxyOwnerEmail] = useState('');
   const [guestInfo, setGuestInfo] = useState({ name: '', email: '' });
   const [guestProfile, setGuestProfile] = useState<AttendeeProfile | null>(null);
   const [signedInPreferredName, setSignedInPreferredName] = useState('');
+  const [signedInProfileId, setSignedInProfileId] = useState<string | null>(null);
   const [myRsvps, setMyRsvps] = useState<Attendee[]>([]);
   const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
+  const [successType, setSuccessType] = useState<'self' | 'proxy'>('self');
   const [rsvpToCancel, setRsvpToCancel] = useState<Attendee | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
@@ -68,6 +72,9 @@ export default function EventDetail({ user }: { user: User | null }) {
     if (attendee.added_by_type === 'host') return 'added by host';
     if (attendee.added_by_type === 'proxy') {
       const adderId = attendee.added_by_attendee_profile_id || '';
+      if (signedInProfileId && adderId && signedInProfileId === adderId && signedInPreferredName) {
+        return `added by ${signedInPreferredName}`;
+      }
       if (guestProfile?.id && adderId && guestProfile.id === adderId && signedInPreferredName) {
         return `added by ${signedInPreferredName}`;
       }
@@ -103,6 +110,9 @@ export default function EventDetail({ user }: { user: User | null }) {
       const fallback = fallbackNameFromEmail(profile.email);
       map[profile.id] = fullName || fallback || 'attendee';
     });
+    if (signedInProfileId && signedInPreferredName) {
+      map[signedInProfileId] = signedInPreferredName;
+    }
     setAdderNamesByProfileId(map);
   };
 
@@ -128,6 +138,44 @@ export default function EventDetail({ user }: { user: User | null }) {
       name: pickFirstNonEmpty(prev.name, user.user_metadata?.full_name, signedInPreferredName, fallbackNameFromEmail(user.email)),
       email: user.email || prev.email,
     }));
+  }, [user, signedInPreferredName]);
+
+  useEffect(() => {
+    if (user) {
+      setProxyOwnerName(
+        pickFirstNonEmpty(
+          user.user_metadata?.full_name,
+          signedInPreferredName,
+          guestInfo.name,
+          fallbackNameFromEmail(user.email),
+        ),
+      );
+      setProxyOwnerEmail(user.email || '');
+      return;
+    }
+    setProxyOwnerName(guestInfo.name || '');
+    setProxyOwnerEmail(guestInfo.email || '');
+  }, [user, signedInPreferredName, guestInfo.name, guestInfo.email]);
+
+  useEffect(() => {
+    const hydrateSignedInProfile = async () => {
+      if (!user) {
+        setSignedInProfileId(null);
+        return;
+      }
+
+      try {
+        const profile = await guestService.getOrCreateProfileForUser(
+          user,
+          pickFirstNonEmpty(user.user_metadata?.full_name, signedInPreferredName),
+        );
+        setSignedInProfileId(profile.id);
+      } catch {
+        setSignedInProfileId(null);
+      }
+    };
+
+    hydrateSignedInProfile();
   }, [user, signedInPreferredName]);
 
   useEffect(() => {
@@ -278,6 +326,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       if (data?.error) throw new Error(data.error);
 
       setShowRsvpModal(false);
+      setSuccessType('self');
       setShowSuccessModal(true);
       fetchAttendees();
     } catch (error: any) {
@@ -294,7 +343,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     setRsvpLoading(true);
     setProxyError(null);
 
-    const email = user?.email || guestInfo.email;
+    const email = user?.email || proxyOwnerEmail.trim() || guestInfo.email;
     let currentProfileId = guestProfile?.id;
 
     if (!email) {
@@ -310,6 +359,22 @@ export default function EventDetail({ user }: { user: User | null }) {
         currentProfileId = profile.id;
         // Optionally update guestProfile state if we want to keep it in sync
         setGuestProfile(profile);
+      }
+
+      if (!user && !currentProfileId) {
+        const ownerName = pickFirstNonEmpty(proxyOwnerName, guestInfo.name, fallbackNameFromEmail(email));
+        if (!ownerName) {
+          setProxyError('Please enter your name.');
+          setRsvpLoading(false);
+          return;
+        }
+        const names = ownerName.split(' ');
+        const firstName = names[0];
+        const lastName = names.slice(1).join(' ') || '';
+        const { profile } = await guestService.createGuestSession(email, firstName, lastName);
+        currentProfileId = profile.id;
+        setGuestProfile(profile);
+        setGuestInfo({ name: profile.full_name, email: profile.email });
       }
 
       if (!currentProfileId) {
@@ -341,6 +406,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
       setShowProxyModal(false);
       setProxyName('');
+      setSuccessType('proxy');
       setShowSuccessModal(true);
       fetchAttendees();
     } catch (error: any) {
@@ -400,6 +466,10 @@ export default function EventDetail({ user }: { user: User | null }) {
   }
 
   const { confirmedCount, waitlistCount, isFull, spotsRemaining } = getAttendanceSummary(attendees, event.capacity);
+  const mySelfRsvps = myRsvps.filter((rsvp) => rsvp.added_by_type !== 'proxy');
+  const myManagedRsvps = myRsvps.filter((rsvp) => rsvp.added_by_type === 'proxy');
+  const hasSelfRsvp = mySelfRsvps.length > 0;
+  const hasManagedRsvps = myManagedRsvps.length > 0;
   const confirmedDetailsEmail = user?.email || guestProfile?.email || guestInfo.email;
   const confirmedDetailsName =
     pickFirstNonEmpty(
@@ -570,6 +640,11 @@ export default function EventDetail({ user }: { user: User | null }) {
         <div className="max-w-xl mx-auto">
           {myRsvps.length > 0 ? (
             <div className="flex flex-col gap-3">
+              {hasManagedRsvps && !hasSelfRsvp && (
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
+                  People you added
+                </p>
+              )}
               <div className="space-y-2 max-h-32 overflow-y-auto">
                 {myRsvps.map(rsvp => (
                   <div key={rsvp.id} className="flex gap-2">
@@ -600,6 +675,15 @@ export default function EventDetail({ user }: { user: User | null }) {
                   </div>
                 ))}
               </div>
+              {!hasSelfRsvp && (
+                <button
+                  onClick={() => handleRsvp()}
+                  disabled={rsvpLoading || (isFull && !event.allow_waitlist)}
+                  className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-lg py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
+                >
+                  {rsvpLoading ? 'Just a sec...' : isFull ? "Join Waitlist" : "I'm in"}
+                </button>
+              )}
               <button 
                 onClick={() => {
                   setProxyError(null);
@@ -612,13 +696,25 @@ export default function EventDetail({ user }: { user: User | null }) {
               </button>
             </div>
           ) : (
-            <button
-              onClick={() => handleRsvp()}
-              disabled={rsvpLoading || (isFull && !event.allow_waitlist)}
-              className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-lg py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
-            >
-              {rsvpLoading ? 'Just a sec...' : isFull ? "Join Waitlist" : "I'm in"}
-            </button>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => handleRsvp()}
+                disabled={rsvpLoading || (isFull && !event.allow_waitlist)}
+                className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-lg py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
+              >
+                {rsvpLoading ? 'Just a sec...' : isFull ? "Join Waitlist" : "I'm in"}
+              </button>
+              <button
+                onClick={() => {
+                  setProxyError(null);
+                  setShowProxyModal(true);
+                }}
+                className="w-full bg-white border border-brand-100 text-brand-600 font-black py-3 rounded-2xl shadow-sm hover:bg-brand-50 transition-all flex items-center justify-center gap-2 active:scale-95 text-sm"
+              >
+                <Plus className="w-4 h-4" />
+                Add someone else
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -737,15 +833,30 @@ export default function EventDetail({ user }: { user: User | null }) {
               <div className="w-20 h-20 bg-brand-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
                 <CheckCircle2 className="w-10 h-10 text-brand-600" />
               </div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-2">You're in!</h2>
+              <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-2">
+                {successType === 'proxy' ? "They're in!" : "You're in!"}
+              </h2>
               <p className="text-slate-500 font-medium mb-8 text-sm leading-relaxed">
-                We've added you to the list. You can manage all your bookings in one place.
+                {successType === 'proxy'
+                  ? "We've added them to the list. You can manage this event in your bookings."
+                  : "We've added you to the list. You can manage all your bookings in one place."}
               </p>
               
               <div className="space-y-3">
                 <button
-                  onClick={() => navigate('/bookings')}
+                  onClick={() => {
+                    setShowSuccessModal(false);
+                    setProxyError(null);
+                    setProxyName('');
+                    setShowProxyModal(true);
+                  }}
                   className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
+                >
+                  Add Another Person
+                </button>
+                <button
+                  onClick={() => navigate('/bookings')}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-brand-600 font-black py-4 rounded-2xl transition-all active:scale-95"
                 >
                   Manage My Bookings
                 </button>
@@ -846,6 +957,32 @@ export default function EventDetail({ user }: { user: User | null }) {
               )}
               
               <form onSubmit={handleProxyRsvp} className="space-y-5">
+                {!user && !guestProfile && (
+                  <>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">Your Name</label>
+                      <input
+                        required
+                        type="text"
+                        className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
+                        placeholder="e.g. Sarah Jones"
+                        value={proxyOwnerName}
+                        onChange={e => setProxyOwnerName(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">Your Email</label>
+                      <input
+                        required
+                        type="email"
+                        className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
+                        placeholder="you@example.com"
+                        value={proxyOwnerEmail}
+                        onChange={e => setProxyOwnerEmail(e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">Their Name</label>
                   <input
