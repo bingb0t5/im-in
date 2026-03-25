@@ -212,3 +212,68 @@ export function buildGoogleCalendarEventUrl(input: GoogleCalendarUrlInput) {
 
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
+
+interface IcsEventInput {
+  uid: string;
+  title: string;
+  startsAtIso: string;
+  endsAtIso?: string | null;
+  durationMinutes?: number | null;
+  location?: string | null;
+  description?: string | null;
+  url?: string | null;
+  status?: 'CONFIRMED' | 'CANCELLED' | 'TENTATIVE';
+}
+
+function escapeIcsText(value: string) {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/\r?\n/g, '\\n')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,');
+}
+
+export function buildIcsEventContent(input: IcsEventInput) {
+  const {
+    uid,
+    title,
+    startsAtIso,
+    endsAtIso,
+    durationMinutes = 60,
+    location,
+    description,
+    url,
+    status = 'CONFIRMED',
+  } = input;
+
+  const start = new Date(startsAtIso);
+  const end = endsAtIso
+    ? new Date(endsAtIso)
+    : new Date(start.getTime() + Math.max(15, durationMinutes || 60) * 60 * 1000);
+
+  const dtStamp = toGoogleCalendarUtcStamp(new Date());
+  const dtStart = toGoogleCalendarUtcStamp(start);
+  const dtEnd = toGoogleCalendarUtcStamp(end);
+
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Im In//Activity Calendar//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:${escapeIcsText(uid)}`,
+    `DTSTAMP:${dtStamp}`,
+    `DTSTART:${dtStart}`,
+    `DTEND:${dtEnd}`,
+    `SUMMARY:${escapeIcsText(title)}`,
+    `STATUS:${status}`,
+  ];
+
+  if (location?.trim()) lines.push(`LOCATION:${escapeIcsText(location.trim())}`);
+  if (description?.trim()) lines.push(`DESCRIPTION:${escapeIcsText(description.trim())}`);
+  if (url?.trim()) lines.push(`URL:${escapeIcsText(url.trim())}`);
+
+  lines.push('END:VEVENT', 'END:VCALENDAR');
+  return `${lines.join('\r\n')}\r\n`;
+}
