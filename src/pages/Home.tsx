@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { useNavigate, Link } from 'react-router-dom';
-import { Plus, Calendar as CalendarIcon, ChevronRight, LogOut, MessageSquare, Users, MapPin, X, Heart, Info, ThumbsUp, Search } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, ChevronRight, LogOut, MessageSquare, Users, MapPin, X, Heart, Info, ThumbsUp, Search, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate } from '../utils';
 import { Event } from '../types';
@@ -10,15 +10,30 @@ import { guestService } from '../services/guestService';
 import { groupBookingsByEvent } from '../lib/bookings';
 import { withConfirmedCounts, buildEventPath } from '../lib/events';
 
+interface PendingAccessRequestRow {
+  id: string;
+  event_id: string;
+  requester_name: string;
+  created_at: string;
+  status: 'pending' | 'approved' | 'declined' | 'contacted';
+  events?: {
+    id: string;
+    title: string;
+    host_user_id?: string;
+  } | null;
+}
+
 export default function Home({ user }: { user: User | null }) {
   const [hostedEvents, setHostedEvents] = useState<Event[]>([]);
   const [joinedEvents, setJoinedEvents] = useState<any[]>([]);
+  const [pendingAccessRequests, setPendingAccessRequests] = useState<PendingAccessRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'hosting' | 'attending'>('hosting');
   const [showWhyModal, setShowWhyModal] = useState(false);
   const [showBuildModal, setShowBuildModal] = useState(false);
   const [hasGuestSession, setHasGuestSession] = useState(false);
   const [publicSearchQuery, setPublicSearchQuery] = useState('');
+  const [showRequestsPanel, setShowRequestsPanel] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -29,6 +44,7 @@ export default function Home({ user }: { user: User | null }) {
     if (user) {
       fetchAllData();
     } else {
+      setPendingAccessRequests([]);
       setLoading(false);
     }
   }, [user]);
@@ -81,6 +97,27 @@ export default function Home({ user }: { user: User | null }) {
 
       if (thinkingError) throw thinkingError;
 
+      // 4. Fetch pending "request to view" rows for hosted activities
+      const { data: pendingRequests, error: pendingRequestsError } = await supabase
+        .from('event_access_requests')
+        .select(`
+          id,
+          event_id,
+          requester_name,
+          created_at,
+          status,
+          events!inner(
+            id,
+            title,
+            host_user_id
+          )
+        `)
+        .eq('status', 'pending')
+        .eq('events.host_user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (pendingRequestsError) throw pendingRequestsError;
+
       const hostedWithCounts = withConfirmedCounts((hosted || []) as any[]);
       const thinkingRows = (thinking || []).map((row: any) => ({
         ...row,
@@ -90,8 +127,17 @@ export default function Home({ user }: { user: User | null }) {
 
       setHostedEvents(hostedWithCounts);
       setJoinedEvents(combinedJoined);
+      const normalizedPendingRequests: PendingAccessRequestRow[] = (pendingRequests || []).map((row: any) => ({
+        id: row.id,
+        event_id: row.event_id,
+        requester_name: row.requester_name,
+        created_at: row.created_at,
+        status: row.status,
+        events: Array.isArray(row.events) ? row.events[0] || null : row.events || null,
+      }));
+      setPendingAccessRequests(normalizedPendingRequests);
 
-      // 4. Smart Default Logic (Only if not already set)
+      // 5. Smart Default Logic (Only if not already set)
       if (hostedWithCounts.length === 0 && combinedJoined.length > 0) {
         setView('attending');
       }
@@ -324,21 +370,21 @@ export default function Home({ user }: { user: User | null }) {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-6 pt-8">
+      <main className="max-w-2xl mx-auto px-6 pt-5">
         {/* Public Search */}
-        <div className="relative group mb-6">
+        <div className="relative group mb-4">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-brand-600 transition-colors" />
           <input
             type="text"
             placeholder="Search public activities"
-            className="w-full pl-12 pr-4 py-4 bg-white rounded-2xl border border-slate-100 shadow-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-medium"
+            className="w-full pl-12 pr-4 py-3.5 bg-white rounded-2xl border border-slate-100 shadow-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-medium"
             value={publicSearchQuery}
             onChange={(e) => handlePublicSearchChange(e.target.value)}
           />
         </div>
 
         {/* View Toggle */}
-        <div className="flex p-1 bg-slate-200/50 rounded-2xl mb-8">
+        <div className="flex p-1 bg-slate-200/50 rounded-2xl mb-5">
           <button 
             onClick={() => setView('hosting')}
             className={`flex-1 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${
@@ -357,7 +403,48 @@ export default function Home({ user }: { user: User | null }) {
           </button>
         </div>
 
-        <div className="flex items-center justify-between mb-8">
+        {view === 'hosting' && !loading && (
+          <section className="bg-white rounded-2xl overflow-hidden mb-5">
+            <button
+              type="button"
+              onClick={() => setShowRequestsPanel((prev) => !prev)}
+              className="w-full px-5 py-3 border-b border-slate-50 flex items-center justify-between hover:bg-slate-50 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <Eye className="w-4 h-4 text-slate-400" />
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Requests to View</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500">{pendingAccessRequests.length} pending</span>
+                <ChevronRight
+                  className={`w-4 h-4 text-slate-300 transition-transform ${showRequestsPanel ? 'rotate-90' : ''}`}
+                />
+              </div>
+            </button>
+            {showRequestsPanel && (
+              pendingAccessRequests.length === 0 ? (
+                <p className="px-5 py-4 text-sm text-slate-400">No pending requests right now.</p>
+              ) : (
+                <div className="divide-y divide-slate-50">
+                  {pendingAccessRequests.slice(0, 3).map((request) => (
+                    <button
+                      key={request.id}
+                      onClick={() => navigate(`/host/events/${request.event_id}`)}
+                      className="w-full text-left px-5 py-3 hover:bg-slate-50 transition-all active:scale-[0.99]"
+                    >
+                      <p className="text-sm font-bold text-slate-900 leading-tight truncate">
+                        {request.requester_name} requested access to {request.events?.title || 'your activity'}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">{formatDate(request.created_at)}</p>
+                    </button>
+                  ))}
+                </div>
+              )
+            )}
+          </section>
+        )}
+
+        <div className="flex items-center justify-between mb-5">
           <h2 className="text-2xl font-black text-slate-900 tracking-tight">
             {view === 'hosting' ? 'My Activities' : "Activities I'm In"}
           </h2>
