@@ -23,6 +23,25 @@ function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+function pickFirstNonEmpty(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    const trimmed = (value || '').trim();
+    if (trimmed) return trimmed;
+  }
+  return '';
+}
+
+export function getAccountNameFromUser(user?: User | null) {
+  const metadata = (user?.user_metadata || {}) as Record<string, unknown>;
+
+  return pickFirstNonEmpty(
+    typeof metadata.full_name === 'string' ? metadata.full_name : '',
+    typeof metadata.name === 'string' ? metadata.name : '',
+    `${typeof metadata.first_name === 'string' ? metadata.first_name : ''} ${typeof metadata.last_name === 'string' ? metadata.last_name : ''}`.trim(),
+    `${typeof metadata.given_name === 'string' ? metadata.given_name : ''} ${typeof metadata.family_name === 'string' ? metadata.family_name : ''}`.trim(),
+  );
+}
+
 function generateSessionToken() {
   if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
     const bytes = new Uint8Array(24);
@@ -200,7 +219,7 @@ export const guestService = {
 
   async getOrCreateProfileForUser(user: User, name?: string): Promise<AttendeeProfile> {
     const email = normalizeEmail(user.email!);
-    const names = (name || user.user_metadata?.full_name || '').split(' ');
+    const names = (name || getAccountNameFromUser(user) || '').split(' ');
     const firstName = names[0] || '';
     const lastName = names.slice(1).join(' ') || '';
 
@@ -213,11 +232,11 @@ export const guestService = {
 
     if (existingProfile) {
       profile = existingProfile;
-      // Update user_id if not set, and name if provided
+      // Keep the signed-in profile aligned to the current account identity.
       const updates: Partial<Pick<AttendeeProfile, 'user_id' | 'first_name' | 'last_name'>> = {};
       if (!profile.user_id) updates.user_id = user.id;
-      if (firstName && !profile.first_name) updates.first_name = firstName;
-      if (lastName && !profile.last_name) updates.last_name = lastName;
+      if (firstName && firstName !== (profile.first_name || '')) updates.first_name = firstName;
+      if (lastName !== (profile.last_name || '')) updates.last_name = lastName;
 
       if (Object.keys(updates).length > 0) {
         const { data: updated } = await supabase

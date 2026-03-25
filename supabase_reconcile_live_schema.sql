@@ -245,6 +245,20 @@ CREATE INDEX IF NOT EXISTS event_access_requests_event_id_created_at_idx
 CREATE INDEX IF NOT EXISTS event_access_requests_event_id_status_idx
     ON public.event_access_requests (event_id, status);
 
+CREATE TABLE IF NOT EXISTS public.event_hosts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    added_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_hosts_event_user_uidx
+    ON public.event_hosts (event_id, user_id);
+
+CREATE INDEX IF NOT EXISTS event_hosts_user_id_idx
+    ON public.event_hosts (user_id);
+
 ALTER TABLE public.event_access_requests ENABLE ROW LEVEL SECURITY;
 
 DO $$
@@ -279,6 +293,11 @@ BEGIN
                     FROM public.events e
                     WHERE e.id = event_id
                 )
+                OR auth.uid() IN (
+                    SELECT eh.user_id
+                    FROM public.event_hosts eh
+                    WHERE eh.event_id = event_id
+                )
             );
     END IF;
 END $$;
@@ -299,6 +318,11 @@ BEGIN
                     SELECT e.host_user_id
                     FROM public.events e
                     WHERE e.id = event_id
+                )
+                OR auth.uid() IN (
+                    SELECT eh.user_id
+                    FROM public.event_hosts eh
+                    WHERE eh.event_id = event_id
                 )
             );
     END IF;
@@ -430,6 +454,11 @@ BEGIN
                         WHERE e.id = event_id
                     )
                     OR auth.uid() IN (
+                        SELECT eh.user_id
+                        FROM public.event_hosts eh
+                        WHERE eh.event_id = event_id
+                    )
+                    OR auth.uid() IN (
                         SELECT ea.user_id
                         FROM public.event_attendees ea
                         WHERE ea.event_id = event_id
@@ -441,6 +470,217 @@ BEGIN
                         FROM public.attendee_profiles ap
                         WHERE ap.id = attendee_profile_id
                     )
+                )
+            );
+    END IF;
+END $$;
+
+-- -------------------------------------------------------------------
+-- 2f) Additional hosts for equal co-host permissions
+-- -------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.event_hosts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    added_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_hosts_event_user_uidx
+    ON public.event_hosts (event_id, user_id);
+
+CREATE INDEX IF NOT EXISTS event_hosts_user_id_idx
+    ON public.event_hosts (user_id);
+
+INSERT INTO public.event_hosts (event_id, user_id, added_by_user_id)
+SELECT e.id, e.host_user_id, e.host_user_id
+FROM public.events e
+WHERE e.host_user_id IS NOT NULL
+ON CONFLICT (event_id, user_id) DO NOTHING;
+
+ALTER TABLE public.event_hosts ENABLE ROW LEVEL SECURITY;
+
+CREATE OR REPLACE FUNCTION public.is_event_host(
+    p_event_id UUID,
+    p_user_id UUID
+) RETURNS BOOLEAN AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM public.events e
+        WHERE e.id = p_event_id
+          AND e.host_user_id = p_user_id
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM public.event_hosts eh
+        WHERE eh.event_id = p_event_id
+          AND eh.user_id = p_user_id
+    );
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.is_event_host(UUID, UUID) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.event_host_count(
+    p_event_id UUID
+) RETURNS INTEGER AS $$
+    SELECT count(*)::INTEGER
+    FROM public.event_hosts eh
+    WHERE eh.event_id = p_event_id;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.event_host_count(UUID) TO anon, authenticated;
+
+DROP POLICY IF EXISTS "Hosts can view event host rows" ON public.event_hosts;
+CREATE POLICY "Hosts can view event host rows"
+    ON public.event_hosts
+    FOR SELECT
+    USING (
+        auth.uid() IS NOT NULL
+        AND public.is_event_host(event_id, auth.uid())
+    );
+
+DROP POLICY IF EXISTS "Hosts can add co-host rows" ON public.event_hosts;
+CREATE POLICY "Hosts can add co-host rows"
+    ON public.event_hosts
+    FOR INSERT
+    WITH CHECK (
+        auth.uid() IS NOT NULL
+        AND public.is_event_host(event_id, auth.uid())
+    );
+
+DROP POLICY IF EXISTS "Hosts can leave their own host row" ON public.event_hosts;
+CREATE POLICY "Hosts can leave their own host row"
+    ON public.event_hosts
+    FOR DELETE
+    USING (
+        auth.uid() = user_id
+        AND public.event_host_count(event_id) > 1
+    );
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'events'
+          AND policyname = 'Co-hosts can update events'
+    ) THEN
+        CREATE POLICY "Co-hosts can update events"
+            ON public.events
+            FOR UPDATE
+            USING (
+                auth.uid() IN (
+                    SELECT eh.user_id
+                    FROM public.event_hosts eh
+                    WHERE eh.event_id = events.id
+                )
+            );
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'events'
+          AND policyname = 'Co-hosts can delete events'
+    ) THEN
+        CREATE POLICY "Co-hosts can delete events"
+            ON public.events
+            FOR DELETE
+            USING (
+                auth.uid() IN (
+                    SELECT eh.user_id
+                    FROM public.event_hosts eh
+                    WHERE eh.event_id = events.id
+                )
+            );
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'event_attendees'
+          AND policyname = 'Co-hosts can update attendee rows'
+    ) THEN
+        CREATE POLICY "Co-hosts can update attendee rows"
+            ON public.event_attendees
+            FOR UPDATE
+            USING (
+                auth.uid() IN (
+                    SELECT eh.user_id
+                    FROM public.event_hosts eh
+                    WHERE eh.event_id = event_attendees.event_id
+                )
+            );
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'event_access_requests'
+          AND policyname = 'Co-hosts can view event access requests'
+    ) THEN
+        CREATE POLICY "Co-hosts can view event access requests"
+            ON public.event_access_requests
+            FOR SELECT
+            USING (
+                auth.uid() IN (
+                    SELECT eh.user_id
+                    FROM public.event_hosts eh
+                    WHERE eh.event_id = event_access_requests.event_id
+                )
+            );
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'event_access_requests'
+          AND policyname = 'Co-hosts can update event access requests'
+    ) THEN
+        CREATE POLICY "Co-hosts can update event access requests"
+            ON public.event_access_requests
+            FOR UPDATE
+            USING (
+                auth.uid() IN (
+                    SELECT eh.user_id
+                    FROM public.event_hosts eh
+                    WHERE eh.event_id = event_access_requests.event_id
+                )
+            );
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'event_interests'
+          AND policyname = 'Co-hosts can view named interest rows'
+    ) THEN
+        CREATE POLICY "Co-hosts can view named interest rows"
+            ON public.event_interests
+            FOR SELECT
+            USING (
+                auth.uid() IS NOT NULL
+                AND visibility_mode = 'named'
+                AND auth.uid() IN (
+                    SELECT eh.user_id
+                    FROM public.event_hosts eh
+                    WHERE eh.event_id = event_interests.event_id
                 )
             );
     END IF;
@@ -511,6 +751,11 @@ BEGIN
     -- Authorization checks
     IF NOT (
         (v_actor_uid IS NOT NULL AND v_actor_uid = v_host_user_id) OR
+        (v_actor_uid IS NOT NULL AND v_actor_uid IN (
+            SELECT eh.user_id
+            FROM public.event_hosts eh
+            WHERE eh.event_id = v_event_id
+        )) OR
         (v_actor_uid IS NOT NULL AND v_actor_uid = v_user_id) OR
         (v_actor_uid IS NOT NULL AND EXISTS (
             SELECT 1
@@ -819,6 +1064,11 @@ BEGIN
     -- Authorization: host OR profile owner OR owner email OR valid guest session
     IF NOT (
         (v_actor_uid IS NOT NULL AND v_actor_uid = v_host_user_id) OR
+        (v_actor_uid IS NOT NULL AND v_actor_uid IN (
+            SELECT eh.user_id
+            FROM public.event_hosts eh
+            WHERE eh.event_id = p_event_id
+        )) OR
         (v_actor_uid IS NOT NULL AND v_actor_uid = v_profile_user_id) OR
         (v_actor_email <> '' AND v_actor_email = lower(coalesce(p_owner_email, ''))) OR
         (v_session_profile_id IS NOT NULL AND v_session_profile_id = p_attendee_profile_id)

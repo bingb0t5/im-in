@@ -42,6 +42,15 @@ CREATE TABLE IF NOT EXISTS public.event_attendees (
     UNIQUE(event_id, guest_email)
 );
 
+CREATE TABLE IF NOT EXISTS public.event_hosts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    added_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(event_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS public.event_waitlist_positions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_id UUID REFERENCES public.events(id) ON DELETE CASCADE,
@@ -67,8 +76,39 @@ CREATE TABLE IF NOT EXISTS public.event_access_requests (
 
 ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.event_attendees ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_hosts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.event_waitlist_positions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.event_access_requests ENABLE ROW LEVEL SECURITY;
+
+CREATE OR REPLACE FUNCTION public.is_event_host(
+    p_event_id UUID,
+    p_user_id UUID
+) RETURNS BOOLEAN AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM public.events e
+        WHERE e.id = p_event_id
+          AND e.host_user_id = p_user_id
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM public.event_hosts eh
+        WHERE eh.event_id = p_event_id
+          AND eh.user_id = p_user_id
+    );
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.is_event_host(UUID, UUID) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.event_host_count(
+    p_event_id UUID
+) RETURNS INTEGER AS $$
+    SELECT count(*)::INTEGER
+    FROM public.event_hosts eh
+    WHERE eh.event_id = p_event_id;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.event_host_count(UUID) TO anon, authenticated;
 
 -- Events: Anyone can read, only host can create/update
 CREATE POLICY "Public events are viewable by everyone" ON public.events
@@ -78,7 +118,14 @@ CREATE POLICY "Hosts can create events" ON public.events
     FOR INSERT WITH CHECK (auth.uid() = host_user_id);
 
 CREATE POLICY "Hosts can update their own events" ON public.events
-    FOR UPDATE USING (auth.uid() = host_user_id);
+    FOR UPDATE USING (
+        auth.uid() = host_user_id
+        OR auth.uid() IN (
+            SELECT eh.user_id
+            FROM public.event_hosts eh
+            WHERE eh.event_id = events.id
+        )
+    );
 
 -- Attendees: Anyone can read (for attendee preview), anyone can insert (RSVP), only host or owner can update
 CREATE POLICY "Attendees are viewable by everyone" ON public.event_attendees
@@ -91,17 +138,47 @@ CREATE POLICY "Hosts or owners can update attendee status" ON public.event_atten
     FOR UPDATE USING (
         auth.uid() IN (
             SELECT host_user_id FROM public.events WHERE id = event_id
+        ) OR auth.uid() IN (
+            SELECT eh.user_id FROM public.event_hosts eh WHERE eh.event_id = event_id
         ) OR auth.uid() = user_id
     );
 
 CREATE POLICY "Hosts can delete their own events" ON public.events
-    FOR DELETE USING (auth.uid() = host_user_id);
+    FOR DELETE USING (
+        auth.uid() = host_user_id
+        OR auth.uid() IN (
+            SELECT eh.user_id
+            FROM public.event_hosts eh
+            WHERE eh.event_id = events.id
+        )
+    );
 
 CREATE POLICY "Hosts can delete attendees" ON public.event_attendees
     FOR DELETE USING (
         auth.uid() IN (
             SELECT host_user_id FROM public.events WHERE id = event_id
         )
+        OR auth.uid() IN (
+            SELECT eh.user_id FROM public.event_hosts eh WHERE eh.event_id = event_id
+        )
+    );
+
+CREATE POLICY "Hosts can view event host rows" ON public.event_hosts
+    FOR SELECT USING (
+        auth.uid() IS NOT NULL
+        AND public.is_event_host(event_id, auth.uid())
+    );
+
+CREATE POLICY "Hosts can add co-host rows" ON public.event_hosts
+    FOR INSERT WITH CHECK (
+        auth.uid() IS NOT NULL
+        AND public.is_event_host(event_id, auth.uid())
+    );
+
+CREATE POLICY "Hosts can leave their own host row" ON public.event_hosts
+    FOR DELETE USING (
+        auth.uid() = user_id
+        AND public.event_host_count(event_id) > 1
     );
 
 -- Waitlist positions: Anyone can read, managed by system/host
@@ -116,12 +193,18 @@ CREATE POLICY "Hosts can view event access requests" ON public.event_access_requ
         auth.uid() IN (
             SELECT host_user_id FROM public.events WHERE id = event_id
         )
+        OR auth.uid() IN (
+            SELECT eh.user_id FROM public.event_hosts eh WHERE eh.event_id = event_id
+        )
     );
 
 CREATE POLICY "Hosts can update event access requests" ON public.event_access_requests
     FOR UPDATE USING (
         auth.uid() IN (
             SELECT host_user_id FROM public.events WHERE id = event_id
+        )
+        OR auth.uid() IN (
+            SELECT eh.user_id FROM public.event_hosts eh WHERE eh.event_id = event_id
         )
     );
 
@@ -211,6 +294,11 @@ CREATE POLICY "Hosts and members can view named interest rows" ON public.event_i
                 SELECT e.host_user_id
                 FROM public.events e
                 WHERE e.id = event_id
+            )
+            OR auth.uid() IN (
+                SELECT eh.user_id
+                FROM public.event_hosts eh
+                WHERE eh.event_id = event_id
             )
             OR auth.uid() IN (
                 SELECT ea.user_id
