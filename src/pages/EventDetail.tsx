@@ -4,7 +4,7 @@ import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, X, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { buildGoogleCalendarEventUrl, formatDate, formatDay, formatDurationMinutes } from '../utils';
+import { buildGoogleCalendarEventUrl, buildIcsEventContent, formatDate, formatDay, formatDurationMinutes, generateSlug } from '../utils';
 import { Event, Attendee, EventInterest } from '../types';
 import { guestService, AttendeeProfile } from '../services/guestService';
 import { findMyRsvps, getAttendanceSummary } from '../lib/attendees';
@@ -756,14 +756,20 @@ export default function EventDetail({ user }: { user: User | null }) {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const openGoogleCalendar = () => {
-    const activityUrl = eventVisibility === 'semi_public' ? privateEventUrl : window.location.href;
-    const detailsLines = [
+  const buildCalendarDetails = (activityUrl: string) => {
+    return [
       event.description?.trim() || '',
       '',
       `View activity: ${activityUrl}`,
       event.google_maps_url?.trim() ? `Directions: ${event.google_maps_url.trim()}` : '',
-    ].filter(Boolean);
+    ]
+      .filter(Boolean)
+      .join('\n');
+  };
+
+  const openGoogleCalendar = () => {
+    const activityUrl = eventVisibility === 'semi_public' ? privateEventUrl : window.location.href;
+    const details = buildCalendarDetails(activityUrl);
 
     const calendarUrl = buildGoogleCalendarEventUrl({
       title: event.title,
@@ -772,10 +778,37 @@ export default function EventDetail({ user }: { user: User | null }) {
       durationMinutes: event.duration_minutes || 60,
       timezone: event.timezone,
       location: event.location_text || '',
-      details: detailsLines.join('\n'),
+      details,
     });
 
     window.open(calendarUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const downloadCalendarFile = () => {
+    const activityUrl = eventVisibility === 'semi_public' ? privateEventUrl : window.location.href;
+    const details = buildCalendarDetails(activityUrl);
+    const startsAtStamp = new Date(event.starts_at).toISOString().replace(/\W/g, '').slice(0, 12);
+    const uid = `${event.id}.${startsAtStamp}@joinimin.com`;
+    const icsContent = buildIcsEventContent({
+      uid,
+      title: event.title,
+      startsAtIso: event.starts_at,
+      endsAtIso: event.ends_at || null,
+      durationMinutes: event.duration_minutes || 60,
+      location: event.location_text || '',
+      description: details,
+      url: activityUrl,
+      status: event.status === 'cancelled' ? 'CANCELLED' : 'CONFIRMED',
+    });
+    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = `${generateSlug(event.title || 'activity')}.ics`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(objectUrl);
   };
 
   if (!hasFullEventAccess) {
@@ -1005,14 +1038,23 @@ export default function EventDetail({ user }: { user: User | null }) {
           </div>
 
           {hasSelfRsvp && (
-            <button
-              type="button"
-              onClick={openGoogleCalendar}
-              className="inline-flex items-center gap-2 mt-2 text-sm font-bold text-brand-600 hover:text-brand-500 transition-all active:scale-95"
-            >
-              <Calendar className="w-4 h-4" />
-              Add to Google Calendar
-            </button>
+            <div className="flex flex-wrap gap-x-4 gap-y-2 mt-2">
+              <button
+                type="button"
+                onClick={openGoogleCalendar}
+                className="inline-flex items-center gap-2 text-sm font-bold text-brand-600 hover:text-brand-500 transition-all active:scale-95"
+              >
+                <Calendar className="w-4 h-4" />
+                Add to Google Calendar
+              </button>
+              <button
+                type="button"
+                onClick={downloadCalendarFile}
+                className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-700 transition-all active:scale-95"
+              >
+                Download Calendar File (.ics)
+              </button>
+            </div>
           )}
 
           {event.description && (
