@@ -1,5 +1,18 @@
 # IMPLEMENTATION_CHECKLIST
 
+## Status Note
+
+This file is primarily a historical cleanup and implementation roadmap.
+
+It still provides useful context, but it should **not** be treated as the current source of truth for product behavior, auth flows, or schema authority.
+
+For current reality, use:
+
+- `README.md`
+- `PROJECT_ARCHITECTURE.md`
+- `CURRENT_STATE.md`
+- `SCHEMA_OR_DATA_MODEL.md`
+
 ## Purpose
 
 This file breaks the recommended cleanup work into small, low-risk phases.

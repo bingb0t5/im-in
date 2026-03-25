@@ -1,5 +1,18 @@
 # CODEX_PROMPTS
 
+## Status Note
+
+These prompts are historical working prompts, not the canonical source of truth for the current app.
+
+Some prompts reflect earlier cleanup phases and older terminology.
+
+For current system reality, prefer:
+
+- `README.md`
+- `PROJECT_ARCHITECTURE.md`
+- `CURRENT_STATE.md`
+- `SCHEMA_OR_DATA_MODEL.md`
+
 ## Purpose
 
 These prompts are designed for GPT-5.3 Codex to work safely on this repository in small passes.

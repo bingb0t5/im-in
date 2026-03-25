@@ -41,7 +41,10 @@ Be especially careful when editing these:
 - `src/pages/Login.tsx`
 - `src/pages/Bookings.tsx`
 - `src/pages/Recovery.tsx`
+- `src/pages/Calendar.tsx`
+- `src/pages/Home.tsx`
 - `src/lib/events.ts`
+- `src/lib/interests.ts`
 - `src/lib/rsvp.ts`
 - `src/lib/navigation.ts`
 - `src/lib/authRedirect.ts`
@@ -62,8 +65,10 @@ Before changing RSVP, waitlist, auth, guest recovery, bookings, access requests,
    - `attendee_profiles`
    - `attendee_sessions`
    - `event_attendees`
-   - `event_waitlist_positions`
+   - `event_hosts`
+   - `event_interests`
    - `event_access_requests`
+   - `event_waitlist_positions`
    - `events.visibility`
    - `events.access_code`
 5. Document mismatches instead of silently coding past them.
@@ -120,6 +125,7 @@ Rules:
 - Do not change storage keys without backward-compat handling.
 - Do not assume guest bookings can be derived from email alone.
 - Preserve recovery-link behavior unless explicitly redesigning it.
+- Be explicit that `/recover` token restore is real, but `/login?recovery=true` currently behaves like OTP login rather than a true guest-session recovery flow.
 
 ## RSVP And Waitlist Rules
 
@@ -170,6 +176,8 @@ Rules:
   - event path building
   - share/copy actions
   - host preview/manage pages
+  - signed-in dashboard links
+  - guest bookings links
 - When editing navigation, confirm joined users still get the correct private/public path.
 - When editing semi-public flows, check access-request behavior and host actions together.
 
@@ -284,9 +292,10 @@ After meaningful changes, verify the relevant flows manually when possible:
    - proxy/add-another-person case
 8. Cancellation still works.
 9. Semi-public share/access-request behavior still works.
-10. Guest bookings still load.
-11. Recovery link flow still restores session.
-12. Host manage page still supports preview/share/edit paths.
+10. Thinking-about-it state still works on public and non-public activities.
+11. Guest bookings still load.
+12. Recovery link flow still restores session.
+13. Host manage page still supports preview/share/edit paths.
 
 If you cannot verify a flow, say so clearly.
 
@@ -333,6 +342,7 @@ Watch for these known risks:
 - RPC/frontend logic drift for RSVP/cancel flows
 - duplicated business logic across client and SQL
 - demo-grade recovery token/email flow
+- split signed-in dashboard vs guest bookings behavior
 - auth redirect drift between localhost and deployed environments
 - regressions in semi-public/private link handling
 - regressions in timezone/duration save/display behavior

@@ -48,8 +48,12 @@ Key differences:
 
 Business logic remains split between:
 
-- client writes (`EventDetail.tsx`, `HostDashboard.tsx`, `CreateEvent.tsx`)
-- SQL logic in `supabase_schema.sql` snapshot (`rsvp_to_event`, waitlist promotion triggers)
+- client helpers (`src/lib/rsvp.ts`, page-level guard logic)
+- RPC-driven write paths in `supabase_reconcile_live_schema.sql` such as:
+  - `submit_rsvp(...)`
+  - `cancel_attendee_with_promotion(...)`
+  - `add_proxy_attendee(...)`
+- older trigger/function logic in `supabase_schema.sql` snapshot such as `rsvp_to_event(...)` and waitlist promotion triggers
 
 This is still a consistency risk regardless of table parity.
 
@@ -60,6 +64,16 @@ Without a DB uniqueness guard on attendee identity, `.maybeSingle()` query assum
 ### 3) `full_name` staleness risk
 
 Live `attendee_profiles.full_name` is defined as a default expression, not a generated column. If first/last names are updated later, `full_name` can become stale unless application logic updates it.
+
+### 4) Newer frontend features depend on newer tables
+
+The current app also relies on:
+
+- `event_hosts`
+- `event_interests`
+- `event_access_requests`
+
+If a database environment is aligned only to older event/attendee tables, current host, interest, and semi-public flows will not behave correctly.
 
 ## Decision
 
@@ -74,6 +88,7 @@ Use a **non-destructive reconciliation script** to:
 - add performance indexes used by app query patterns
 - add defensive uniqueness on waitlist position table (if aligned with product intent)
 - preserve proxy RSVP behavior (do not add `UNIQUE(event_id, guest_email)` without product decision)
+- keep current RPC expectations explicit in documentation
 - optionally add/update helper DB function and triggers only if you want DB-side authority
 
 ## About `supabase_guest_identity_migration.sql`
@@ -90,5 +105,6 @@ It is likely redundant for your current production database where those structur
 Phase 1 is now in a better state:
 
 - live schema and frontend guest contract broadly align
+- current frontend also expects co-host, interest, and access-request structures
 - remaining work is reconciliation/documentation, not missing-table emergency fixes
 - biggest unresolved technical choice remains RSVP/waitlist source-of-truth ownership

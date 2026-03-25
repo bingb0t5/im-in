@@ -1,468 +1,527 @@
 # PROJECT_ARCHITECTURE
 
-## Overview
+## Purpose Of This Document
 
-`I'm In` is a lightweight community activity app built as a frontend-first React SPA on top of Supabase.
+This document describes the **current implemented architecture** of the app as it exists in the repository now.
 
-At a product level, it supports three main jobs:
+It is intentionally descriptive, not aspirational.
 
-- hosts can create, edit, share, and manage activities
-- guests and signed-in users can join activities, join waitlists, and add other people
-- communities can browse public activities while semi-public/private activities stay partially or fully restricted
+Where something is incomplete, partial, or historically layered, this document says so explicitly.
 
-The codebase still uses `event` terminology in routes, tables, and many symbols, but the current user-facing product language is **activity / activities**.
+## System Overview
 
-## What The App Does
+`I'm In` is a frontend-first React SPA backed directly by Supabase.
 
-The app centers around simple, shareable activity pages and a lightweight host-management workflow.
+At a practical level, the system is built around:
 
-Hosts can:
+- public, semi-public, and private activity pages
+- a lightweight create/edit flow for hosts
+- a host management page
+- a public browse/search page
+- a dual identity model that supports both signed-in users and guest-session-based attendees
 
-- create activities with title, descriptions, location, visibility, timezone, duration, capacity, and host details
-- create while signed out, then complete sign-in only at save time through a magic-link flow
-- choose activity visibility:
-  - `public`: discoverable with full public details
-  - `semi_public`: discoverable with limited public details, full details available through host-shared private access link
-  - `private`: unlisted, link-only
-- manage attendees and waitlist state
-- add attendees manually
-- duplicate activities
-- handle semi-public access requests
-- share public and/or private links
+The app still uses `event` naming internally in code, routes, and database tables. The live product language is **activity / activities**.
 
-Attendees can:
+## Product Reality
 
-- browse public activities on the calendar
-- open activity detail pages without logging in
-- RSVP as a signed-in user or as a remembered guest
-- join a waitlist when full
-- add another person to an activity
-- cancel their own RSVP
-- recover bookings later using the guest recovery flow
+### What the app currently does
 
-## Frontend Stack
+- lets hosts create and manage activities
+- lets guests and signed-in users RSVP
+- supports waitlists
+- supports proxy RSVP / adding another person
+- supports "thinking about it" interests
+- supports semi-public access requests
+- supports co-hosts
+- supports Google Calendar links and `.ics` downloads
+- supports guest-session bookings and token-based recovery route handling
 
-- Framework: `React 19`
-- Language: `TypeScript`
-- Bundler/dev server: `Vite 6`
-- Routing: `react-router-dom`
-- Styling: `Tailwind CSS v4` via `@tailwindcss/vite`
-- Motion/animation: `motion`
-- Icons: `lucide-react`
-- Utility helpers: `clsx`, `tailwind-merge`
+### What it does not currently do well
 
-Important frontend entry files:
+- it does not have a fully coherent guest-recovery product flow end to end
+- it does not have an automated test suite
+- it does not have a single definitive schema artifact
+- it does not have a unified user identity model yet
 
-- `src/main.tsx`: app bootstrap
-- `src/App.tsx`: auth bootstrap, route table, protected routes
-- `src/index.css`: Tailwind/base styling
-- `src/types.ts`: shared domain types
-- `src/utils.ts`: class merging, slug generation, timezone/duration/date helpers
+## Runtime Architecture
 
-Notes:
+### Deployment model
 
-- The app uses `BrowserRouter`, so deployment requires SPA route fallback to `index.html`.
-- UI is still page-centric; there is no large shared component system yet.
+- static browser SPA
+- no first-party backend server in this repository
+- direct browser access to Supabase using the anon key
 
-## Backend / Server Stack
+### Main runtime dependencies
 
-There is no first-party backend server in this repository.
+- React 19
+- TypeScript
+- Vite 6
+- Tailwind CSS v4
+- `react-router-dom`
+- `motion`
+- `@supabase/supabase-js`
 
-Runtime model:
+### Security model
 
-- static/browser SPA
-- direct client access to Supabase via `@supabase/supabase-js`
-- Supabase Auth for magic-link sign-in
-- Supabase Postgres for activities, attendees, guest identity, access requests, and related data
-- Supabase Realtime for live attendee/access-request refreshes
+There is no hidden application server protecting business rules.
 
-Important backend-related files:
+The real enforcement model is:
 
-- `src/supabase.ts`: lazy Supabase client initialization
-- `supabase_schema.sql`: baseline schema snapshot for fresh/non-production environments
-- `supabase_reconcile_live_schema.sql`: safer live-schema reconciliation and RPC definitions
-- `SCHEMA_ALIGNMENT.md`: notes about drift between the repository snapshot and the live database
+- Supabase Auth
+- Supabase RLS
+- SECURITY DEFINER RPCs in SQL
+- client behavior staying aligned with those assumptions
 
-Important nuance:
+That means frontend changes, SQL changes, and documentation changes should be treated as one unit for high-risk flows.
 
-- This app is frontend-only and security depends heavily on Supabase RLS plus RPCs, not hidden server logic.
+## Route And Page Structure
 
-## Folder-By-Folder Explanation
+The route table lives in `src/App.tsx`.
 
-### Root
+### Current routes
 
-- `package.json`: scripts and dependencies
-- `package-lock.json`: npm lockfile
-- `vite.config.ts`: Vite config and env wiring
-- `tsconfig.json`: TypeScript config
-- `index.html`: SPA HTML shell
-- `.env.example`: documented environment variables
-- `README.md`: setup/deployment guide
-- `PROJECT_ARCHITECTURE.md`: architecture documentation
-- `AI_DEV_RULES.md`: coding and safety guidance for contributors/agents
-- `AUTH_UNIFICATION_PLAN.md`: review and phased plan for potentially unifying guest/auth identity
-- `IMPLEMENTATION_CHECKLIST.md`: implementation roadmap/history
-- `SCHEMA_ALIGNMENT.md`: schema drift notes
-- `supabase_schema.sql`: repo snapshot schema
-- `supabase_reconcile_live_schema.sql`: live-db reconciliation/RPC script
-- `seed_data.sql`: sample seed data
+| Route | Page | Current behavior |
+|---|---|---|
+| `/` | `src/pages/Home.tsx` | Signed-out landing page or signed-in dashboard |
+| `/login` | `src/pages/Login.tsx` | Magic-link sign-in; also hosts the "Find my bookings" recovery entry UI |
+| `/create-event` | `src/pages/CreateEvent.tsx` | Create flow; signed-out users can still fill the form before auth |
+| `/host/events/:id/edit` | `src/pages/CreateEvent.tsx` | Edit mode; requires signed-in user |
+| `/events/:slug` | `src/pages/EventDetail.tsx` | Attendee-facing activity detail page |
+| `/host/events/:id` | `src/pages/HostDashboard.tsx` | Host/co-host management page |
+| `/calendar` | `src/pages/Calendar.tsx` | Public browse/search page |
+| `/bookings` | `src/pages/Bookings.tsx` | Guest-session bookings page |
+| `/recover` | `src/pages/Recovery.tsx` | Token-based guest-session restore |
+| `*` | redirect | Redirects to `/` |
 
-### `src/`
+### Important routing nuances
 
-- `main.tsx`: mounts the app
-- `App.tsx`: initializes auth, handles config errors, defines routes
-- `supabase.ts`: exports the Supabase client
-- `index.css`: theme/base styles
-- `types.ts`: shared `Event`, `Attendee`, `EventAccessRequest`, and related types
-- `utils.ts`: formatting, timezone conversion, duration helpers, slugs
+- `/host/events/:id` and `/host/events/:id/edit` are auth-gated in `App.tsx`
+- `/create-event` is not route-gated because the delayed-auth create flow is intentional
+- `/bookings` is not the general signed-in attendee dashboard; it is guest-session driven
+- `/login` redirects authenticated users to `/create-event`, not `/`
+- unknown routes redirect to `/`
 
-### `src/pages/`
+## Page Responsibilities
 
-- `Home.tsx`: signed-out landing page and signed-in host/attending dashboard
-- `Login.tsx`: magic-link sign-in and guest booking recovery entry
-- `CreateEvent.tsx`: create/edit activity form with delayed-auth save flow
-- `EventDetail.tsx`: attendee-facing activity page, RSVP, proxy RSVP, cancellation, semi-public request flow
-- `HostDashboard.tsx`: host management page for one activity
-- `Calendar.tsx`: public browse/search page
-- `Bookings.tsx`: guest/session booking history
-- `Recovery.tsx`: restores a guest session from recovery token
+### `Home.tsx`
 
-### `src/services/`
+Two different products live here depending on auth state.
 
-- `guestService.ts`: guest identity, session storage, booking recovery, profile syncing
+Signed out:
 
-### `src/lib/`
+- landing page
+- primary CTAs: create activity, browse public activities, activities I'm in
+- "Why this exists" and "Help build it" modal content
 
-Important shared logic now lives here:
+Signed in:
 
-- `authRedirect.ts`: builds auth redirect URLs using deployment-aware origin logic
-- `navigation.ts`: back-button helper (`goBackOr`)
-- `events.ts`: event path building and confirmed-count helpers
+- hosting vs attending toggle
+- hosted activities from both `events.host_user_id` and `event_hosts`
+- joined activities plus "thinking about it" merged together
+- pending semi-public access requests for hosted activities
+- public search box that navigates to `/calendar?q=...`
+
+### `Login.tsx`
+
+- magic-link-only sign-in through `signInWithOtp`
+- optional recovery-mode UI when `?recovery=true`
+- recovery mode currently also sends `signInWithOtp`, not a guest-session recovery token
+
+### `CreateEvent.tsx`
+
+- create and edit form
+- delayed-auth create flow
+- local draft persistence
+- timezone-aware scheduling
+- duration-based scheduling instead of direct end-time authoring
+- signed-in host-name hydration and normalization
+- co-host access check for edit mode
+
+### `EventDetail.tsx`
+
+- activity read page
+- attendee list rendering
+- signed-in and guest RSVP
+- cancellation
+- waitlist messaging
+- proxy RSVP / add another person
+- "thinking about it"
+- semi-public request-to-view flow
+- Google Calendar + `.ics` actions
+- share-link choices
+- host-view detection for semi-public/private access
+
+### `HostDashboard.tsx`
+
+- host/co-host management page
+- attendee and waitlist views
+- add/remove attendee actions
+- copy/share public and private links
+- access-request review
+- host list and add-host flow
+- duplicate activity
+- delete activity
+
+### `Calendar.tsx`
+
+- fetches future `events` where `is_public = true`
+- supports search via query param
+- hides exact time for semi-public previews
+- prefers private access links for already-joined semi-public attendees when available
+
+### `Bookings.tsx`
+
+- guest-session booking history
+- merges bookings and interests
+- not driven by Supabase auth user state
+
+### `Recovery.tsx`
+
+- validates a guest-session token from the URL
+- stores it back into local storage
+- routes to `/bookings`
+
+## Frontend Structure
+
+### Core top-level files
+
+- `src/main.tsx`: mount/bootstrap
+- `src/App.tsx`: session bootstrap, auth listener, route table
+- `src/supabase.ts`: Supabase client creation
+- `src/types.ts`: shared data types
+- `src/utils.ts`: general-purpose formatting/time/calendar helpers
+
+### Shared helpers
+
+`src/lib/` is the main shared logic layer.
+
+Important files:
+
+- `authRedirect.ts`: deployment-aware auth redirect URL building
+- `navigation.ts`: `goBackOr(...)`
+- `events.ts`: event-path building and count hydration
+- `attendees.ts`: attendee ownership and summary helpers
+- `bookings.ts`: booking grouping
+- `interests.ts`: "thinking about it" helpers
 - `rsvp.ts`: shared RSVP decision helpers
-- `attendees.ts`: shared attendee ownership/matching helpers
-- `bookings.ts`: booking grouping helpers
 
-## Auth Flow
+### Services
 
-The app has two linked identity systems:
+- `src/services/guestService.ts`: guest session storage, validation, profile creation/sync, guest bookings/interests lookup, and signed-in profile normalization helpers
 
-1. Supabase Auth for signed-in users
-2. guest profile/session identity for device-based attendees
+### Current frontend boundary quality
 
-### Signed-In Flow
+What is good:
 
-1. `src/App.tsx` calls `supabase.auth.getSession()` on load.
-2. `src/App.tsx` subscribes to `supabase.auth.onAuthStateChange(...)`.
-3. Host routes such as `/host/events/:id` and `/host/events/:id/edit` require a signed-in `user`.
-4. `src/Login.tsx` supports **magic-link only** via `signInWithOtp`.
-5. `src/App.tsx` calls `guestService.getOrCreateProfileForUser(user)` so the signed-in user also maps into attendee/guest profile structures.
+- key navigation, event path, booking grouping, and RSVP helper logic has been extracted from pages
+- page responsibilities are readable once you understand the product
 
-### Delayed-Auth Create Flow
+What is still weak:
 
-`CreateEvent.tsx` intentionally allows a signed-out user to fill out the activity form before authentication.
+- several pages still own too much business logic
+- display-name resolution logic is duplicated in multiple places
+- host and attendee flows still mix UI concerns with data integrity decisions
+- some write paths are RPC-based while others are still direct table mutations
 
-Current flow:
+## Auth And Identity Architecture
 
-1. signed-out user enters activity details
-2. on save, the app prompts for email
-3. `signInWithOtp` sends a magic link
-4. form draft is persisted locally
-5. after sign-in, the user returns to the create flow and completes save
+## Current truth
 
-This is an important product behavior and should be preserved unless intentionally redesigned.
+The app currently has **two linked identity systems**:
 
-### Guest Flow
+- Supabase Auth users
+- guest-session identity built on `attendee_profiles` and `attendee_sessions`
 
-1. A guest opens an activity page and RSVPs without traditional sign-in.
-2. `EventDetail.tsx` uses `guestService` to create or restore a guest session.
-3. `guestService` creates/reuses `attendee_profiles`, creates `attendee_sessions`, and stores the token in `localStorage`.
-4. `Bookings.tsx` reads the stored session to show activity history.
-5. `Recovery.tsx` restores the local guest session from a recovery link.
+They are not yet unified.
 
-### Important Auth Constraints
+### Signed-in path
 
-- authenticated users still map to attendee/guest profile records
-- guest identity is real application state, not disposable UI state
-- guest recovery exists, but the recovery email sending path is still lightweight/demo-grade
+`App.tsx`:
 
-### Auth Migration Note
+- calls `supabase.auth.getSession()`
+- subscribes to `onAuthStateChange`
+- on user availability, calls `guestService.getOrCreateProfileForUser(user)`
 
-There is now a dedicated planning document for the question of whether the app should collapse guest users and signed-in users into a single model:
+This means signed-in users are also projected into the guest/profile-backed identity layer.
 
-- `AUTH_UNIFICATION_PLAN.md`
+### Guest path
 
-That document recommends treating this as a deliberate auth migration project, not a small cleanup task. The current recommended direction is:
+Guest attendees use:
 
-- preserve low-friction first use
-- avoid forcing magic-link auth at first touch
-- prefer an anonymous-first unified session model if auth unification is pursued later
+- `attendee_profiles`
+- `attendee_sessions`
+- local storage token persistence
 
-## Airtable Integration
+This guest session is then used by:
 
-There is no Airtable integration in this repository.
+- `/bookings`
+- guest RSVP/proxy flows
+- token restore via `/recover`
 
-The actual backend integration is Supabase:
+### Delayed-auth create path
 
-- `src/supabase.ts`
-- `src/services/guestService.ts`
-- page-level Supabase access
-- `supabase_schema.sql`
-- `supabase_reconcile_live_schema.sql`
+This is a deliberate UX design:
 
-If older planning docs mention Airtable, that does not reflect the current codebase.
+- anonymous user can fill the create form
+- save triggers email capture + magic link
+- draft persists locally
+- after sign-in, the user finishes saving
 
-## Supabase Data Model And Integration
+This is important current product behavior and should not be accidentally removed.
 
-### Core Tables / Concepts
+### Recovery reality
 
-The current app expects these major concepts in the live schema:
+There are two related but not fully aligned recovery concepts:
+
+- `/recover?token=...` correctly restores a guest session if a valid token exists
+- `/login?recovery=true` presents a recovery UI, but currently sends a Supabase OTP email rather than a guest-session recovery email
+
+Also:
+
+- `guestService.sendRecoveryEmail()` exists but still contains TODO-level email delivery scaffolding and is not wired into the login flow
+
+This is one of the clearest code/product/docs mismatches in the current repo.
+
+## Activity Lifecycle
+
+### Host lifecycle
+
+1. Open `/create-event`
+2. Fill in form fields including visibility, schedule, capacity, and host details
+3. If signed out, authenticate at save time
+4. Save to `events`
+5. Upsert creator into `event_hosts`
+6. Manage activity through `/host/events/:id`
+7. Edit, duplicate, share, manage attendees, add co-hosts, or delete
+
+### Attendee lifecycle
+
+1. Discover activity via direct link or `/calendar`
+2. Open `/events/:slug`
+3. RSVP, join waitlist, think about it, or request view access
+4. For guests, create/restore guest session
+5. Return later through `/bookings` or direct link
+
+### Semi-public access lifecycle
+
+1. Activity appears in public browse because `is_public = true`
+2. Public preview hides some details
+3. User without access token can submit an access request
+4. Host acts from `HostDashboard.tsx`
+5. Host shares private link containing `?access=...`
+6. Joined users may later navigate via a private path when the app knows their access code
+
+## Visibility And Share Model
+
+### Current practical contract
+
+- `is_public = true` means the activity may appear in browse/search
+- `is_public = false` means it should not appear in public browse
+- `visibility = public` means public details are intended to be fully visible
+- `visibility = semi_public` means public preview plus host-shared private access
+- `visibility = private` means unlisted/link-only behavior
+
+### Important nuance
+
+`is_public` and `visibility` are related but not identical.
+
+In the current code:
+
+- both `public` and `semi_public` resolve to `is_public = true`
+- `private` resolves to `is_public = false`
+
+So contributors should think of:
+
+- `is_public` as the broad browse flag
+- `visibility` as the product-level visibility mode
+
+### Share behavior
+
+- public link: `/events/:slug`
+- semi-public private link: `/events/:slug?access=...`
+- host dashboard offers both public and private link copy/share options for semi-public activities
+- attendee navigation uses `buildEventPath(...)` to prefer private link when known
+
+## Data Flow And Supabase Usage
+
+### Tables the app actually relies on
 
 - `events`
 - `event_attendees`
-- `event_waitlist_positions`
+- `event_hosts`
+- `event_interests`
+- `event_access_requests`
 - `attendee_profiles`
 - `attendee_sessions`
-- `event_access_requests`
 
-Important `events` capabilities currently reflected in the frontend:
+### Tables defined but not central to current frontend logic
 
-- `visibility`: `public | semi_public | private`
-- `public_summary`
-- `public_location_text`
-- `show_host_publicly`
-- `access_code`
-- `google_maps_url`
-- `timezone`
-- `duration_minutes`
+- `event_waitlist_positions` exists in SQL but is not queried directly by the frontend
 
-### Live Schema vs Repository Snapshot
+### Common page-level queries
 
-`supabase_schema.sql` is useful, but it is not the guaranteed full production truth.
+- `Home.tsx`: hosted events, joined events, interests, pending access requests
+- `Calendar.tsx`: future public events and joined private-access map
+- `CreateEvent.tsx`: create/edit event reads and writes
+- `EventDetail.tsx`: activity, attendees, interests, access requests, RSVP and proxy flows
+- `HostDashboard.tsx`: event, attendees, interests, access requests, co-hosts
+- `guestService.ts`: profile/session reads and writes
 
-The live app behavior depends on schema/RPC details that are better represented in:
+## RPC And Trigger Architecture
 
-- `supabase_reconcile_live_schema.sql`
-- `SCHEMA_ALIGNMENT.md`
-
-Treat those docs/scripts as especially important when working on data flows.
-
-### Current Reliability RPCs
-
-The frontend relies on RPC helpers for some fragile attendee operations:
+### RPCs the app actively depends on
 
 - `submit_rsvp(...)`
 - `cancel_attendee_with_promotion(...)`
 - `add_proxy_attendee(...)`
+- `toggle_event_interest(...)`
 
-These are important because they encapsulate data integrity / RLS-sensitive flows.
+### RLS helper functions used in SQL
 
-### How Supabase Is Used In The App
+- `is_event_host(...)`
+- `event_host_count(...)`
 
-- `Home.tsx`: fetches hosted/joined activities
-- `Calendar.tsx`: fetches future public activities and private-access map for joined users
-- `CreateEvent.tsx`: inserts/updates `events`
-- `EventDetail.tsx`: reads activity/attendee/access-request records and performs RSVP flows
-- `HostDashboard.tsx`: reads and manages attendees, access requests, duplication, share flows
-- `guestService.ts`: guest profile/session lifecycle and booking recovery
+### Important architectural caveat
 
-### Realtime Usage
+The waitlist / RSVP model is not fully single-sourced.
 
-- `EventDetail.tsx` subscribes to `event_attendees`
-- `HostDashboard.tsx` subscribes to `event_attendees`
-- `HostDashboard.tsx` also subscribes to `event_access_requests`
+Current behavior is split across:
 
-## Important Routes / Pages
+- frontend helper logic
+- RPCs in `supabase_reconcile_live_schema.sql`
+- older trigger/function logic in `supabase_schema.sql`
 
-- `/`: `Home.tsx`
-- `/login`: `Login.tsx`
-- `/create-event`: `CreateEvent.tsx`
-- `/host/events/:id/edit`: `CreateEvent.tsx` in edit mode
-- `/events/:slug`: `EventDetail.tsx`
-- `/host/events/:id`: `HostDashboard.tsx`
-- `/calendar`: `Calendar.tsx`
-- `/bookings`: `Bookings.tsx`
-- `/recover`: `Recovery.tsx`
+This is one of the highest-risk architecture areas because changes can drift between layers.
 
-Routing behavior:
+## Realtime Usage
 
-- unknown routes redirect to `/`
-- host manage/edit routes require Supabase auth
-- public activity pages are accessible without login
-- semi-public/private access behavior depends on activity visibility and optional `?access=` token
+### `EventDetail.tsx`
 
-## Shared Utilities / Services
+- subscribes to `event_attendees`
+- subscribes to `event_interests`
+- currently subscribes broadly, not event-filtered
 
-### `src/utils.ts`
+### `HostDashboard.tsx`
 
-Important helpers now include:
+- subscribes to `event_attendees` filtered by `event_id`
+- subscribes to `event_access_requests` filtered by `event_id`
+- subscribes to `event_interests` filtered by `event_id`
 
-- `cn(...)`
-- `formatDate(...)`
-- `formatDay(...)`
-- `formatTime(...)`
-- `formatDateWithTimeZone(...)`
-- `formatDurationMinutes(...)`
-- `buildDurationOptions(...)`
-- `eventLocalToUtcIso(...)`
-- `utcIsoToEventLocalInput(...)`
-- `toUtcIsoFromStartAndDuration(...)`
-- `deriveDurationMinutes(...)`
-- `generateSlug(...)`
+## SQL / Schema Architecture
 
-### `src/services/guestService.ts`
+### Important SQL files
 
-Main guest/session identity service:
+- `supabase_schema.sql`
+- `supabase_reconcile_live_schema.sql`
+- `supabase_guest_identity_migration.sql`
+- `SCHEMA_ALIGNMENT.md`
 
-- stored session helpers
-- guest session creation/validation
-- booking lookup
-- recovery email/token flow
-- signed-in user profile sync
+### Current schema truth
 
-### `src/lib/`
+There is no single perfect schema artifact in the repo.
 
-Shared domain helpers worth knowing:
+In practice:
 
-- event path generation for public/private access
-- RSVP decision logic
-- attendee ownership matching
-- back-navigation logic
-- auth redirect URL handling
+- `supabase_schema.sql` is a starter snapshot
+- `supabase_reconcile_live_schema.sql` contains many of the current reliability/RPC expectations
+- `supabase_guest_identity_migration.sql` bootstraps guest/profile/session structures
+- `SCHEMA_ALIGNMENT.md` documents some known drift and historical caveats
 
-## Key Environment Variables
+Contributors should not assume `supabase_schema.sql` alone fully represents the live database.
 
-### Required
+## Configuration And Deployment Assumptions
+
+### Environment variables
+
+Required:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-### Optional But Meaningful
+Recommended:
 
 - `VITE_APP_URL`
-  - used as an auth redirect override for hosted/proxied setups
-  - important for magic-link correctness outside localhost/default origin assumptions
 
-### Legacy / Optional
+Legacy optional:
 
 - `APP_URL`
-  - documented as legacy optional
 
-## Build / Run Commands
+### Build/runtime assumptions
 
-From `package.json`:
+- Vite dev server runs on port `3000`
+- build output is `dist`
+- `BrowserRouter` requires SPA rewrites to `index.html`
+- deployment URL correctness matters for auth redirect behavior
 
-- `npm install`
-- `npm run dev`
-- `npm run build`
-- `npm run preview`
-- `npm run lint`
-- `npm run clean`
+### Vite notes
 
-Notes:
+`vite.config.ts`:
 
-- `npm run dev` starts Vite on port `3000`
-- there is currently no automated test suite
-- `npm run clean` is now implemented via Node and is cross-platform
+- injects Supabase env vars with `define`
+- includes React and Tailwind plugins
+- allows disabling HMR through `DISABLE_HMR=true`
 
-## Deployment Notes For Render
+## Known Tradeoffs And Risks
 
-### Deployment Model
+### 1. Identity complexity
 
-This app should be deployed as a static site:
+The dual signed-in / guest-session model is functional but harder to reason about than a unified identity system.
 
-- build command: `npm run build`
-- publish directory: `dist`
+### 2. Guest recovery mismatch
 
-### Required Build-Time Env Vars
+Product messaging suggests a stronger recovery story than the wired implementation currently delivers.
 
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-- `VITE_APP_URL` is recommended for reliable magic-link redirects on hosted domains
+### 3. Schema drift
 
-### SPA Routing Requirement
+Current functionality depends on a combination of starter schema, reconcile SQL, and live-database reality.
 
-Because the app uses `BrowserRouter`, unknown routes must rewrite to `index.html`.
+### 4. Mixed write patterns
 
-Important deep links that need rewrite support:
+Some high-risk flows use RPCs, while some host-side actions still write directly to tables.
 
-- `/events/:slug`
-- `/host/events/:id`
-- `/host/events/:id/edit`
-- `/calendar`
-- `/bookings`
-- `/recover`
+### 5. Waitlist authority is split
 
-### Deployment Caveats
+Triggers, helper logic, and RPC paths all participate in waitlist behavior.
 
-- magic-link redirect behavior is sensitive to deployment URL configuration
-- `supabase_schema.sql` is not a perfect production snapshot
-- there is no CI/deployment validation in the repo yet
+### 6. No automated tests
 
-## Known Risks / Technical Debt
-
-### 1. Schema Drift Between Repository SQL And Live Supabase
-
-This remains the biggest maintenance risk. The frontend depends on live-schema details and RPC behavior that can drift from the checked-in SQL snapshot.
-
-### 2. RSVP / Waitlist Integrity Still Needs Care
-
-The app now uses a mix of shared frontend decision helpers and database RPCs. That is safer than naive direct writes, but still easy to regress if only one side is updated.
-
-### 3. Guest Recovery Is Still Lightweight
-
-Recovery exists, but the email/recovery flow is not yet a full production-grade account-recovery system.
-
-### 4. Visibility Rules Are More Complex Now
-
-The app now supports `public`, `semi_public`, and `private`. That improves flexibility but makes route generation, access checks, and share-link behavior more fragile.
-
-### 5. Timezone / Duration Behavior Must Stay Consistent
-
-The app now treats:
-
-- `starts_at` as UTC storage
-- `timezone` as display/authoring context
-- `duration_minutes` as the main end-time model
-
-Changes here can easily reintroduce confusing schedule bugs.
-
-### 6. No Automated Tests
-
-There is still no automated test suite, so regressions are easy to introduce in:
+There is currently no automated protection for:
 
 - auth/bootstrap
 - delayed-auth create flow
-- RSVP/proxy RSVP/cancellation
-- waitlist promotion
-- bookings/recovery
-- visibility/share-link behavior
+- guest bookings and recovery
+- RSVP/proxy/cancel flows
+- semi-public request/share flows
+- co-host behavior
 
-## Suggestions For Safe Future Development
+## Files New Contributors Should Read First
 
-### Highest Priority
+- `README.md`
+- `FEATURES.md`
+- `CURRENT_STATE.md`
+- `SCHEMA_OR_DATA_MODEL.md`
+- `src/App.tsx`
+- `src/pages/CreateEvent.tsx`
+- `src/pages/EventDetail.tsx`
+- `src/pages/HostDashboard.tsx`
+- `src/services/guestService.ts`
+- `supabase_reconcile_live_schema.sql`
+- `SCHEMA_ALIGNMENT.md`
 
-- keep `supabase_reconcile_live_schema.sql`, `SCHEMA_ALIGNMENT.md`, and frontend expectations aligned
-- preserve the delayed-auth create flow unless intentionally redesigning it
-- keep visibility/share-link behavior documented whenever product rules change
-- add smoke coverage for RSVP, cancellation, waitlist, create/edit, and semi-public flows
+## Summary
 
-### Good Cleanup Work
+The current architecture is intentionally lightweight, but it is no longer trivial.
 
-- gradually extract reusable UI primitives if the page-local styling keeps growing
-- address bundle-size warnings with code splitting if needed
-- keep docs synced whenever routes, env vars, auth flows, or schema expectations change
+Its strengths are:
 
-### Safer Engineering Practices Going Forward
+- directness
+- clear page-level ownership
+- useful shared helpers
+- strong product flexibility around visibility, guest use, and host workflows
 
-- treat frontend code + Supabase schema/RLS/RPCs as one unit of change
-- prefer explicit shared helpers or RPCs over duplicate business rules
-- smoke test main routes after broad UI refactors
-- keep user-facing copy as “activity/activities” while avoiding unnecessary route/table renames
+Its biggest maintenance risks are:
 
-## Quick Summary
-
-This repository is a lightweight community activity app built with `React + Vite + Tailwind + Supabase`.
-
-Its strengths are simplicity, directness, and small-page architecture.
-
-Its biggest risks are schema drift, identity complexity, and regressions around RSVP/visibility flows. Any future work should preserve the current delayed-auth create flow, magic-link deployment correctness, and the public/semi-public/private visibility contract.
+- identity complexity
+- schema drift
+- mixed business-rule authority between frontend helpers and SQL
+- incomplete recovery-product alignment
