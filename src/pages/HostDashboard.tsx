@@ -21,7 +21,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
   const [accessRequests, setAccessRequests] = useState<EventAccessRequest[]>([]);
   const [requestActionLoadingId, setRequestActionLoadingId] = useState<string | null>(null);
-  const [showDeclinedRequests, setShowDeclinedRequests] = useState(false);
+  const [accessRequestView, setAccessRequestView] = useState<'pending' | 'approved' | 'declined'>('pending');
   const [interests, setInterests] = useState<EventInterest[]>([]);
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
@@ -471,9 +471,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const visibility = event.visibility || (event.is_public ? 'public' : 'private');
   const namedInterests = interests.filter((interest) => interest.visibility_mode === 'named');
   const pendingRequests = accessRequests.filter((r) => r.status === 'pending');
-  const activeRequests = accessRequests.filter((r) => r.status !== 'declined');
+  const approvedRequests = accessRequests.filter((r) => r.status === 'approved');
   const declinedRequests = accessRequests.filter((r) => r.status === 'declined');
-  const visibleRequests = showDeclinedRequests ? declinedRequests : activeRequests;
+  const visibleRequests =
+    accessRequestView === 'approved'
+      ? approvedRequests
+      : accessRequestView === 'declined'
+        ? declinedRequests
+        : pendingRequests;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
@@ -512,27 +517,6 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-1">Waitlist</p>
             <p className="text-lg font-bold text-slate-900 tracking-tight">{waitlist.length}</p>
           </div>
-        </section>
-
-        <section className="bg-white rounded-2xl p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Thinking About It</p>
-            <span className="text-sm font-bold text-slate-800">{interests.length}</span>
-          </div>
-          {visibility === 'public' ? (
-            <p className="text-xs text-slate-400 mt-2">Public activities show count only.</p>
-          ) : namedInterests.length > 0 ? (
-            <div className="mt-3 divide-y divide-slate-50">
-              {namedInterests.slice(0, 6).map((interest) => (
-                <div key={interest.id} className="py-2.5">
-                  <p className="text-sm font-bold text-slate-800">{getDisplayName(interest.guest_name, interest.guest_email)}</p>
-                  <p className="text-[11px] text-slate-400">{interest.guest_email}</p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-slate-400 mt-2">No named interest yet.</p>
-          )}
         </section>
 
         {/* Share Tools */}
@@ -583,20 +567,49 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <div className="flex items-center justify-between">
               <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Access Requests</p>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-slate-400">{pendingRequests.length} pending</span>
                 <button
                   type="button"
-                  onClick={() => setShowDeclinedRequests((prev) => !prev)}
-                  className="text-xs text-slate-400 hover:text-slate-600 underline transition-all"
+                  onClick={() => setAccessRequestView('pending')}
+                  className={`text-xs transition-all ${
+                    accessRequestView === 'pending'
+                      ? 'font-bold text-slate-500'
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
                 >
-                  {showDeclinedRequests ? 'Active' : `Declined (${declinedRequests.length})`}
+                  {pendingRequests.length} pending
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAccessRequestView('approved')}
+                  className={`text-xs underline transition-all ${
+                    accessRequestView === 'approved'
+                      ? 'font-bold text-slate-500'
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  Approved ({approvedRequests.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAccessRequestView('declined')}
+                  className={`text-xs underline transition-all ${
+                    accessRequestView === 'declined'
+                      ? 'font-bold text-slate-500'
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  Declined ({declinedRequests.length})
                 </button>
               </div>
             </div>
 
             {visibleRequests.length === 0 ? (
               <p className="text-sm text-slate-400">
-                {showDeclinedRequests ? 'No declined requests.' : 'No access requests yet.'}
+                {accessRequestView === 'approved'
+                  ? 'No approved requests.'
+                  : accessRequestView === 'declined'
+                    ? 'No declined requests.'
+                    : 'No pending requests.'}
               </p>
             ) : (
               <div className="divide-y divide-slate-50">
@@ -614,29 +627,37 @@ export default function HostDashboard({ user }: { user: User | null }) {
                         {request.status}
                       </span>
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => openRequestWhatsapp(request, 'approve')}
-                        disabled={requestActionLoadingId === request.id || request.status === 'declined'}
-                        className="flex-1 px-3 py-2 rounded-xl bg-brand-600 text-white text-xs font-bold hover:bg-brand-500 transition-all active:scale-95 disabled:opacity-50"
-                      >
-                        Share Link
-                      </button>
-                      <button
-                        onClick={() => openRequestWhatsapp(request, 'more_info')}
-                        disabled={requestActionLoadingId === request.id || request.status === 'declined'}
-                        className="flex-1 px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold hover:bg-slate-200 transition-all active:scale-95 disabled:opacity-50"
-                      >
-                        More Info
-                      </button>
-                      <button
-                        onClick={() => openRequestWhatsapp(request, 'decline')}
-                        disabled={requestActionLoadingId === request.id || request.status === 'declined'}
-                        className="px-3 py-2 rounded-xl text-red-400 text-xs font-bold hover:bg-red-50 transition-all active:scale-95 disabled:opacity-50"
-                      >
-                        Decline
-                      </button>
-                    </div>
+                    {request.status === 'pending' ? (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => openRequestWhatsapp(request, 'approve')}
+                          disabled={requestActionLoadingId === request.id}
+                          className="flex-1 px-3 py-2 rounded-xl bg-brand-600 text-white text-xs font-bold hover:bg-brand-500 transition-all active:scale-95 disabled:opacity-50"
+                        >
+                          Share Link
+                        </button>
+                        <button
+                          onClick={() => openRequestWhatsapp(request, 'more_info')}
+                          disabled={requestActionLoadingId === request.id}
+                          className="flex-1 px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold hover:bg-slate-200 transition-all active:scale-95 disabled:opacity-50"
+                        >
+                          More Info
+                        </button>
+                        <button
+                          onClick={() => openRequestWhatsapp(request, 'decline')}
+                          disabled={requestActionLoadingId === request.id}
+                          className="px-3 py-2 rounded-xl text-red-400 text-xs font-bold hover:bg-red-50 transition-all active:scale-95 disabled:opacity-50"
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400">
+                        {request.status === 'approved'
+                          ? 'Approved and archived.'
+                          : 'Declined and archived.'}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -720,6 +741,27 @@ export default function HostDashboard({ user }: { user: User | null }) {
             </div>
           </section>
         )}
+
+        <section className="bg-white rounded-2xl p-5">
+          <div className="flex items-center justify-between">
+            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Thinking About It</p>
+            <span className="text-sm font-bold text-slate-800">{interests.length}</span>
+          </div>
+          {visibility === 'public' ? (
+            <p className="text-xs text-slate-400 mt-2">Public activities show count only.</p>
+          ) : namedInterests.length > 0 ? (
+            <div className="mt-3 divide-y divide-slate-50">
+              {namedInterests.slice(0, 6).map((interest) => (
+                <div key={interest.id} className="py-2.5">
+                  <p className="text-sm font-bold text-slate-800">{getDisplayName(interest.guest_name, interest.guest_email)}</p>
+                  <p className="text-[11px] text-slate-400">{interest.guest_email}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400 mt-2">No named interest yet.</p>
+          )}
+        </section>
 
         {/* Secondary actions */}
         <section className="pt-2 pb-12 flex flex-col items-center gap-4">
