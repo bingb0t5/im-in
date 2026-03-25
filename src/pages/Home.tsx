@@ -53,8 +53,8 @@ export default function Home({ user }: { user: User | null }) {
     if (!user) return;
     setLoading(true);
     try {
-      // 1. Fetch Hosted Events
-      const { data: hosted, error: hostedError } = await supabase
+      // 1. Fetch Hosted Events (legacy owner + co-host memberships)
+      const { data: hostedByOwner, error: hostedByOwnerError } = await supabase
         .from('events')
         .select(`
           *,
@@ -63,7 +63,20 @@ export default function Home({ user }: { user: User | null }) {
         .eq('host_user_id', user.id)
         .order('starts_at', { ascending: true });
 
-      if (hostedError) throw hostedError;
+      if (hostedByOwnerError) throw hostedByOwnerError;
+
+      const { data: hostedByMembership, error: hostedByMembershipError } = await supabase
+        .from('event_hosts')
+        .select(`
+          event_id,
+          events (
+            *,
+            event_attendees(status)
+          )
+        `)
+        .eq('user_id', user.id);
+
+      if (hostedByMembershipError) throw hostedByMembershipError;
 
       // 2. Fetch Joined Events (More resilient)
       const { data: joined, error: joinedError } = await supabase
@@ -97,6 +110,20 @@ export default function Home({ user }: { user: User | null }) {
 
       if (thinkingError) throw thinkingError;
 
+      const hostedMerged = [
+        ...((hostedByOwner || []) as any[]),
+        ...((hostedByMembership || [])
+          .map((row: any) => (Array.isArray(row.events) ? row.events[0] : row.events))
+          .filter(Boolean) as any[]),
+      ];
+      const hostedById = hostedMerged.reduce((acc: Record<string, any>, event: any) => {
+        if (!event?.id) return acc;
+        acc[event.id] = event;
+        return acc;
+      }, {});
+      const hostedWithCounts = withConfirmedCounts(Object.values(hostedById));
+      const hostedEventIds = hostedWithCounts.map((event) => event.id);
+
       // 4. Fetch pending "request to view" rows for hosted activities
       const { data: pendingRequests, error: pendingRequestsError } = await supabase
         .from('event_access_requests')
@@ -113,12 +140,11 @@ export default function Home({ user }: { user: User | null }) {
           )
         `)
         .eq('status', 'pending')
-        .eq('events.host_user_id', user.id)
+        .in('event_id', hostedEventIds.length > 0 ? hostedEventIds : ['00000000-0000-0000-0000-000000000000'])
         .order('created_at', { ascending: false });
 
       if (pendingRequestsError) throw pendingRequestsError;
 
-      const hostedWithCounts = withConfirmedCounts((hosted || []) as any[]);
       const thinkingRows = (thinking || []).map((row: any) => ({
         ...row,
         status: 'thinking',
@@ -258,12 +284,13 @@ export default function Home({ user }: { user: User | null }) {
                 </div>
                 
                 <div className="space-y-4 text-slate-600 text-sm font-medium leading-relaxed">
-                  <p>I’m In is a simple community tool for organising real-life plans, activities, and events.</p>
-                  <p>It was created to make things easier than messy chat threads and scattered sign-ups.</p>
-                  <p>The goal is to keep it open, lightweight, and useful for the community — not owned or controlled by any one organiser.</p>
-                  <p>We want events, pages, and local coordination to feel shared, simple, and accessible.</p>
-                  <p>I’m In is being built as a community-first project, with an open and transparent approach over time.</p>
-                  
+                  <p>I’m In is a simple way to organise real-life plans, activities, and events, without replacing the WhatsApp groups people already use.</p>
+                  <p>You still share and chat in your groups. I’m In just makes it easier to manage who’s coming, handle sign-ups, and keep things organised.</p>
+                  <p>It’s designed to work alongside existing communities, not inside just one. In places like Hoi An, there are often multiple overlapping groups with similar people and activities, but not always much visibility between them.</p>
+                  <p>I’m In helps make things easier to share, discover, and join across those groups, while still keeping everything grounded in the communities people are already part of.</p>
+                  <p className="text-slate-900 font-semibold">Build a longer table, not a higher fence.</p>
+                  <p>It’s designed to stay simple, open, and useful for the community, and to make things easier for everyone involved.</p>
+
                   <div className="pt-4">
                     <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">What it's for</h3>
                     <ul className="space-y-2">
@@ -275,14 +302,30 @@ export default function Home({ user }: { user: User | null }) {
                       ))}
                     </ul>
                   </div>
+
+                  <div className="pt-4 space-y-3">
+                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Open &amp; community-built</h3>
+                    <p>I’m In is being built in the open.</p>
+                    <p>You can see what’s being worked on, what’s coming next, and suggest ideas along the way.</p>
+                  </div>
                 </div>
 
-                <button
-                  onClick={() => setShowWhyModal(false)}
-                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold py-4 rounded-2xl mt-8 transition-all active:scale-95"
-                >
-                  Got it
-                </button>
+                <div className="mt-8 space-y-3">
+                  <a
+                    href="mailto:hello@joinimin.com"
+                    className="block w-full text-center bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
+                  >
+                    Share an idea
+                  </a>
+                  <a
+                    href="https://trello.com/b/kauEWnAe/im-in-dev-board"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block w-full text-center bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl transition-all active:scale-95"
+                  >
+                    View roadmap
+                  </a>
+                </div>
               </motion.div>
             </div>
           )}
@@ -313,17 +356,18 @@ export default function Home({ user }: { user: User | null }) {
                 </div>
                 
                 <div className="space-y-4 text-slate-600 text-sm font-medium leading-relaxed">
-                  <p>I’m In is still early, and we’d love help from people in the community.</p>
-                  <p>We’re looking for volunteers, testers, organisers, and thoughtful contributors who want to help shape something useful for everyone.</p>
+                  <p>I’m In is still early, and it’s being built in the open.</p>
+                  <p>The goal is to create something genuinely useful for real-world communities, shaped by the people who use it.</p>
+                  <p>We’re looking for people who want to help in different ways:</p>
                   
                   <div className="pt-4">
                     <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Ways you can help</h3>
                     <ul className="space-y-2">
                       {[
                         'test the app and give feedback',
-                        'help organise or moderate pages/activities',
+                        'help organise or run activities',
                         'contribute design, copy, or code',
-                        'help shape how the project grows over time'
+                        'share ideas and help shape how it evolves'
                       ].map((item, i) => (
                         <li key={i} className="flex items-center gap-2">
                           <div className="w-1.5 h-1.5 bg-brand-600 rounded-full" />
@@ -332,17 +376,28 @@ export default function Home({ user }: { user: User | null }) {
                       ))}
                     </ul>
                   </div>
+
+                  <p>You don’t need to be technical — just interested in making it better.</p>
                 </div>
 
-                <button
-                  onClick={() => {
-                    // Scaffolded contact flow
-                    window.location.href = `mailto:hello@joinimin.com?subject=Helping build I'm In`;
-                  }}
-                  className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 mt-8 transition-all active:scale-95"
-                >
-                  Get in touch
-                </button>
+                <div className="mt-8 space-y-3">
+                  <button
+                    onClick={() => {
+                      window.location.href = `mailto:hello@joinimin.com?subject=Helping build I'm In`;
+                    }}
+                    className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
+                  >
+                    Get involved
+                  </button>
+                  <a
+                    href="https://trello.com/b/kauEWnAe/im-in-dev-board"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block w-full text-center bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl transition-all active:scale-95"
+                  >
+                    View roadmap
+                  </a>
+                </div>
               </motion.div>
             </div>
           )}

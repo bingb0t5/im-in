@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
-import { Users, Share2, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Clock, Edit2, Plus, X, AlertCircle, Calendar } from 'lucide-react';
+import { Users, Share2, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Clock, Edit2, Plus, X, AlertCircle, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, formatDurationMinutes, generateSlug } from '../utils';
 import { Event, Attendee, EventAccessRequest, EventInterest } from '../types';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { goBackOr } from '../lib/navigation';
+import { guestService, getAccountNameFromUser } from '../services/guestService';
 
 export default function HostDashboard({ user }: { user: User | null }) {
   const { id } = useParams();
@@ -23,6 +24,10 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [requestActionLoadingId, setRequestActionLoadingId] = useState<string | null>(null);
   const [accessRequestView, setAccessRequestView] = useState<'pending' | 'approved' | 'declined'>('pending');
   const [interests, setInterests] = useState<EventInterest[]>([]);
+  const [hosts, setHosts] = useState<Array<{ user_id: string; display_name: string; email: string }>>([]);
+  const [hostEmailToAdd, setHostEmailToAdd] = useState('');
+  const [hostActionLoading, setHostActionLoading] = useState(false);
+  const [showHostsPanel, setShowHostsPanel] = useState(false);
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
     show: boolean;
@@ -31,6 +36,15 @@ export default function HostDashboard({ user }: { user: User | null }) {
     name?: string;
   }>({ show: false, type: 'event', id: '' });
   const [confirmText, setConfirmText] = useState('');
+
+  const pickFirstNonEmpty = (...values: Array<string | null | undefined>) =>
+    values.map((value) => (value || '').trim()).find(Boolean) || '';
+
+  const getProfileName = (profile?: { full_name?: string | null; first_name?: string | null; last_name?: string | null } | null) =>
+    pickFirstNonEmpty(
+      profile?.full_name,
+      `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim(),
+    );
 
   const getDisplayName = (name?: string | null, email?: string | null) => {
     const explicitName = (name || '').trim();
@@ -160,14 +174,51 @@ export default function HostDashboard({ user }: { user: User | null }) {
       .eq('id', id)
       .single();
 
-    if (error || data.host_user_id !== user?.id) {
+    if (error || !user) {
       console.error(error);
       navigate('/');
     } else {
-      setEvent(data);
-      fetchAttendees(data.id);
-      fetchAccessRequests(data.id);
-      fetchInterests(data.id);
+      const { data: hostMembership } = await supabase
+        .from('event_hosts')
+        .select('id')
+        .eq('event_id', data.id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      const canManage = data.host_user_id === user.id || !!hostMembership?.id;
+      if (!canManage) {
+        navigate('/');
+        return;
+      }
+
+      let normalizedEvent = data;
+
+      if (data.host_user_id === user.id) {
+        const profile = await guestService.getOrCreateProfileForUser(user);
+        const preferredHostName = pickFirstNonEmpty(
+          getAccountNameFromUser(user),
+          getProfileName(profile),
+          data.host_name,
+          getDisplayName('', user.email || ''),
+        );
+
+        if (preferredHostName && preferredHostName !== (data.host_name || '').trim()) {
+          const { error: updateHostNameError } = await supabase
+            .from('events')
+            .update({ host_name: preferredHostName })
+            .eq('id', data.id);
+
+          if (!updateHostNameError) {
+            normalizedEvent = { ...data, host_name: preferredHostName };
+          }
+        }
+      }
+
+      setEvent(normalizedEvent);
+      fetchAttendees(normalizedEvent.id);
+      fetchAccessRequests(normalizedEvent.id);
+      fetchInterests(normalizedEvent.id);
+      fetchHosts(normalizedEvent.id, normalizedEvent.host_user_id || null, normalizedEvent.host_name || null);
     }
   };
 
@@ -204,6 +255,150 @@ export default function HostDashboard({ user }: { user: User | null }) {
       .order('created_at', { ascending: false });
 
     if (data) setInterests(data as EventInterest[]);
+  };
+
+  const fetchHosts = async (eventId: string, fallbackHostUserId?: string | null, primaryHostName?: string | null) => {
+    const { data: hostRows } = await supabase
+      .from('event_hosts')
+      .select('user_id')
+      .eq('event_id', eventId);
+
+    const hostUserIds = Array.from(new Set((hostRows || []).map((row: any) => row.user_id).filter(Boolean)));
+
+    if (hostUserIds.length === 0 && fallbackHostUserId) {
+      hostUserIds.push(fallbackHostUserId);
+    }
+
+    if (hostUserIds.length === 0) {
+      setHosts([]);
+      return;
+    }
+
+    const { data: profiles } = await supabase
+      .from('attendee_profiles')
+      .select('user_id, full_name, first_name, last_name, email')
+      .in('user_id', hostUserIds);
+
+    const { data: latestHostedNames } = await supabase
+      .from('events')
+      .select('host_user_id, host_name, created_at')
+      .in('host_user_id', hostUserIds)
+      .not('host_name', 'is', null)
+      .order('created_at', { ascending: false });
+
+    const profileMap = (profiles || []).reduce((acc: Record<string, any>, row: any) => {
+      if (row.user_id) acc[row.user_id] = row;
+      return acc;
+    }, {});
+
+    const hostedNameByUserId = (latestHostedNames || []).reduce((acc: Record<string, string>, row: any) => {
+      const hostUserId = row.host_user_id;
+      const hostName = (row.host_name || '').trim();
+      if (!hostUserId || !hostName || acc[hostUserId]) return acc;
+      acc[hostUserId] = hostName;
+      return acc;
+    }, {});
+
+    const normalizedHosts = hostUserIds.map((userId) => {
+      const profile = profileMap[userId];
+      const email = (profile?.email || '').trim().toLowerCase();
+      const displayName = pickFirstNonEmpty(
+        userId === user?.id ? getAccountNameFromUser(user) : '',
+        getProfileName(profile),
+        hostedNameByUserId[userId],
+        userId === fallbackHostUserId ? primaryHostName : '',
+        getDisplayName('', email),
+      );
+      return {
+        user_id: userId,
+        display_name: displayName,
+        email,
+      };
+    });
+
+    setHosts(normalizedHosts);
+  };
+
+  const addHost = async () => {
+    if (!event || !user) return;
+    const normalizedEmail = hostEmailToAdd.trim().toLowerCase();
+    if (!normalizedEmail) return;
+
+    if (hosts.length >= 10) {
+      alert('Host limit reached (10).');
+      return;
+    }
+
+    setHostActionLoading(true);
+    try {
+      const { data: profile } = await supabase
+        .from('attendee_profiles')
+        .select('user_id, full_name, email')
+        .eq('email', normalizedEmail)
+        .maybeSingle();
+
+      if (!profile?.user_id) {
+        throw new Error('This email is not linked to an active account yet.');
+      }
+
+      if (hosts.some((host) => host.user_id === profile.user_id)) {
+        throw new Error('That person is already a host.');
+      }
+
+      const { error } = await supabase
+        .from('event_hosts')
+        .insert([
+          {
+            event_id: event.id,
+            user_id: profile.user_id,
+            added_by_user_id: user.id,
+          },
+        ]);
+
+      if (error) throw error;
+      setHostEmailToAdd('');
+      await fetchHosts(event.id);
+    } catch (error: any) {
+      alert(error.message || 'Could not add host.');
+    } finally {
+      setHostActionLoading(false);
+    }
+  };
+
+  const leaveAsHost = async () => {
+    if (!event || !user) return;
+    if (hosts.length <= 1) {
+      alert('You are the last host. Delete the activity instead.');
+      return;
+    }
+
+    setHostActionLoading(true);
+    try {
+      if (event.host_user_id === user.id) {
+        const nextPrimaryHost = hosts.find((host) => host.user_id !== user.id);
+        if (!nextPrimaryHost?.user_id) {
+          throw new Error('Could not reassign primary host.');
+        }
+        const { error: reassignError } = await supabase
+          .from('events')
+          .update({ host_user_id: nextPrimaryHost.user_id })
+          .eq('id', event.id);
+        if (reassignError) throw reassignError;
+      }
+
+      const { error } = await supabase
+        .from('event_hosts')
+        .delete()
+        .eq('event_id', event.id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      navigate('/');
+    } catch (error: any) {
+      alert(error.message || 'Could not leave as host.');
+    } finally {
+      setHostActionLoading(false);
+    }
   };
 
   const removeAttendee = async (attendeeId: string) => {
@@ -361,6 +556,25 @@ export default function HostDashboard({ user }: { user: User | null }) {
         .single();
 
       if (error) throw error;
+
+      const hostUserIds = hosts.length > 0
+        ? hosts.map((host) => host.user_id)
+        : user?.id
+          ? [user.id]
+          : [];
+
+      if (hostUserIds.length > 0) {
+        const hostRows = hostUserIds.map((hostUserId) => ({
+          event_id: newEvent.id,
+          user_id: hostUserId,
+          added_by_user_id: user?.id || hostUserId,
+        }));
+        const { error: hostCopyError } = await supabase
+          .from('event_hosts')
+          .insert(hostRows);
+        if (hostCopyError) throw hostCopyError;
+      }
+
       navigate(`/host/events/${newEvent.id}/edit`);
     } catch (error: any) {
       console.error('Copy Activity Error:', error);
@@ -517,6 +731,68 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-1">Waitlist</p>
             <p className="text-lg font-bold text-slate-900 tracking-tight">{waitlist.length}</p>
           </div>
+        </section>
+
+        <section className="bg-white rounded-2xl p-4">
+          <button
+            type="button"
+            onClick={() => setShowHostsPanel((value) => !value)}
+            className="w-full flex items-center justify-between gap-3 text-left"
+            aria-expanded={showHostsPanel}
+          >
+            <p className="text-sm font-bold text-slate-800">Hosts ({hosts.length})</p>
+            <div className="flex items-center gap-2 text-slate-400">
+              {showHostsPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </div>
+          </button>
+
+          {showHostsPanel ? (
+            <div className="mt-4 space-y-4">
+              <div className="divide-y divide-slate-50">
+                {hosts.map((host) => (
+                  <div key={host.user_id} className="py-2.5 first:pt-0 last:pb-0">
+                    <p className="text-sm font-bold text-slate-800">
+                      {host.display_name}
+                      {host.user_id === user?.id ? <span className="text-xs text-slate-400 font-medium"> (you)</span> : null}
+                    </p>
+                    <p className="text-[11px] text-slate-400">{host.email || 'No email'}</p>
+                  </div>
+                ))}
+                {hosts.length === 0 && (
+                  <p className="text-xs text-slate-400 py-2">No hosts found.</p>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={hostEmailToAdd}
+                  onChange={(e) => setHostEmailToAdd(e.target.value)}
+                  placeholder="Add host by email"
+                  className="flex-1 px-3 py-2 rounded-xl bg-slate-50 border border-slate-100 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={addHost}
+                  disabled={hostActionLoading || !hostEmailToAdd.trim()}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  Add
+                </button>
+              </div>
+
+              {hosts.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={leaveAsHost}
+                  disabled={hostActionLoading}
+                  className="text-xs text-slate-400 hover:text-slate-600 underline transition-all disabled:opacity-50"
+                >
+                  Leave as host
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         {/* Share Tools */}

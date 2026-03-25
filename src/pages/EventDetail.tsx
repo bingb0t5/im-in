@@ -6,7 +6,7 @@ import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, 
 import { motion, AnimatePresence } from 'motion/react';
 import { buildGoogleCalendarEventUrl, buildIcsEventContent, formatDate, formatDay, formatDurationMinutes, generateSlug } from '../utils';
 import { Event, Attendee, EventInterest } from '../types';
-import { guestService, AttendeeProfile } from '../services/guestService';
+import { guestService, AttendeeProfile, getAccountNameFromUser } from '../services/guestService';
 import { findMyRsvps, getAttendanceSummary } from '../lib/attendees';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { findMyInterest, getNamedThinkingInterests, getThinkingCount } from '../lib/interests';
@@ -37,6 +37,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [interests, setInterests] = useState<EventInterest[]>([]);
   const [thinkingLoading, setThinkingLoading] = useState(false);
   const [showThinkingModal, setShowThinkingModal] = useState(false);
+  const [isEventHostViewer, setIsEventHostViewer] = useState(false);
   const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
   const [successType, setSuccessType] = useState<'self' | 'proxy'>('self');
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -164,14 +165,14 @@ export default function EventDetail({ user }: { user: User | null }) {
   useEffect(() => {
     if (!user) return;
     setGuestInfo((prev) => ({
-      name: pickFirstNonEmpty(prev.name, user.user_metadata?.full_name, signedInPreferredName, fallbackNameFromEmail(user.email)),
+      name: pickFirstNonEmpty(prev.name, getAccountNameFromUser(user), signedInPreferredName, fallbackNameFromEmail(user.email)),
       email: user.email || prev.email,
     }));
   }, [user, signedInPreferredName]);
 
   useEffect(() => {
     const defaultName = pickFirstNonEmpty(
-      user?.user_metadata?.full_name,
+      getAccountNameFromUser(user),
       signedInPreferredName,
       guestProfile?.full_name,
       guestInfo.name,
@@ -189,7 +190,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     const fallbackHandleName = fallbackNameFromEmail(user?.email || guestInfo.email);
     const defaultProxyOwnerName = user
       ? pickFirstNonEmpty(
-          user.user_metadata?.full_name,
+          getAccountNameFromUser(user),
           signedInPreferredName,
           guestInfo.name,
           fallbackHandleName,
@@ -217,7 +218,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       try {
         const profile = await guestService.getOrCreateProfileForUser(
           user,
-          pickFirstNonEmpty(user.user_metadata?.full_name, signedInPreferredName),
+          pickFirstNonEmpty(getAccountNameFromUser(user), signedInPreferredName),
         );
         setSignedInProfileId(profile.id);
       } catch {
@@ -227,6 +228,31 @@ export default function EventDetail({ user }: { user: User | null }) {
 
     hydrateSignedInProfile();
   }, [user, signedInPreferredName]);
+
+  useEffect(() => {
+    const hydrateHostViewer = async () => {
+      if (!user || !event?.id) {
+        setIsEventHostViewer(false);
+        return;
+      }
+
+      if (event.host_user_id === user.id) {
+        setIsEventHostViewer(true);
+        return;
+      }
+
+      const { data } = await supabase
+        .from('event_hosts')
+        .select('id')
+        .eq('event_id', event.id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      setIsEventHostViewer(!!data?.id);
+    };
+
+    hydrateHostViewer();
+  }, [user, event?.id, event?.host_user_id]);
 
   useEffect(() => {
     const hydrateSignedInPreferredName = async () => {
@@ -249,8 +275,8 @@ export default function EventDetail({ user }: { user: User | null }) {
       );
 
       const immediate = pickFirstNonEmpty(
-        user.user_metadata?.full_name,
         profileName,
+        getAccountNameFromUser(user),
         event?.host_user_id === user.id ? event?.host_name : '',
       );
       if (immediate) {
@@ -710,7 +736,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const eventVisibility = event.visibility || (event.is_public ? 'public' : 'private');
   const accessToken = searchParams.get('access');
   const hasAccessToken = !!(accessToken && event.access_code && accessToken === event.access_code);
-  const isHostViewer = !!(user && event.host_user_id === user.id);
+  const isHostViewer = isEventHostViewer;
   const hasFullEventAccess = eventVisibility !== 'semi_public' || hasAccessToken || isHostViewer;
   const publicEventUrl = `${window.location.origin}/events/${event.slug}`;
   const privateEventUrl =

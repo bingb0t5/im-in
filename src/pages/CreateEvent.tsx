@@ -16,6 +16,7 @@ import {
 import { pickWaitlistAttendeesForPromotion } from '../lib/rsvp';
 import { buildAuthRedirectUrl } from '../lib/authRedirect';
 import { goBackOr } from '../lib/navigation';
+import { guestService, getAccountNameFromUser } from '../services/guestService';
 
 const CREATE_EVENT_DRAFT_KEY = 'im_in_create_event_draft';
 const CREATE_EVENT_PENDING_AUTH_KEY = 'im_in_create_event_pending_auth';
@@ -92,6 +93,11 @@ export default function CreateEvent({ user }: { user: User | null }) {
     return `${first} ${last}`.trim();
   };
 
+  const humanizeEmailName = (email?: string | null) =>
+    ((email || '').split('@')[0] || '')
+      .replace(/[._-]+/g, ' ')
+      .trim();
+
   useEffect(() => {
     if (isEditing && user) {
       fetchEvent();
@@ -129,7 +135,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
   useEffect(() => {
     if (isEditing || !user) return;
     if (localStorage.getItem(CREATE_EVENT_PENDING_AUTH_KEY) === 'true') {
-      const fallbackName = (user.user_metadata?.full_name || '').trim();
+      const fallbackName = getAccountNameFromUser(user);
       if (fallbackName && !formData.host_name.trim()) {
         setFormData(prev => ({ ...prev, host_name: fallbackName }));
       }
@@ -151,26 +157,6 @@ export default function CreateEvent({ user }: { user: User | null }) {
     let cancelled = false;
 
     const hydrateDefaultHostName = async () => {
-      const { data: latestHostedEvent } = await supabase
-        .from('events')
-        .select('host_name, created_at')
-        .eq('host_user_id', user.id)
-        .not('host_name', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const hostedEventName = (latestHostedEvent?.host_name || '').trim();
-      if (hostedEventName) {
-        if (!cancelled) setAccountHostName(hostedEventName);
-        return;
-      }
-
-      const metadataName = (user.user_metadata?.full_name || '').trim();
-      if (metadataName) {
-        if (!cancelled) setAccountHostName(metadataName);
-        return;
-      }
-
       const normalizedEmail = (user.email || '').trim().toLowerCase();
 
       const { data: byUserId } = await supabase
@@ -191,8 +177,26 @@ export default function CreateEvent({ user }: { user: User | null }) {
         resolvedName = pickHostNameFromProfile(byEmail);
       }
 
+      const metadataName = getAccountNameFromUser(user);
+      if (!resolvedName && metadataName) {
+        resolvedName = metadataName;
+      }
+
+      if (!resolvedName) {
+        const { data: latestHostedEvent } = await supabase
+          .from('events')
+          .select('host_name, created_at')
+          .eq('host_user_id', user.id)
+          .not('host_name', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        resolvedName = (latestHostedEvent?.host_name || '').trim();
+      }
+
       if (!resolvedName && normalizedEmail) {
-        resolvedName = normalizedEmail.split('@')[0].replace(/[._-]+/g, ' ').trim();
+        resolvedName = humanizeEmailName(normalizedEmail);
       }
 
       if (!cancelled && resolvedName) {
@@ -219,36 +223,75 @@ export default function CreateEvent({ user }: { user: User | null }) {
       .eq('id', id)
       .single();
 
-    if (error || data.host_user_id !== user?.id) {
+    if (error || !user) {
       console.error(error);
       navigate('/');
-    } else {
-      const timezone = data.timezone || DEFAULT_EVENT_TIMEZONE;
-      const durationMinutes = data.duration_minutes || deriveDurationMinutes(data.starts_at, data.ends_at);
+      return;
+    }
+
+    const { data: hostMembership } = await supabase
+      .from('event_hosts')
+      .select('id')
+      .eq('event_id', data.id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    const canManage = data.host_user_id === user.id || !!hostMembership?.id;
+
+    if (!canManage) {
+      navigate('/');
+      return;
+    }
+
+    let normalizedEvent = data;
+
+    if (data.host_user_id === user.id) {
+      const profile = await guestService.getOrCreateProfileForUser(user);
+      const preferredHostName =
+        getAccountNameFromUser(user) ||
+        pickHostNameFromProfile(profile) ||
+        (data.host_name || '').trim() ||
+        humanizeEmailName(user.email);
+
+      if (preferredHostName && preferredHostName !== (data.host_name || '').trim()) {
+        const { error: updateHostNameError } = await supabase
+          .from('events')
+          .update({ host_name: preferredHostName })
+          .eq('id', data.id);
+
+        if (!updateHostNameError) {
+          normalizedEvent = { ...data, host_name: preferredHostName };
+        }
+      }
+    }
+
+    {
+      const timezone = normalizedEvent.timezone || DEFAULT_EVENT_TIMEZONE;
+      const durationMinutes = normalizedEvent.duration_minutes || deriveDurationMinutes(normalizedEvent.starts_at, normalizedEvent.ends_at);
 
       setFormData({
-        title: data.title || '',
-        public_summary: data.public_summary || '',
-        description: data.description || '',
-        public_location_text: data.public_location_text || '',
-        location_text: data.location_text || '',
-        google_maps_url: data.google_maps_url || '',
-        starts_at: utcIsoToEventLocalInput(data.starts_at, timezone),
+        title: normalizedEvent.title || '',
+        public_summary: normalizedEvent.public_summary || '',
+        description: normalizedEvent.description || '',
+        public_location_text: normalizedEvent.public_location_text || '',
+        location_text: normalizedEvent.location_text || '',
+        google_maps_url: normalizedEvent.google_maps_url || '',
+        starts_at: utcIsoToEventLocalInput(normalizedEvent.starts_at, timezone),
         timezone,
         duration_minutes: durationMinutes,
-        capacity: data.capacity ?? 10,
-        host_name: data.host_name || '',
-        host_contact_text: data.host_contact_text || '',
-        show_host_publicly: data.show_host_publicly ?? false,
-        visibility: data.visibility || (data.is_public ? 'public' : 'private'),
-        allow_waitlist: data.allow_waitlist ?? true,
-        is_public: data.is_public ?? true,
+        capacity: normalizedEvent.capacity ?? 10,
+        host_name: normalizedEvent.host_name || '',
+        host_contact_text: normalizedEvent.host_contact_text || '',
+        show_host_publicly: normalizedEvent.show_host_publicly ?? false,
+        visibility: normalizedEvent.visibility || (normalizedEvent.is_public ? 'public' : 'private'),
+        allow_waitlist: normalizedEvent.allow_waitlist ?? true,
+        is_public: normalizedEvent.is_public ?? true,
       });
       setShowOptionalFields(
         hasOptionalDetails({
-          google_maps_url: data.google_maps_url || '',
-          public_summary: data.public_summary || '',
-          public_location_text: data.public_location_text || '',
+          google_maps_url: normalizedEvent.google_maps_url || '',
+          public_summary: normalizedEvent.public_summary || '',
+          public_location_text: normalizedEvent.public_location_text || '',
         }),
       );
       setInitialLoading(false);
@@ -281,7 +324,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
       }
 
       // Clean up optional fields: convert empty strings to null
-      const metadataName = (user.user_metadata?.full_name || '').trim();
+      const metadataName = getAccountNameFromUser(user);
       const emailName = (user.email || '').split('@')[0].replace(/[._-]+/g, ' ').trim();
       const resolvedHostName = (accountHostName || formData.host_name || metadataName || emailName).trim();
       const resolvedHostContact = formData.host_contact_text.trim();
@@ -303,7 +346,6 @@ export default function CreateEvent({ user }: { user: User | null }) {
         ...formData,
         starts_at: startsAtUtcIso,
         ends_at: endsAtUtcIso,
-        host_user_id: user.id,
         host_name: resolvedHostName,
         visibility: resolvedVisibility,
         is_public: resolvedVisibility !== 'private',
@@ -323,6 +365,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
       }
 
       if (!isEditing) {
+        submissionData.host_user_id = user.id;
         submissionData.slug = `${generateSlug(formData.title)}-${Math.random().toString(36).substring(2, 7)}`;
         submissionData.status = 'scheduled';
       }
@@ -348,6 +391,20 @@ export default function CreateEvent({ user }: { user: User | null }) {
       }
 
       if (result.data) {
+        // Keep co-host membership in sync for creator/editor.
+        await supabase
+          .from('event_hosts')
+          .upsert(
+            [
+              {
+                event_id: result.data.id,
+                user_id: user.id,
+                added_by_user_id: user.id,
+              },
+            ],
+            { onConflict: 'event_id,user_id' },
+          );
+
         if (!isEditing) {
           localStorage.removeItem(CREATE_EVENT_DRAFT_KEY);
           localStorage.removeItem(CREATE_EVENT_PENDING_AUTH_KEY);
