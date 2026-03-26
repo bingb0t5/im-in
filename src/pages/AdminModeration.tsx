@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
 import { User } from '@supabase/supabase-js';
-import { Shield, ArrowLeft, RefreshCw } from 'lucide-react';
+import { Shield, ArrowLeft, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Event } from '../types';
 import { isModerationAdminEmail } from '../lib/admin';
@@ -10,7 +10,7 @@ import { getModerationStatusBadge } from '../lib/moderation';
 import { formatDate } from '../utils';
 
 type OverrideOption = 'force_visible' | 'force_limited' | 'hide' | 'mark_safe' | 'mark_spam';
-type FilterOption = 'all' | 'pending' | 'limited' | 'review' | 'blocked' | 'approved' | 'overridden';
+type FilterOption = 'review' | 'archived' | 'spam' | 'all';
 
 function getAiStatusSummary(event: Event) {
   if (event.moderation_status === 'error') {
@@ -40,12 +40,48 @@ function getAiStatusSummary(event: Event) {
   };
 }
 
+function getModerationBucket(event: Event): Exclude<FilterOption, 'all'> | 'other' {
+  if (event.moderation_override === 'mark_spam') return 'spam';
+  if (event.moderation_override === 'hide') return 'archived';
+
+  if (
+    !event.moderated_at ||
+    event.moderation_status === 'pending' ||
+    event.moderation_status === 'limited' ||
+    event.moderation_status === 'review' ||
+    event.moderation_status === 'blocked' ||
+    event.moderation_status === 'error'
+  ) {
+    return 'review';
+  }
+
+  return 'other';
+}
+
+function getOverrideLabel(event: Event) {
+  switch (event.moderation_override) {
+    case 'hide':
+      return 'archived';
+    case 'mark_spam':
+      return 'spam';
+    case 'force_visible':
+      return 'force visible';
+    case 'force_limited':
+      return 'force limited';
+    case 'mark_safe':
+      return 'mark safe';
+    default:
+      return null;
+  }
+}
+
 export default function AdminModeration({ user }: { user: User | null }) {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<FilterOption>('all');
+  const [filter, setFilter] = useState<FilterOption>('review');
   const [actionEventId, setActionEventId] = useState<string | null>(null);
+  const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const isAdmin = isModerationAdminEmail(user?.email);
@@ -98,8 +134,8 @@ export default function AdminModeration({ user }: { user: User | null }) {
     const normalizedQuery = query.trim().toLowerCase();
 
     return events.filter((event) => {
-      if (filter === 'overridden' && !event.moderation_override) return false;
-      if (filter !== 'all' && filter !== 'overridden' && event.moderation_status !== filter) return false;
+      const bucket = getModerationBucket(event);
+      if (filter !== 'all' && bucket !== filter) return false;
 
       if (!normalizedQuery) return true;
 
@@ -110,6 +146,16 @@ export default function AdminModeration({ user }: { user: User | null }) {
       );
     });
   }, [events, filter, query]);
+
+  const counts = useMemo(
+    () => ({
+      review: events.filter((event) => getModerationBucket(event) === 'review').length,
+      archived: events.filter((event) => getModerationBucket(event) === 'archived').length,
+      spam: events.filter((event) => getModerationBucket(event) === 'spam').length,
+      all: events.length,
+    }),
+    [events],
+  );
 
   const applyModerationAction = async (
     eventId: string,
@@ -183,19 +229,25 @@ export default function AdminModeration({ user }: { user: User | null }) {
               placeholder="Search by title, host, or slug"
               className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-100 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all"
             />
-            <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value as FilterOption)}
-              className="px-4 py-3 rounded-xl bg-slate-50 border border-slate-100 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all"
-            >
-              <option value="all">All states</option>
-              <option value="pending">Pending</option>
-              <option value="limited">Limited</option>
-              <option value="review">Needs review</option>
-              <option value="blocked">Blocked</option>
-              <option value="approved">Approved</option>
-              <option value="overridden">Manual overrides</option>
-            </select>
+            <div className="flex items-center justify-end gap-4 text-sm">
+              {([
+                ['review', 'Review'],
+                ['archived', 'Archived'],
+                ['spam', 'Spam'],
+                ['all', 'All'],
+              ] as Array<[FilterOption, string]>).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setFilter(value)}
+                  className={`transition-colors ${
+                    filter === value ? 'text-slate-900 font-bold' : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  {label} ({counts[value]})
+                </button>
+              ))}
+            </div>
           </div>
 
           {error ? (
@@ -221,13 +273,25 @@ export default function AdminModeration({ user }: { user: User | null }) {
         ) : (
           <div className="space-y-4">
             {filteredEvents.map((event) => {
-              const statusBadge = getModerationStatusBadge(event);
               const isBusy = actionEventId === event.id;
               const aiStatus = getAiStatusSummary(event);
+              const isExpanded = expandedEventId === event.id;
+              const bucket = getModerationBucket(event);
+              const statusBadge =
+                bucket === 'archived'
+                  ? { label: 'Archived', className: 'bg-slate-100 text-slate-700 border border-slate-200' }
+                  : bucket === 'spam'
+                    ? { label: 'Spam', className: 'bg-red-50 text-red-700 border border-red-100' }
+                    : getModerationStatusBadge(event);
+              const overrideLabel = getOverrideLabel(event);
 
               return (
                 <section key={event.id} className="bg-white rounded-2xl p-5 space-y-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedEventId((current) => (current === event.id ? null : event.id))}
+                    className="w-full text-left flex flex-col gap-3 md:flex-row md:items-start md:justify-between"
+                  >
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-base font-bold text-slate-900 truncate">{event.title}</p>
@@ -236,11 +300,16 @@ export default function AdminModeration({ user }: { user: User | null }) {
                         </span>
                       </div>
                       <p className="text-sm text-slate-500 mt-1">
-                        Host: {event.host_name || 'Unknown host'} · `/events/{event.slug}`
+                        Host: {event.host_name || 'Unknown host'}
                       </p>
                       <p className="text-xs text-slate-400 mt-1">
-                        Status: {event.moderation_status || 'unknown'}
-                        {event.moderation_override ? ` · override: ${event.moderation_override}` : ''}
+                        {bucket === 'review'
+                          ? aiStatus.detail
+                          : bucket === 'archived'
+                            ? 'Archived from broader discovery.'
+                            : bucket === 'spam'
+                              ? 'Marked as spam.'
+                              : 'Not currently in the review queue.'}
                       </p>
                     </div>
 
@@ -250,119 +319,130 @@ export default function AdminModeration({ user }: { user: User | null }) {
                           {statusBadge.label}
                         </span>
                       ) : null}
-                      <Link
-                        to={`/host/events/${event.id}`}
-                        className="text-xs font-bold text-slate-400 hover:text-brand-600 transition-colors"
-                      >
-                        Open host view
-                      </Link>
+                      <span className="text-slate-300">{isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}</span>
                     </div>
-                  </div>
+                  </button>
 
-                  {event.moderation_reasons && event.moderation_reasons.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {event.moderation_reasons.map((reason) => (
-                        <span key={reason} className="px-2.5 py-1 rounded-full bg-slate-100 text-[11px] font-bold text-slate-500">
-                          {reason}
-                        </span>
-                      ))}
-                    </div>
+                  {isExpanded ? (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs text-slate-400">
+                          `/events/{event.slug}`{overrideLabel ? ` · override: ${overrideLabel}` : ''}
+                        </p>
+                        <Link
+                          to={`/host/events/${event.id}`}
+                          className="text-xs font-bold text-slate-400 hover:text-brand-600 transition-colors"
+                        >
+                          Open host view
+                        </Link>
+                      </div>
+
+                      {event.moderation_reasons && event.moderation_reasons.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {event.moderation_reasons.map((reason) => (
+                            <span key={reason} className="px-2.5 py-1 rounded-full bg-slate-100 text-[11px] font-bold text-slate-500">
+                              {reason}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">AI moderation</p>
+                          <span className="text-xs font-bold text-slate-600">{aiStatus.label}</span>
+                        </div>
+                        <p className="text-sm text-slate-500 leading-relaxed">{aiStatus.detail}</p>
+
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Risk</p>
+                            <p className="text-sm font-bold text-slate-800">{event.moderation_risk_level || 'Not set'}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Suggested action</p>
+                            <p className="text-sm font-bold text-slate-800">{event.moderation_action || 'Not set'}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Confidence</p>
+                            <p className="text-sm font-bold text-slate-800">
+                              {typeof event.moderation_confidence === 'number'
+                                ? event.moderation_confidence.toFixed(2)
+                                : 'Not set'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Checked at</p>
+                            <p className="text-sm font-bold text-slate-800">
+                              {event.moderated_at ? formatDate(event.moderated_at) : 'Not checked'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => { void applyModerationAction(event.id, { override: 'force_visible' }); }}
+                          className="px-3 py-2 rounded-xl bg-brand-600 text-white text-sm font-bold hover:bg-brand-500 transition-all disabled:opacity-50"
+                        >
+                          Force visible
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => { void applyModerationAction(event.id, { override: 'force_limited' }); }}
+                          className="px-3 py-2 rounded-xl bg-amber-50 text-amber-700 text-sm font-bold hover:bg-amber-100 transition-all disabled:opacity-50"
+                        >
+                          Force limited
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => { void applyModerationAction(event.id, { override: 'hide' }); }}
+                          className="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 transition-all disabled:opacity-50"
+                        >
+                          Archive
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => { void applyModerationAction(event.id, { override: 'mark_safe' }); }}
+                          className="px-3 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-bold hover:bg-brand-100 transition-all disabled:opacity-50"
+                        >
+                          Mark safe
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => { void applyModerationAction(event.id, { override: 'mark_spam' }); }}
+                          className="px-3 py-2 rounded-xl bg-red-50 text-red-700 text-sm font-bold hover:bg-red-100 transition-all disabled:opacity-50"
+                        >
+                          Mark spam
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => { void applyModerationAction(event.id, { clearOverride: true }); }}
+                          className="px-3 py-2 rounded-xl bg-slate-50 text-slate-600 text-sm font-bold hover:bg-slate-100 transition-all disabled:opacity-50"
+                        >
+                          Clear override
+                        </button>
+                      </div>
+
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => { void applyModerationAction(event.id, { clearOverride: true, rerun: true }); }}
+                          className="text-sm font-bold text-slate-500 hover:text-brand-600 transition-colors disabled:opacity-50"
+                        >
+                          Re-run AI moderation
+                        </button>
+                      </div>
+                    </>
                   ) : null}
-
-                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs font-bold uppercase tracking-widest text-slate-400">AI moderation</p>
-                      <span className="text-xs font-bold text-slate-600">{aiStatus.label}</span>
-                    </div>
-                    <p className="text-sm text-slate-500 leading-relaxed">{aiStatus.detail}</p>
-
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Risk</p>
-                        <p className="text-sm font-bold text-slate-800">{event.moderation_risk_level || 'Not set'}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Suggested action</p>
-                        <p className="text-sm font-bold text-slate-800">{event.moderation_action || 'Not set'}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Confidence</p>
-                        <p className="text-sm font-bold text-slate-800">
-                          {typeof event.moderation_confidence === 'number'
-                            ? event.moderation_confidence.toFixed(2)
-                            : 'Not set'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Checked at</p>
-                        <p className="text-sm font-bold text-slate-800">
-                          {event.moderated_at ? formatDate(event.moderated_at) : 'Not checked'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => { void applyModerationAction(event.id, { override: 'force_visible' }); }}
-                      className="px-3 py-2 rounded-xl bg-brand-600 text-white text-sm font-bold hover:bg-brand-500 transition-all disabled:opacity-50"
-                    >
-                      Force visible
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => { void applyModerationAction(event.id, { override: 'force_limited' }); }}
-                      className="px-3 py-2 rounded-xl bg-amber-50 text-amber-700 text-sm font-bold hover:bg-amber-100 transition-all disabled:opacity-50"
-                    >
-                      Force limited
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => { void applyModerationAction(event.id, { override: 'hide' }); }}
-                      className="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 transition-all disabled:opacity-50"
-                    >
-                      Hide / review
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => { void applyModerationAction(event.id, { override: 'mark_safe' }); }}
-                      className="px-3 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-bold hover:bg-brand-100 transition-all disabled:opacity-50"
-                    >
-                      Mark safe
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => { void applyModerationAction(event.id, { override: 'mark_spam' }); }}
-                      className="px-3 py-2 rounded-xl bg-red-50 text-red-700 text-sm font-bold hover:bg-red-100 transition-all disabled:opacity-50"
-                    >
-                      Mark spam
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => { void applyModerationAction(event.id, { clearOverride: true }); }}
-                      className="px-3 py-2 rounded-xl bg-slate-50 text-slate-600 text-sm font-bold hover:bg-slate-100 transition-all disabled:opacity-50"
-                    >
-                      Clear override
-                    </button>
-                  </div>
-
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => { void applyModerationAction(event.id, { clearOverride: true, rerun: true }); }}
-                      className="text-sm font-bold text-slate-500 hover:text-brand-600 transition-colors disabled:opacity-50"
-                    >
-                      Re-run AI moderation
-                    </button>
-                  </div>
                 </section>
               );
             })}

@@ -1,0 +1,2 @@
+[functions.moderate-activity]
+verify_jwt = false
