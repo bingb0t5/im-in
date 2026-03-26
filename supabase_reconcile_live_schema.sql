@@ -143,6 +143,33 @@ ALTER TABLE public.events
 ALTER TABLE public.events
     ADD COLUMN IF NOT EXISTS access_code TEXT;
 
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS public_discovery_enabled BOOLEAN DEFAULT false;
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS moderation_status TEXT DEFAULT 'not_required';
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS moderation_risk_level TEXT;
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS moderation_action TEXT;
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS moderation_confidence NUMERIC(4,3);
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS moderation_reasons TEXT[] DEFAULT ARRAY[]::TEXT[];
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS moderation_input_hash TEXT;
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS moderated_at TIMESTAMPTZ;
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS moderation_override TEXT;
+
 UPDATE public.events
 SET visibility = CASE WHEN is_public THEN 'public' ELSE 'private' END
 WHERE visibility IS NULL;
@@ -154,6 +181,30 @@ WHERE access_code IS NULL OR btrim(access_code) = '';
 UPDATE public.events
 SET show_host_publicly = false
 WHERE show_host_publicly IS NULL;
+
+UPDATE public.events
+SET public_discovery_enabled = CASE
+    WHEN COALESCE(visibility, CASE WHEN is_public THEN 'public' ELSE 'private' END) IN ('public', 'semi_public')
+        THEN true
+    ELSE false
+END
+WHERE moderation_override IS NULL
+  AND moderated_at IS NULL
+  AND moderation_input_hash IS NULL;
+
+UPDATE public.events
+SET moderation_status = CASE
+    WHEN COALESCE(visibility, CASE WHEN is_public THEN 'public' ELSE 'private' END) = 'private'
+        THEN 'not_required'
+    ELSE 'approved'
+END
+WHERE moderation_override IS NULL
+  AND moderated_at IS NULL
+  AND moderation_input_hash IS NULL;
+
+UPDATE public.events
+SET moderation_reasons = ARRAY[]::TEXT[]
+WHERE moderation_reasons IS NULL;
 
 UPDATE public.events
 SET timezone = 'Asia/Ho_Chi_Minh'
@@ -190,6 +241,58 @@ BEGIN
     END IF;
 END $$;
 
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'events_moderation_status_check'
+    ) THEN
+        ALTER TABLE public.events
+            ADD CONSTRAINT events_moderation_status_check
+            CHECK (moderation_status IN ('not_required', 'pending', 'approved', 'limited', 'review', 'blocked', 'error'));
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'events_moderation_risk_level_check'
+    ) THEN
+        ALTER TABLE public.events
+            ADD CONSTRAINT events_moderation_risk_level_check
+            CHECK (moderation_risk_level IS NULL OR moderation_risk_level IN ('low', 'medium', 'high'));
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'events_moderation_action_check'
+    ) THEN
+        ALTER TABLE public.events
+            ADD CONSTRAINT events_moderation_action_check
+            CHECK (moderation_action IS NULL OR moderation_action IN ('allow', 'limit_visibility', 'require_review', 'block'));
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'events_moderation_override_check'
+    ) THEN
+        ALTER TABLE public.events
+            ADD CONSTRAINT events_moderation_override_check
+            CHECK (moderation_override IS NULL OR moderation_override IN ('force_visible', 'force_limited', 'hide', 'mark_safe', 'mark_spam'));
+    END IF;
+END $$;
+
 ALTER TABLE public.events
     ALTER COLUMN visibility SET DEFAULT 'semi_public';
 
@@ -220,6 +323,12 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS events_visibility_status_starts_at_idx
     ON public.events (visibility, status, starts_at);
+
+CREATE INDEX IF NOT EXISTS events_public_discovery_status_starts_at_idx
+    ON public.events (public_discovery_enabled, status, starts_at);
+
+CREATE INDEX IF NOT EXISTS events_moderation_status_idx
+    ON public.events (moderation_status);
 
 CREATE INDEX IF NOT EXISTS events_access_code_idx
     ON public.events (access_code);
@@ -1401,6 +1510,88 @@ BEGIN
             EXECUTE FUNCTION public.touch_updated_at();
     END IF;
 END $$;
+
+CREATE OR REPLACE FUNCTION public.apply_event_moderation_defaults()
+RETURNS TRIGGER AS $$
+DECLARE
+    next_visibility TEXT := COALESCE(NEW.visibility, CASE WHEN COALESCE(NEW.is_public, false) THEN 'public' ELSE 'private' END);
+    should_reset BOOLEAN := false;
+BEGIN
+    IF NEW.moderation_reasons IS NULL THEN
+        NEW.moderation_reasons := ARRAY[]::TEXT[];
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+        should_reset := true;
+    ELSE
+        should_reset := NEW.visibility IS DISTINCT FROM OLD.visibility
+            OR NEW.title IS DISTINCT FROM OLD.title
+            OR NEW.description IS DISTINCT FROM OLD.description
+            OR NEW.public_summary IS DISTINCT FROM OLD.public_summary
+            OR NEW.location_text IS DISTINCT FROM OLD.location_text
+            OR NEW.public_location_text IS DISTINCT FROM OLD.public_location_text;
+    END IF;
+
+    IF next_visibility = 'private' THEN
+        NEW.public_discovery_enabled := false;
+        NEW.moderation_status := 'not_required';
+        NEW.moderation_risk_level := NULL;
+        NEW.moderation_action := NULL;
+        NEW.moderation_confidence := NULL;
+        NEW.moderation_reasons := ARRAY[]::TEXT[];
+        NEW.moderation_input_hash := NULL;
+        NEW.moderated_at := NULL;
+        RETURN NEW;
+    END IF;
+
+    IF NEW.moderation_override IS NOT NULL THEN
+        CASE NEW.moderation_override
+            WHEN 'force_visible', 'mark_safe' THEN
+                NEW.public_discovery_enabled := true;
+                NEW.moderation_status := 'approved';
+                NEW.moderation_action := 'allow';
+                NEW.moderated_at := COALESCE(NEW.moderated_at, now());
+            WHEN 'force_limited' THEN
+                NEW.public_discovery_enabled := false;
+                NEW.moderation_status := 'limited';
+                NEW.moderation_action := 'limit_visibility';
+                NEW.moderated_at := COALESCE(NEW.moderated_at, now());
+            WHEN 'hide' THEN
+                NEW.public_discovery_enabled := false;
+                NEW.moderation_status := 'review';
+                NEW.moderation_action := 'require_review';
+                NEW.moderated_at := COALESCE(NEW.moderated_at, now());
+            WHEN 'mark_spam' THEN
+                NEW.public_discovery_enabled := false;
+                NEW.moderation_status := 'blocked';
+                NEW.moderation_risk_level := 'high';
+                NEW.moderation_action := 'block';
+                NEW.moderated_at := COALESCE(NEW.moderated_at, now());
+        END CASE;
+        RETURN NEW;
+    END IF;
+
+    IF should_reset THEN
+        NEW.public_discovery_enabled := false;
+        NEW.moderation_status := 'pending';
+        NEW.moderation_risk_level := NULL;
+        NEW.moderation_action := NULL;
+        NEW.moderation_confidence := NULL;
+        NEW.moderation_reasons := ARRAY[]::TEXT[];
+        NEW.moderation_input_hash := NULL;
+        NEW.moderated_at := NULL;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS events_apply_moderation_defaults ON public.events;
+
+CREATE TRIGGER events_apply_moderation_defaults
+    BEFORE INSERT OR UPDATE ON public.events
+    FOR EACH ROW
+    EXECUTE FUNCTION public.apply_event_moderation_defaults();
 
 -- -------------------------------------------------------------------
 -- 4) Post-run manual checks (run separately if desired)

@@ -20,6 +20,15 @@ export interface Event {
   visibility?: 'public' | 'semi_public' | 'private';
   allow_waitlist: boolean;
   is_public: boolean;
+  public_discovery_enabled?: boolean;
+  moderation_status?: 'not_required' | 'pending' | 'approved' | 'limited' | 'review' | 'blocked' | 'error';
+  moderation_risk_level?: 'low' | 'medium' | 'high';
+  moderation_action?: 'allow' | 'limit_visibility' | 'require_review' | 'block';
+  moderation_confidence?: number;
+  moderation_reasons?: string[];
+  moderation_input_hash?: string;
+  moderated_at?: string;
+  moderation_override?: 'force_visible' | 'force_limited' | 'hide' | 'mark_safe' | 'mark_spam' | null;
   status: 'scheduled' | 'cancelled' | 'completed';
   created_at: string;
   updated_at: string;

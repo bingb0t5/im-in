@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, formatDurationMinutes, generateSlug } from '../utils';
 import { Event, Attendee, EventAccessRequest, EventInterest } from '../types';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
+import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/moderation';
 import { goBackOr } from '../lib/navigation';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
 
@@ -687,6 +688,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const pendingRequests = accessRequests.filter((r) => r.status === 'pending');
   const approvedRequests = accessRequests.filter((r) => r.status === 'approved');
   const declinedRequests = accessRequests.filter((r) => r.status === 'declined');
+  const moderationBanner = getModerationBannerCopy(event);
+  const moderationStatusBadge = getModerationStatusBadge(event);
   const visibleRequests =
     accessRequestView === 'approved'
       ? approvedRequests
@@ -732,6 +735,21 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <p className="text-lg font-bold text-slate-900 tracking-tight">{waitlist.length}</p>
           </div>
         </section>
+
+        {moderationStatusBadge ? (
+          <div className="flex justify-start">
+            <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-bold ${moderationStatusBadge.className}`}>
+              {moderationStatusBadge.label}
+            </span>
+          </div>
+        ) : null}
+
+        {moderationBanner ? (
+          <section className="bg-slate-100 border border-slate-200 rounded-2xl p-4">
+            <p className="text-sm font-bold text-slate-800">{moderationBanner.title}</p>
+            <p className="text-sm text-slate-500 mt-1 leading-relaxed">{moderationBanner.body}</p>
+          </section>
+        ) : null}
 
         <section className="bg-white rounded-2xl p-4">
           <button

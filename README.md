@@ -48,6 +48,7 @@ Main product areas:
 - `public`: publicly discoverable, full public-facing details shown
 - `semi_public`: appears in public browse with limited details; host shares the private access link manually
 - `private`: unlisted / link-only
+- public and semi-public discovery is now further gated by lightweight AI moderation and host trust before broader browse visibility is enabled
 
 ### Scheduling model
 
@@ -74,6 +75,7 @@ Main product areas:
 - approve/decline/request more info on semi-public access requests
 - share public and private links
 - add co-hosts
+- see neutral discovery-status messaging when broader public visibility is limited
 
 ## Core User Flows
 
@@ -167,6 +169,18 @@ Recommended:
   - used as an auth redirect override for hosted/proxied environments
   - important for reliable magic-link redirects outside localhost
 
+Edge function runtime:
+
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `OPENAI_API_KEY`
+
+Optional edge function runtime:
+
+- `OPENAI_MODERATION_MODEL`
+  - defaults to `gpt-5.4-nano`
+- `OPENAI_API_BASE_URL`
+  - for OpenAI-compatible endpoints if needed
+
 Legacy optional:
 
 - `APP_URL`
@@ -183,6 +197,11 @@ Prerequisite: Node.js 20+ is recommended.
 4. Set `VITE_SUPABASE_ANON_KEY`
 5. Set `VITE_APP_URL` if you want explicit hosted redirect behavior locally or in a proxy setup
 6. Run `npm run dev`
+
+If you want the AI moderation flow to work locally as well, also configure the Edge Function runtime with:
+
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `OPENAI_API_KEY`
 
 Default local URL:
 
@@ -307,6 +326,7 @@ The product is positioned as an open, community-built project. The landing page 
 - `CURRENT_STATE.md`: truth-on-the-ground implementation and gaps
 - `CONTRIBUTING.md`: contributor guidance and safety notes
 - `SCHEMA_OR_DATA_MODEL.md`: data model and identity/schema assumptions
+- `AI_MODERATION.md`: moderation triggers, stored fields, prompt, and cost-control strategy
 - `AI_DEV_RULES.md`: implementation safety guidance
 - `AUTH_UNIFICATION_PLAN.md`: future-facing auth unification plan
 - `SCHEMA_ALIGNMENT.md`: schema drift notes

@@ -46,6 +46,7 @@ The weakest / least finished areas are:
 - attendee list and waitlist
 - proxy RSVP / "add another person"
 - "thinking about it"
+- lightweight AI moderation for broader public discovery on public/semi-public activities
 - Google Calendar link
 - `.ics` download
 - co-host support
@@ -63,6 +64,7 @@ The weakest / least finished areas are:
 - RLS-sensitive flows routed through RPCs for RSVP/cancel/proxy/interest where needed
 - route-aware private link building for semi-public activities
 - filtered realtime on the host dashboard
+- Supabase Edge Function moderation with content-hash reuse and stored discovery state
 
 ## Partial Or Awkward
 
@@ -110,6 +112,22 @@ You need to read multiple files together:
 - `supabase_guest_identity_migration.sql`
 - `SCHEMA_ALIGNMENT.md`
 
+### Moderation operations
+
+AI moderation now exists for public/semi-public discovery, but the operational tooling is still intentionally light.
+
+What is real:
+
+- public browse is gated by `events.public_discovery_enabled`
+- public/semi-public activities are marked `pending` again when meaningful public-facing content changes
+- a Supabase Edge Function writes structured moderation results back onto `events`
+
+What is still minimal:
+
+- there is no dedicated reviewer dashboard
+- manual overrides currently mean editing moderation fields in Supabase Studio / admin tooling
+- trust scoring is intentionally simple and based on prior hosted-activity count, not a richer reputation system
+
 ## Not Implemented / Not Production-Ready
 
 These things are either planned, partial, or explicitly not complete:
@@ -119,6 +137,7 @@ These things are either planned, partial, or explicitly not complete:
 - a unified guest/auth identity model
 - automated tests
 - a clean contributor process backed by migrations/CI
+- a full moderation review queue / operator UI
 
 ## Important Review Findings
 
