@@ -1,0 +1,313 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Navigate, Link } from 'react-router-dom';
+import { User } from '@supabase/supabase-js';
+import { Shield, ArrowLeft, RefreshCw } from 'lucide-react';
+import { supabase } from '../supabase';
+import { Event } from '../types';
+import { isModerationAdminEmail } from '../lib/admin';
+import { getModerationStatusBadge } from '../lib/moderation';
+
+type OverrideOption = 'force_visible' | 'force_limited' | 'hide' | 'mark_safe' | 'mark_spam';
+type FilterOption = 'all' | 'pending' | 'limited' | 'review' | 'blocked' | 'approved' | 'overridden';
+
+export default function AdminModeration({ user }: { user: User | null }) {
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<FilterOption>('all');
+  const [actionEventId, setActionEventId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const isAdmin = isModerationAdminEmail(user?.email);
+
+  const fetchEvents = async () => {
+    setLoading(true);
+    setError(null);
+
+    const { data, error: fetchError } = await supabase
+      .from('events')
+      .select(`
+        id,
+        slug,
+        title,
+        host_name,
+        visibility,
+        is_public,
+        status,
+        created_at,
+        public_discovery_enabled,
+        moderation_status,
+        moderation_risk_level,
+        moderation_action,
+        moderation_confidence,
+        moderation_reasons,
+        moderation_input_hash,
+        moderated_at,
+        moderation_override
+      `)
+      .in('visibility', ['public', 'semi_public'])
+      .order('created_at', { ascending: false })
+      .limit(150);
+
+    if (fetchError) {
+      setError(fetchError.message || 'Failed to load moderation queue.');
+      setEvents([]);
+    } else {
+      setEvents((data || []) as Event[]);
+    }
+
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (!user || !isAdmin) return;
+    void fetchEvents();
+  }, [user?.id, isAdmin]);
+
+  const filteredEvents = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return events.filter((event) => {
+      if (filter === 'overridden' && !event.moderation_override) return false;
+      if (filter !== 'all' && filter !== 'overridden' && event.moderation_status !== filter) return false;
+
+      if (!normalizedQuery) return true;
+
+      return (
+        event.title.toLowerCase().includes(normalizedQuery) ||
+        (event.host_name || '').toLowerCase().includes(normalizedQuery) ||
+        event.slug.toLowerCase().includes(normalizedQuery)
+      );
+    });
+  }, [events, filter, query]);
+
+  const applyModerationAction = async (
+    eventId: string,
+    payload: { override?: OverrideOption; clearOverride?: boolean; rerun?: boolean },
+  ) => {
+    setActionEventId(eventId);
+    setError(null);
+
+    const { error: invokeError } = await supabase.functions.invoke('moderate-activity', {
+      body: {
+        eventId,
+        ...payload,
+      },
+    });
+
+    if (invokeError) {
+      setError(invokeError.message || 'Moderation action failed.');
+    } else {
+      await fetchEvents();
+    }
+
+    setActionEventId(null);
+  };
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-24">
+      <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-20">
+        <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
+          <Link to="/" className="p-2 hover:bg-slate-100 rounded-xl transition-all active:scale-95">
+            <ArrowLeft className="w-5 h-5 text-slate-600" />
+          </Link>
+          <div className="flex flex-col items-center">
+            <h1 className="text-base font-bold text-slate-900 tracking-tight">Moderation</h1>
+            <span className="text-[10px] font-medium text-slate-400 uppercase tracking-widest mt-0.5">Hidden admin tooling</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => { void fetchEvents(); }}
+            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all active:scale-95"
+            aria-label="Refresh moderation queue"
+          >
+            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </header>
+
+      <main className="max-w-4xl mx-auto px-4 pt-6 space-y-5">
+        <section className="bg-white rounded-2xl p-4 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-slate-100 flex items-center justify-center shrink-0">
+              <Shield className="w-5 h-5 text-slate-600" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-slate-900">Manual discovery controls</p>
+              <p className="text-sm text-slate-500 leading-relaxed mt-1">
+                Use this page to set a simple moderation override or re-run AI without editing rows directly in Supabase.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by title, host, or slug"
+              className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-100 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all"
+            />
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value as FilterOption)}
+              className="px-4 py-3 rounded-xl bg-slate-50 border border-slate-100 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all"
+            >
+              <option value="all">All states</option>
+              <option value="pending">Pending</option>
+              <option value="limited">Limited</option>
+              <option value="review">Needs review</option>
+              <option value="blocked">Blocked</option>
+              <option value="approved">Approved</option>
+              <option value="overridden">Manual overrides</option>
+            </select>
+          </div>
+
+          {error ? (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+              {error}
+            </p>
+          ) : null}
+        </section>
+
+        {loading ? (
+          <section className="bg-white rounded-2xl overflow-hidden">
+            {[1, 2, 3].map((item) => (
+              <div key={item} className="px-5 py-4 border-b border-slate-50 last:border-0 space-y-2 animate-pulse">
+                <div className="h-4 bg-slate-100 rounded-full w-1/2" />
+                <div className="h-3 bg-slate-100 rounded-full w-1/3" />
+              </div>
+            ))}
+          </section>
+        ) : filteredEvents.length === 0 ? (
+          <section className="bg-white rounded-2xl p-10 text-center">
+            <p className="text-sm text-slate-400">No matching activities in the moderation view.</p>
+          </section>
+        ) : (
+          <div className="space-y-4">
+            {filteredEvents.map((event) => {
+              const statusBadge = getModerationStatusBadge(event);
+              const isBusy = actionEventId === event.id;
+
+              return (
+                <section key={event.id} className="bg-white rounded-2xl p-5 space-y-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-base font-bold text-slate-900 truncate">{event.title}</p>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                          {event.visibility === 'semi_public' ? 'Semi-public' : 'Public'}
+                        </span>
+                      </div>
+                      <p className="text-sm text-slate-500 mt-1">
+                        Host: {event.host_name || 'Unknown host'} · `/events/{event.slug}`
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Status: {event.moderation_status || 'unknown'}
+                        {event.moderation_override ? ` · override: ${event.moderation_override}` : ''}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {statusBadge ? (
+                        <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-bold ${statusBadge.className}`}>
+                          {statusBadge.label}
+                        </span>
+                      ) : null}
+                      <Link
+                        to={`/host/events/${event.id}`}
+                        className="text-xs font-bold text-slate-400 hover:text-brand-600 transition-colors"
+                      >
+                        Open host view
+                      </Link>
+                    </div>
+                  </div>
+
+                  {event.moderation_reasons && event.moderation_reasons.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {event.moderation_reasons.map((reason) => (
+                        <span key={reason} className="px-2.5 py-1 rounded-full bg-slate-100 text-[11px] font-bold text-slate-500">
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => { void applyModerationAction(event.id, { override: 'force_visible' }); }}
+                      className="px-3 py-2 rounded-xl bg-brand-600 text-white text-sm font-bold hover:bg-brand-500 transition-all disabled:opacity-50"
+                    >
+                      Force visible
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => { void applyModerationAction(event.id, { override: 'force_limited' }); }}
+                      className="px-3 py-2 rounded-xl bg-amber-50 text-amber-700 text-sm font-bold hover:bg-amber-100 transition-all disabled:opacity-50"
+                    >
+                      Force limited
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => { void applyModerationAction(event.id, { override: 'hide' }); }}
+                      className="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 transition-all disabled:opacity-50"
+                    >
+                      Hide / review
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => { void applyModerationAction(event.id, { override: 'mark_safe' }); }}
+                      className="px-3 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-bold hover:bg-brand-100 transition-all disabled:opacity-50"
+                    >
+                      Mark safe
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => { void applyModerationAction(event.id, { override: 'mark_spam' }); }}
+                      className="px-3 py-2 rounded-xl bg-red-50 text-red-700 text-sm font-bold hover:bg-red-100 transition-all disabled:opacity-50"
+                    >
+                      Mark spam
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => { void applyModerationAction(event.id, { clearOverride: true }); }}
+                      className="px-3 py-2 rounded-xl bg-slate-50 text-slate-600 text-sm font-bold hover:bg-slate-100 transition-all disabled:opacity-50"
+                    >
+                      Clear override
+                    </button>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => { void applyModerationAction(event.id, { clearOverride: true, rerun: true }); }}
+                      className="text-sm font-bold text-slate-500 hover:text-brand-600 transition-colors disabled:opacity-50"
+                    >
+                      Re-run AI moderation
+                    </button>
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}

@@ -141,6 +141,13 @@ type EffectiveModerationUpdate = {
   moderated_at: string | null;
 };
 
+function parseEmailAllowlist(raw?: string | null) {
+  return (raw || '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 function normalizeVisibility(event: Pick<EventModerationShape, 'visibility' | 'is_public'>): EventVisibility {
   if (event.visibility === 'public' || event.visibility === 'semi_public' || event.visibility === 'private') {
     return event.visibility;
@@ -421,7 +428,7 @@ Deno.serve(async (request) => {
   let currentInputHash: string | null = null;
 
   try {
-    const { eventId } = await request.json();
+    const { eventId, override, clearOverride, rerun } = await request.json();
     if (!eventId || typeof eventId !== 'string') {
       return json({ error: 'eventId is required.' }, { status: 400 });
     }
@@ -464,8 +471,81 @@ Deno.serve(async (request) => {
       .eq('user_id', user.id)
       .maybeSingle();
 
-    if (event.host_user_id !== user.id && !hostMembership?.id) {
+    const adminEmails = parseEmailAllowlist(Deno.env.get('MODERATION_ADMIN_EMAILS'));
+    const isAdmin = !!user.email && adminEmails.includes(user.email.trim().toLowerCase());
+
+    if (event.host_user_id !== user.id && !hostMembership?.id && !isAdmin) {
       return json({ error: 'You do not have permission to moderate this activity.' }, { status: 403 });
+    }
+
+    const requestedOverride = typeof override === 'string' ? override as ModerationOverride : null;
+    const shouldClearOverride = clearOverride === true;
+    const shouldRerun = rerun === true;
+
+    if ((requestedOverride || shouldClearOverride) && !isAdmin) {
+      return json({ error: 'Admin permissions are required for manual moderation overrides.' }, { status: 403 });
+    }
+
+    if (requestedOverride) {
+      const { data: updatedEvent, error: overrideError } = await admin
+        .from('events')
+        .update({ moderation_override: requestedOverride })
+        .eq('id', event.id)
+        .select(`
+          public_discovery_enabled,
+          moderation_status,
+          moderation_risk_level,
+          moderation_action,
+          moderation_confidence,
+          moderation_reasons,
+          moderation_input_hash,
+          moderated_at,
+          moderation_override
+        `)
+        .single();
+
+      if (overrideError) {
+        throw overrideError;
+      }
+
+      return json({ reused: false, override: requestedOverride, result: updatedEvent });
+    }
+
+    if (shouldClearOverride) {
+      const clearState = {
+        moderation_override: null,
+        public_discovery_enabled: false,
+        moderation_status: 'pending',
+        moderation_risk_level: null,
+        moderation_action: null,
+        moderation_confidence: null,
+        moderation_reasons: [],
+        moderation_input_hash: null,
+        moderated_at: null,
+      };
+
+      const { error: clearError } = await admin
+        .from('events')
+        .update(clearState)
+        .eq('id', event.id);
+
+      if (clearError) {
+        throw clearError;
+      }
+
+      event.moderation_override = null;
+      event.public_discovery_enabled = false;
+      event.moderation_status = 'pending';
+      event.moderation_risk_level = null;
+      event.moderation_action = null;
+      event.moderation_confidence = null;
+      event.moderation_reasons = [];
+      event.moderation_input_hash = null;
+      event.moderated_at = null;
+
+      if (!shouldRerun) {
+        return json({ reused: false, cleared: true, result: clearState });
+      }
     }
 
     if (event.moderation_override) {
@@ -510,6 +590,7 @@ Deno.serve(async (request) => {
     const inputHash = buildModerationHash(moderationInput);
     currentInputHash = inputHash;
     if (
+      !shouldRerun &&
       event.moderation_input_hash === inputHash &&
       event.moderation_status &&
       !['pending', 'error'].includes(event.moderation_status)
