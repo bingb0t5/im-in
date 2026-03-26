@@ -28,6 +28,7 @@ export interface Event {
   moderation_reasons?: string[];
   moderation_input_hash?: string;
   moderated_at?: string;
+  moderation_archived_at?: string | null;
   moderation_override?: 'force_visible' | 'force_limited' | 'hide' | 'mark_safe' | 'mark_spam' | null;
   status: 'scheduled' | 'cancelled' | 'completed';
   created_at: string;

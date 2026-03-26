@@ -168,6 +168,9 @@ ALTER TABLE public.events
     ADD COLUMN IF NOT EXISTS moderated_at TIMESTAMPTZ;
 
 ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS moderation_archived_at TIMESTAMPTZ;
+
+ALTER TABLE public.events
     ADD COLUMN IF NOT EXISTS moderation_override TEXT;
 
 UPDATE public.events
@@ -1580,6 +1583,7 @@ BEGIN
         NEW.moderation_reasons := ARRAY[]::TEXT[];
         NEW.moderation_input_hash := NULL;
         NEW.moderated_at := NULL;
+        NEW.moderation_archived_at := NULL;
     END IF;
 
     RETURN NEW;

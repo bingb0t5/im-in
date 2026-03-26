@@ -80,6 +80,7 @@ The moderation system adds these fields to `public.events`:
 - `moderation_reasons`
 - `moderation_input_hash`
 - `moderated_at`
+- `moderation_archived_at`
 - `moderation_override`
 
 ### Meaning
@@ -100,6 +101,8 @@ The moderation system adds these fields to `public.events`:
   - content fingerprint used to skip repeat model calls
 - `moderated_at`
   - last successful moderation timestamp
+- `moderation_archived_at`
+  - optional manual reviewer archive timestamp for the admin queue only
 - `moderation_override`
   - simple manual override hook for operational use
 
@@ -159,7 +162,7 @@ This keeps the system aligned with product intent:
 
 There is no full reviewer dashboard yet.
 
-The current MVP uses `events.moderation_override`, which can be set manually in Supabase Studio or through admin tooling later.
+The current MVP uses `events.moderation_override` plus a separate `events.moderation_archived_at` field for reviewer queue housekeeping.
 
 Supported values:
 
@@ -170,6 +173,8 @@ Supported values:
 - `mark_spam`
 
 These are intentionally simple operational hooks, not a full moderation workflow.
+
+Manual archive is separate from manual hide/review. Archiving only removes an item from the active review queue; it does not change the effective discovery decision by itself.
 
 ## Exact Prompt Template
 

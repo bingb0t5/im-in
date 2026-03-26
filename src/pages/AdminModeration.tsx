@@ -42,7 +42,7 @@ function getAiStatusSummary(event: Event) {
 
 function getModerationBucket(event: Event): Exclude<FilterOption, 'all'> | 'other' {
   if (event.moderation_override === 'mark_spam') return 'spam';
-  if (event.moderation_override === 'hide') return 'archived';
+  if (event.moderation_archived_at) return 'archived';
 
   if (
     !event.moderated_at ||
@@ -61,7 +61,7 @@ function getModerationBucket(event: Event): Exclude<FilterOption, 'all'> | 'othe
 function getOverrideLabel(event: Event) {
   switch (event.moderation_override) {
     case 'hide':
-      return 'archived';
+      return 'hide / review';
     case 'mark_spam':
       return 'spam';
     case 'force_visible':
@@ -109,6 +109,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
         moderation_reasons,
         moderation_input_hash,
         moderated_at,
+        moderation_archived_at,
         moderation_override
       `)
       .in('visibility', ['public', 'semi_public'])
@@ -159,7 +160,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
 
   const applyModerationAction = async (
     eventId: string,
-    payload: { override?: OverrideOption; clearOverride?: boolean; rerun?: boolean },
+    payload: { override?: OverrideOption; clearOverride?: boolean; rerun?: boolean; archive?: boolean; unarchive?: boolean },
   ) => {
     setActionEventId(eventId);
     setError(null);
@@ -327,7 +328,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
                     <>
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-xs text-slate-400">
-                          `/events/{event.slug}`{overrideLabel ? ` · override: ${overrideLabel}` : ''}
+                          `/events/{event.slug}`{overrideLabel ? ` · override: ${overrideLabel}` : ''}{event.moderation_archived_at ? ` · archived ${formatDate(event.moderation_archived_at)}` : ''}
                         </p>
                         <Link
                           to={`/host/events/${event.id}`}
@@ -403,8 +404,23 @@ export default function AdminModeration({ user }: { user: User | null }) {
                           onClick={() => { void applyModerationAction(event.id, { override: 'hide' }); }}
                           className="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 transition-all disabled:opacity-50"
                         >
-                          Archive
+                          Hide / review
                         </button>
+                        {bucket !== 'spam' ? (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => {
+                              void applyModerationAction(
+                                event.id,
+                                bucket === 'archived' ? { unarchive: true } : { archive: true },
+                              );
+                            }}
+                            className="px-3 py-2 rounded-xl bg-slate-50 text-slate-700 text-sm font-bold hover:bg-slate-100 transition-all disabled:opacity-50"
+                          >
+                            {bucket === 'archived' ? 'Return to review' : 'Archive'}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           disabled={isBusy}

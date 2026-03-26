@@ -29,6 +29,7 @@ export type EventModerationShape = {
   moderation_reasons?: string[] | null;
   moderation_input_hash?: string | null;
   moderated_at?: string | null;
+  moderation_archived_at?: string | null;
   moderation_override?: ModerationOverride | null;
   public_discovery_enabled?: boolean | null;
 };

@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS public.events (
     moderation_reasons TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
     moderation_input_hash TEXT,
     moderated_at TIMESTAMPTZ,
+    moderation_archived_at TIMESTAMPTZ,
     moderation_override TEXT CHECK (moderation_override IS NULL OR moderation_override IN ('force_visible', 'force_limited', 'hide', 'mark_safe', 'mark_spam')),
     status TEXT CHECK (status IN ('scheduled', 'cancelled', 'completed')) DEFAULT 'scheduled',
     created_at TIMESTAMPTZ DEFAULT now(),
@@ -427,6 +428,7 @@ BEGIN
         NEW.moderation_reasons := ARRAY[]::TEXT[];
         NEW.moderation_input_hash := NULL;
         NEW.moderated_at := NULL;
+        NEW.moderation_archived_at := NULL;
     END IF;
 
     RETURN NEW;

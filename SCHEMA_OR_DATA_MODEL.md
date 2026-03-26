@@ -56,6 +56,7 @@ Important fields the frontend uses:
 - `moderation_reasons`
 - `moderation_input_hash`
 - `moderated_at`
+- `moderation_archived_at`
 - `moderation_override`
 - `status`
 
@@ -65,7 +66,7 @@ Important behavioral meaning:
 - `visibility` controls whether it behaves as `public`, `semi_public`, or `private`
 - `access_code` is used to construct the private semi-public link
 - `public_discovery_enabled` is the additional gate for broader public discovery
-- moderation fields store the latest AI classification plus any simple manual override state
+- moderation fields store the latest AI classification, any simple manual override state, and an optional reviewer archive timestamp for the admin queue
 
 ### `event_attendees`
 

@@ -23,6 +23,7 @@ type EventModerationShape = {
   moderation_reasons?: string[] | null;
   moderation_input_hash?: string | null;
   moderated_at?: string | null;
+  moderation_archived_at?: string | null;
   moderation_override?: ModerationOverride | null;
   public_discovery_enabled?: boolean | null;
 };
@@ -428,7 +429,7 @@ Deno.serve(async (request) => {
   let currentInputHash: string | null = null;
 
   try {
-    const { eventId, override, clearOverride, rerun } = await request.json();
+    const { eventId, override, clearOverride, rerun, archive, unarchive } = await request.json();
     if (!eventId || typeof eventId !== 'string') {
       return json({ error: 'eventId is required.' }, { status: 400 });
     }
@@ -453,6 +454,7 @@ Deno.serve(async (request) => {
         moderation_reasons,
         moderation_input_hash,
         moderated_at,
+        moderation_archived_at,
         moderation_override,
         public_discovery_enabled
       `)
@@ -481,9 +483,42 @@ Deno.serve(async (request) => {
     const requestedOverride = typeof override === 'string' ? override as ModerationOverride : null;
     const shouldClearOverride = clearOverride === true;
     const shouldRerun = rerun === true;
+    const shouldArchive = archive === true;
+    const shouldUnarchive = unarchive === true;
 
-    if ((requestedOverride || shouldClearOverride) && !isAdmin) {
+    if ((requestedOverride || shouldClearOverride || shouldArchive || shouldUnarchive) && !isAdmin) {
       return json({ error: 'Admin permissions are required for manual moderation overrides.' }, { status: 403 });
+    }
+
+    if (shouldArchive || shouldUnarchive) {
+      const archiveValue = shouldArchive ? new Date().toISOString() : null;
+      const { data: updatedEvent, error: archiveError } = await admin
+        .from('events')
+        .update({ moderation_archived_at: archiveValue })
+        .eq('id', event.id)
+        .select(`
+          public_discovery_enabled,
+          moderation_status,
+          moderation_risk_level,
+          moderation_action,
+          moderation_confidence,
+          moderation_reasons,
+          moderation_input_hash,
+          moderated_at,
+          moderation_archived_at,
+          moderation_override
+        `)
+        .single();
+
+      if (archiveError) {
+        throw archiveError;
+      }
+
+      return json({
+        reused: false,
+        archived: shouldArchive,
+        result: updatedEvent,
+      });
     }
 
     if (requestedOverride) {
@@ -500,6 +535,7 @@ Deno.serve(async (request) => {
           moderation_reasons,
           moderation_input_hash,
           moderated_at,
+          moderation_archived_at,
           moderation_override
         `)
         .single();
