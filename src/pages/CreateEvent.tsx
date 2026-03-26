@@ -544,13 +544,19 @@ export default function CreateEvent({ user }: { user: User | null }) {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-6 pt-8">
+      <main className="max-w-2xl mx-auto px-6 pt-7">
         <motion.form 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           onSubmit={handleSubmit} 
           className="space-y-8"
         >
+          <div className="-mt-3 mb-1 px-1">
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Activities should be created by the person actually hosting them.
+            </p>
+          </div>
+
           {/* Basic Info */}
           <section className="bg-white rounded-2xl p-6 space-y-5">
             <div>

@@ -453,6 +453,10 @@ export default function Home({ user }: { user: User | null }) {
                     <p>Not every idea will be added. Keeping it easy to use matters more than adding everything.</p>
                   </div>
                   <div className="space-y-1.5">
+                    <p className="text-slate-900 font-semibold">Hosts run their own activities</p>
+                    <p>Activities should be created by the person actually organising or hosting them, so it&apos;s clear who&apos;s running things.</p>
+                  </div>
+                  <div className="space-y-1.5">
                     <p className="text-slate-900 font-semibold">It&apos;s maintained by people giving their time</p>
                     <p>Lalo helps build and maintain it, alongside others who choose to get involved.</p>
                   </div>
