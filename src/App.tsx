@@ -17,6 +17,7 @@ import HostDashboard from './pages/HostDashboard';
 import Calendar from './pages/Calendar';
 import Recovery from './pages/Recovery';
 import Bookings from './pages/Bookings';
+import AdminModeration from './pages/AdminModeration';
 import { guestService } from './services/guestService';
 
 export default function App() {
@@ -111,6 +112,7 @@ export default function App() {
           <Route path="/calendar" element={<Calendar user={user} />} />
           <Route path="/bookings" element={<Bookings />} />
           <Route path="/recover" element={<Recovery />} />
+          <Route path="/admin/moderation" element={user ? <AdminModeration user={user} /> : <Navigate to="/login" />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </div>

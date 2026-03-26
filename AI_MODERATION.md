@@ -243,6 +243,13 @@ Optional:
   - defaults to `gpt-5.4-nano`
 - `OPENAI_API_BASE_URL`
   - for OpenAI-compatible endpoints if needed
+- `MODERATION_ADMIN_EMAILS`
+  - comma-separated email allowlist for manual moderation overrides in the hidden admin tooling
+
+Frontend optional env:
+
+- `VITE_MODERATION_ADMIN_EMAILS`
+  - comma-separated email allowlist for the hidden route at `/admin/moderation`
 
 ## What Is Implemented Now
 
@@ -252,6 +259,8 @@ Optional:
 - content-hash result reuse
 - public calendar discovery gated by `public_discovery_enabled`
 - neutral host-facing messaging on the host dashboard
+- hidden moderation admin page at `/admin/moderation` for allowlisted emails
+- manual override actions routed through the existing moderation edge function
 
 ## What Is Still Future Work
 

@@ -168,6 +168,9 @@ Recommended:
 - `VITE_APP_URL`
   - used as an auth redirect override for hosted/proxied environments
   - important for reliable magic-link redirects outside localhost
+- `VITE_MODERATION_ADMIN_EMAILS`
+  - comma-separated allowlist for the hidden moderation page at `/admin/moderation`
+  - only affects whether the page is shown/usable in the frontend
 
 Edge function runtime:
 
@@ -180,6 +183,8 @@ Optional edge function runtime:
   - defaults to `gpt-5.4-nano`
 - `OPENAI_API_BASE_URL`
   - for OpenAI-compatible endpoints if needed
+- `MODERATION_ADMIN_EMAILS`
+  - comma-separated allowlist for server-authorized manual moderation overrides
 
 Legacy optional:
 
