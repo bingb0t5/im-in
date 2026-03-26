@@ -43,6 +43,7 @@ export default function Calendar({ user }: { user: User | null }) {
       `)
       .eq('status', 'scheduled')
       .eq('is_public', true)
+      .eq('public_discovery_enabled', true)
       .gte('starts_at', nowIso)
       .order('starts_at', { ascending: true });
 

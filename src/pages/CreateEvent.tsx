@@ -16,6 +16,7 @@ import {
 import { pickWaitlistAttendeesForPromotion } from '../lib/rsvp';
 import { buildAuthRedirectUrl } from '../lib/authRedirect';
 import { goBackOr } from '../lib/navigation';
+import { shouldModerateVisibility } from '../lib/moderation';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
 
 const CREATE_EVENT_DRAFT_KEY = 'im_in_create_event_draft';
@@ -97,6 +98,18 @@ export default function CreateEvent({ user }: { user: User | null }) {
     ((email || '').split('@')[0] || '')
       .replace(/[._-]+/g, ' ')
       .trim();
+
+  const runModerationForEvent = async (eventId: string, visibility: 'public' | 'semi_public' | 'private') => {
+    if (!shouldModerateVisibility(visibility)) return;
+
+    const { error } = await supabase.functions.invoke('moderate-activity', {
+      body: { eventId },
+    });
+
+    if (error) {
+      console.error('Activity moderation failed:', error);
+    }
+  };
 
   useEffect(() => {
     if (isEditing && user) {
@@ -440,6 +453,9 @@ export default function CreateEvent({ user }: { user: User | null }) {
             }
           }
         }
+
+        await runModerationForEvent(result.data.id, resolvedVisibility);
+
         navigate(`/host/events/${result.data.id}`);
       }
     } catch (err: any) {
@@ -724,6 +740,11 @@ export default function CreateEvent({ user }: { user: User | null }) {
                 <p className="text-xs text-slate-400 mt-1.5">
                   Semi-public appears in browse with limited info. Full details via your shared link only.
                 </p>
+                {formData.visibility !== 'private' ? (
+                  <p className="text-xs text-slate-400 mt-1.5">
+                    Broader public discovery may stay limited at first, especially for newer hosts or low-detail listings.
+                  </p>
+                ) : null}
               </div>
 
               <label className="flex items-center gap-3 cursor-pointer select-none">

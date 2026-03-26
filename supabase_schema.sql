@@ -24,6 +24,15 @@ CREATE TABLE IF NOT EXISTS public.events (
     visibility TEXT CHECK (visibility IN ('public', 'semi_public', 'private')) DEFAULT 'semi_public',
     allow_waitlist BOOLEAN DEFAULT true,
     is_public BOOLEAN DEFAULT false,
+    public_discovery_enabled BOOLEAN NOT NULL DEFAULT false,
+    moderation_status TEXT NOT NULL DEFAULT 'not_required' CHECK (moderation_status IN ('not_required', 'pending', 'approved', 'limited', 'review', 'blocked', 'error')),
+    moderation_risk_level TEXT CHECK (moderation_risk_level IS NULL OR moderation_risk_level IN ('low', 'medium', 'high')),
+    moderation_action TEXT CHECK (moderation_action IS NULL OR moderation_action IN ('allow', 'limit_visibility', 'require_review', 'block')),
+    moderation_confidence NUMERIC(4,3),
+    moderation_reasons TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    moderation_input_hash TEXT,
+    moderated_at TIMESTAMPTZ,
+    moderation_override TEXT CHECK (moderation_override IS NULL OR moderation_override IN ('force_visible', 'force_limited', 'hide', 'mark_safe', 'mark_spam')),
     status TEXT CHECK (status IN ('scheduled', 'cancelled', 'completed')) DEFAULT 'scheduled',
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
@@ -71,6 +80,26 @@ CREATE TABLE IF NOT EXISTS public.event_access_requests (
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+UPDATE public.events
+SET public_discovery_enabled = CASE
+    WHEN COALESCE(visibility, CASE WHEN is_public THEN 'public' ELSE 'private' END) IN ('public', 'semi_public')
+        THEN true
+    ELSE false
+END
+WHERE moderation_override IS NULL
+  AND moderated_at IS NULL
+  AND moderation_input_hash IS NULL;
+
+UPDATE public.events
+SET moderation_status = CASE
+    WHEN COALESCE(visibility, CASE WHEN is_public THEN 'public' ELSE 'private' END) = 'private'
+        THEN 'not_required'
+    ELSE 'approved'
+END
+WHERE moderation_override IS NULL
+  AND moderated_at IS NULL
+  AND moderation_input_hash IS NULL;
 
 -- 2. RLS Policies
 
@@ -270,6 +299,12 @@ CREATE TABLE IF NOT EXISTS public.event_interests (
 CREATE INDEX IF NOT EXISTS event_interests_event_id_created_at_idx
     ON public.event_interests (event_id, created_at DESC);
 
+CREATE INDEX IF NOT EXISTS events_public_discovery_status_starts_at_idx
+    ON public.events (public_discovery_enabled, status, starts_at);
+
+CREATE INDEX IF NOT EXISTS events_moderation_status_idx
+    ON public.events (moderation_status);
+
 CREATE UNIQUE INDEX IF NOT EXISTS event_interests_event_user_uidx
     ON public.event_interests (event_id, user_id)
     WHERE user_id IS NOT NULL;
@@ -323,10 +358,90 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION public.apply_event_moderation_defaults()
+RETURNS TRIGGER AS $$
+DECLARE
+    next_visibility TEXT := COALESCE(NEW.visibility, CASE WHEN COALESCE(NEW.is_public, false) THEN 'public' ELSE 'private' END);
+    should_reset BOOLEAN := false;
+BEGIN
+    IF NEW.moderation_reasons IS NULL THEN
+        NEW.moderation_reasons := ARRAY[]::TEXT[];
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+        should_reset := true;
+    ELSE
+        should_reset := NEW.visibility IS DISTINCT FROM OLD.visibility
+            OR NEW.title IS DISTINCT FROM OLD.title
+            OR NEW.description IS DISTINCT FROM OLD.description
+            OR NEW.public_summary IS DISTINCT FROM OLD.public_summary
+            OR NEW.location_text IS DISTINCT FROM OLD.location_text
+            OR NEW.public_location_text IS DISTINCT FROM OLD.public_location_text;
+    END IF;
+
+    IF next_visibility = 'private' THEN
+        NEW.public_discovery_enabled := false;
+        NEW.moderation_status := 'not_required';
+        NEW.moderation_risk_level := NULL;
+        NEW.moderation_action := NULL;
+        NEW.moderation_confidence := NULL;
+        NEW.moderation_reasons := ARRAY[]::TEXT[];
+        NEW.moderation_input_hash := NULL;
+        NEW.moderated_at := NULL;
+        RETURN NEW;
+    END IF;
+
+    IF NEW.moderation_override IS NOT NULL THEN
+        CASE NEW.moderation_override
+            WHEN 'force_visible', 'mark_safe' THEN
+                NEW.public_discovery_enabled := true;
+                NEW.moderation_status := 'approved';
+                NEW.moderation_action := 'allow';
+                NEW.moderated_at := COALESCE(NEW.moderated_at, now());
+            WHEN 'force_limited' THEN
+                NEW.public_discovery_enabled := false;
+                NEW.moderation_status := 'limited';
+                NEW.moderation_action := 'limit_visibility';
+                NEW.moderated_at := COALESCE(NEW.moderated_at, now());
+            WHEN 'hide' THEN
+                NEW.public_discovery_enabled := false;
+                NEW.moderation_status := 'review';
+                NEW.moderation_action := 'require_review';
+                NEW.moderated_at := COALESCE(NEW.moderated_at, now());
+            WHEN 'mark_spam' THEN
+                NEW.public_discovery_enabled := false;
+                NEW.moderation_status := 'blocked';
+                NEW.moderation_risk_level := 'high';
+                NEW.moderation_action := 'block';
+                NEW.moderated_at := COALESCE(NEW.moderated_at, now());
+        END CASE;
+        RETURN NEW;
+    END IF;
+
+    IF should_reset THEN
+        NEW.public_discovery_enabled := false;
+        NEW.moderation_status := 'pending';
+        NEW.moderation_risk_level := NULL;
+        NEW.moderation_action := NULL;
+        NEW.moderation_confidence := NULL;
+        NEW.moderation_reasons := ARRAY[]::TEXT[];
+        NEW.moderation_input_hash := NULL;
+        NEW.moderated_at := NULL;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE TRIGGER event_interests_touch_updated_at
     BEFORE UPDATE ON public.event_interests
     FOR EACH ROW
     EXECUTE FUNCTION public.touch_updated_at();
+
+CREATE TRIGGER events_apply_moderation_defaults
+    BEFORE INSERT OR UPDATE ON public.events
+    FOR EACH ROW
+    EXECUTE FUNCTION public.apply_event_moderation_defaults();
 
 CREATE OR REPLACE FUNCTION public.toggle_event_interest(
     p_event_id UUID,

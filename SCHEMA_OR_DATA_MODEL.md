@@ -48,6 +48,15 @@ Important fields the frontend uses:
 - `visibility`
 - `allow_waitlist`
 - `is_public`
+- `public_discovery_enabled`
+- `moderation_status`
+- `moderation_risk_level`
+- `moderation_action`
+- `moderation_confidence`
+- `moderation_reasons`
+- `moderation_input_hash`
+- `moderated_at`
+- `moderation_override`
 - `status`
 
 Important behavioral meaning:
@@ -55,6 +64,8 @@ Important behavioral meaning:
 - `is_public` controls whether the activity can appear in public browse
 - `visibility` controls whether it behaves as `public`, `semi_public`, or `private`
 - `access_code` is used to construct the private semi-public link
+- `public_discovery_enabled` is the additional gate for broader public discovery
+- moderation fields store the latest AI classification plus any simple manual override state
 
 ### `event_attendees`
 
