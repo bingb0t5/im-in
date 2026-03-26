@@ -11,9 +11,20 @@
   --radius-4xl: 2rem;
 }
 
+html {
+  background: #f8fafc;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+  touch-action: manipulation;
   @apply bg-slate-50 text-slate-900 antialiased;
+}
+
+#root {
+  min-height: 100svh;
 }
 
 .card-shadow {
@@ -23,5 +34,13 @@ body {
 input[type="datetime-local"] {
   appearance: none;
   min-height: 3rem;
+}
+
+@media (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
 }
 

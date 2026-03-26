@@ -824,7 +824,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
       <AnimatePresence>
         {showEmailModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-y-auto overscroll-contain">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -836,7 +836,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl"
+              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
             >
               <h2 className="text-xl font-black text-slate-900 tracking-tight mb-2">Finish with Magic Link</h2>
               <p className="text-sm text-slate-500 font-medium mb-6">
@@ -879,7 +879,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
       <AnimatePresence>
         {showProfileModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-y-auto overscroll-contain">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -891,7 +891,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl"
+              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
             >
               <h2 className="text-xl font-black text-slate-900 tracking-tight mb-2">One Last Step</h2>
               <p className="text-sm text-slate-500 font-medium mb-6">

@@ -895,7 +895,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
         <AnimatePresence>
           {showRequestModal && (
-            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6">
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6 overflow-y-auto overscroll-contain">
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -907,7 +907,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                 initial={{ y: '100%' }}
                 animate={{ y: 0 }}
                 exit={{ y: '100%' }}
-                className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl"
+                className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[85vh] sm:max-h-[80vh] my-auto"
               >
                 <div className="flex justify-between items-start mb-6">
                   <div>
@@ -1247,7 +1247,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       {/* RSVP Modal */}
       <AnimatePresence>
         {showRsvpModal && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6 overflow-y-auto overscroll-contain">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1259,7 +1259,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl"
+              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[85vh] sm:max-h-[80vh] my-auto"
             >
               <div className="flex justify-between items-start mb-6">
                 <div>
@@ -1340,7 +1340,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
       <AnimatePresence>
         {showThinkingModal && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6 overflow-y-auto overscroll-contain">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1352,7 +1352,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              className="relative w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl"
+              className="relative w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl overflow-y-auto max-h-[85vh] sm:max-h-[80vh] my-auto"
             >
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-black text-slate-900">Thinking about it</h2>
@@ -1381,7 +1381,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       {/* Success Modal */}
       <AnimatePresence>
         {showSuccessModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-y-auto overscroll-contain">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1393,7 +1393,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full max-w-sm bg-white rounded-[2.5rem] p-10 shadow-2xl text-center"
+              className="relative w-full max-w-sm bg-white rounded-[2.5rem] p-10 shadow-2xl text-center overflow-y-auto max-h-[80vh] my-auto"
             >
               <div className="w-20 h-20 bg-brand-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
                 <CheckCircle2 className="w-10 h-10 text-brand-600" />
@@ -1440,7 +1440,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       {/* Cancel Confirmation Modal */}
       <AnimatePresence>
         {showCancelModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-y-auto overscroll-contain">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1452,7 +1452,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl text-center"
+              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl text-center overflow-y-auto max-h-[80vh] my-auto"
             >
               <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
                 <AlertCircle className="w-8 h-8 text-red-500" />
@@ -1488,7 +1488,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       {/* Share Choice Modal */}
       <AnimatePresence>
         {showShareChoiceModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-y-auto overscroll-contain">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1500,7 +1500,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl"
+              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
             >
               <div className="flex items-center justify-between mb-5">
                 <h2 className="text-xl font-black text-slate-900 tracking-tight">Share Link</h2>
@@ -1539,7 +1539,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       {/* Proxy RSVP Modal */}
       <AnimatePresence>
         {showProxyModal && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6 overflow-y-auto overscroll-contain">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1551,7 +1551,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl"
+              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[85vh] sm:max-h-[80vh] my-auto"
             >
               <div className="flex justify-between items-start mb-6">
                 <div>
