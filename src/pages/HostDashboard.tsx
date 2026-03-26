@@ -1063,7 +1063,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {showDeleteModal.show && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-y-auto overscroll-contain">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1075,7 +1075,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl"
+              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
             >
               <div className="flex items-center justify-center w-16 h-16 bg-red-50 rounded-2xl mb-6 mx-auto">
                 <AlertCircle className="w-8 h-8 text-red-500" />
@@ -1128,7 +1128,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       {/* Add Attendee Modal */}
       <AnimatePresence>
         {showAddModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-y-auto overscroll-contain">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1140,7 +1140,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl"
+              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
             >
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-slate-900 tracking-tight">Add Attendee</h2>
