@@ -15,6 +15,7 @@ import {
 } from '../utils';
 import { pickWaitlistAttendeesForPromotion } from '../lib/rsvp';
 import { buildAuthRedirectUrl } from '../lib/authRedirect';
+import { invokeAuthedFunction } from '../lib/functions';
 import { goBackOr } from '../lib/navigation';
 import { shouldModerateVisibility } from '../lib/moderation';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
@@ -102,11 +103,9 @@ export default function CreateEvent({ user }: { user: User | null }) {
   const runModerationForEvent = async (eventId: string, visibility: 'public' | 'semi_public' | 'private') => {
     if (!shouldModerateVisibility(visibility)) return;
 
-    const { error } = await supabase.functions.invoke('moderate-activity', {
-      body: { eventId },
-    });
-
-    if (error) {
+    try {
+      await invokeAuthedFunction('moderate-activity', { eventId });
+    } catch (error) {
       console.error('Activity moderation failed:', error);
     }
   };

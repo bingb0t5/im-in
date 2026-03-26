@@ -5,10 +5,40 @@ import { Shield, ArrowLeft, RefreshCw } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Event } from '../types';
 import { isModerationAdminEmail } from '../lib/admin';
+import { invokeAuthedFunction } from '../lib/functions';
 import { getModerationStatusBadge } from '../lib/moderation';
+import { formatDate } from '../utils';
 
 type OverrideOption = 'force_visible' | 'force_limited' | 'hide' | 'mark_safe' | 'mark_spam';
 type FilterOption = 'all' | 'pending' | 'limited' | 'review' | 'blocked' | 'approved' | 'overridden';
+
+function getAiStatusSummary(event: Event) {
+  if (event.moderation_status === 'error') {
+    return {
+      label: 'Error',
+      detail: 'The last moderation run failed. Re-run AI moderation after checking the function setup.',
+    };
+  }
+
+  if (event.moderation_status === 'pending') {
+    return {
+      label: 'Not checked yet',
+      detail: 'The current version is waiting for AI moderation before broader discovery can be decided.',
+    };
+  }
+
+  if (!event.moderated_at) {
+    return {
+      label: 'Not checked yet',
+      detail: 'No completed AI moderation run is stored for the current version.',
+    };
+  }
+
+  return {
+    label: 'Checked',
+    detail: 'AI moderation has completed for the current saved version.',
+  };
+}
 
 export default function AdminModeration({ user }: { user: User | null }) {
   const [events, setEvents] = useState<Event[]>([]);
@@ -88,17 +118,14 @@ export default function AdminModeration({ user }: { user: User | null }) {
     setActionEventId(eventId);
     setError(null);
 
-    const { error: invokeError } = await supabase.functions.invoke('moderate-activity', {
-      body: {
+    try {
+      await invokeAuthedFunction('moderate-activity', {
         eventId,
         ...payload,
-      },
-    });
-
-    if (invokeError) {
-      setError(invokeError.message || 'Moderation action failed.');
-    } else {
+      });
       await fetchEvents();
+    } catch (invokeError) {
+      setError(invokeError instanceof Error ? invokeError.message : 'Moderation action failed.');
     }
 
     setActionEventId(null);
@@ -196,6 +223,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
             {filteredEvents.map((event) => {
               const statusBadge = getModerationStatusBadge(event);
               const isBusy = actionEventId === event.id;
+              const aiStatus = getAiStatusSummary(event);
 
               return (
                 <section key={event.id} className="bg-white rounded-2xl p-5 space-y-4">
@@ -240,6 +268,39 @@ export default function AdminModeration({ user }: { user: User | null }) {
                       ))}
                     </div>
                   ) : null}
+
+                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-bold uppercase tracking-widest text-slate-400">AI moderation</p>
+                      <span className="text-xs font-bold text-slate-600">{aiStatus.label}</span>
+                    </div>
+                    <p className="text-sm text-slate-500 leading-relaxed">{aiStatus.detail}</p>
+
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Risk</p>
+                        <p className="text-sm font-bold text-slate-800">{event.moderation_risk_level || 'Not set'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Suggested action</p>
+                        <p className="text-sm font-bold text-slate-800">{event.moderation_action || 'Not set'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Confidence</p>
+                        <p className="text-sm font-bold text-slate-800">
+                          {typeof event.moderation_confidence === 'number'
+                            ? event.moderation_confidence.toFixed(2)
+                            : 'Not set'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Checked at</p>
+                        <p className="text-sm font-bold text-slate-800">
+                          {event.moderated_at ? formatDate(event.moderated_at) : 'Not checked'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
                   <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                     <button
