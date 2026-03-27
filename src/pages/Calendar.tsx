@@ -185,6 +185,14 @@ export default function Calendar({ user }: { user: User | null }) {
             {!normalizedSearch && hiddenUpcomingCount > 0 ? (
               <p className="mt-3 text-xs text-slate-300">{hiddenUpcomingLabel}</p>
             ) : null}
+            <div className="mt-4">
+              <Link
+                to="/moderation"
+                className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
+              >
+                Moderation transparency
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="space-y-3">
@@ -245,6 +253,14 @@ export default function Calendar({ user }: { user: User | null }) {
             {!normalizedSearch && hiddenUpcomingCount > 0 ? (
               <p className="px-1 text-center text-xs text-slate-300">{hiddenUpcomingLabel}</p>
             ) : null}
+            <div className="px-1 text-center">
+              <Link
+                to="/moderation"
+                className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
+              >
+                Moderation transparency
+              </Link>
+            </div>
           </div>
         )}
       </main>
