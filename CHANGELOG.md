@@ -8,6 +8,8 @@
 - moved the signed-in hosting/attending dashboard to `/my-activities`
 - updated the main home CTA so signed-in users now go to `My Activities`, while guest-session users still go to `/bookings`
 - added a `Moderation transparency` link on the public activities page at `/calendar`
+- changed `My Activities` and `Activities I'm In` so they only show today-and-future activities by default
+- moved yesterday-and-older activities behind a compact `Past activities` toggle on both dashboard views
 
 ### Moderation transparency UX
 
