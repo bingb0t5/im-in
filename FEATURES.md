@@ -49,7 +49,7 @@ Can:
 - host or co-host activities
 - RSVP using their signed-in identity
 - manage hosted activities if authorized
-- use the signed-in dashboard on `Home`
+- use the signed-in dashboard on `/my-activities`
 
 ### 3. Guest-session user
 
@@ -69,18 +69,18 @@ Implemented in `src/pages/Home.tsx`.
 
 Features:
 
-- signed-out product landing page
+- public home page for signed-in users as well
 - primary CTAs for:
   - `Create an Activity`
   - `What's On`
-  - `Activities I'm In`
+  - `My Activities` for signed-in users, or `Activities I'm In` for guest-session recovery
 - "Why this exists" modal
 - "Help build it" modal
 - roadmap and email links
 
 ### Signed-in dashboard
 
-Also implemented in `src/pages/Home.tsx`.
+Implemented in `src/pages/MyActivities.tsx`.
 
 Features:
 
@@ -106,7 +106,7 @@ Features:
 - if a signed-in attendee already has access to a semi-public activity, the app prefers the private link path when they click it
 - shows a subtle count of other upcoming activities in the next 7 days that are not currently visible in public discovery, excluding spam-marked items
 - when the public list is empty, offers a `Create your own activity` CTA
-- links to the public moderation transparency page from the landing page
+- links to the public moderation transparency page
 
 ### Activity detail page
 
@@ -729,6 +729,8 @@ Lets the community see a calm, public-facing history of moderation actions for p
 - uses a public-safe RPC-backed feed of moderation log entries
 - supports filtering by moderation action
 - can be linked from a public activity detail page when moderation history exists
+- can open the current public-facing activity page in a modal preview
+- shows moderator-written public explanations for manual moderation decisions when they are provided
 
 ### Scope rules
 

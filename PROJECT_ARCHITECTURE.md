@@ -84,7 +84,8 @@ The route table lives in `src/App.tsx`.
 
 | Route | Page | Current behavior |
 |---|---|---|
-| `/` | `src/pages/Home.tsx` | Signed-out landing page or signed-in dashboard |
+| `/` | `src/pages/Home.tsx` | Public home page for everyone |
+| `/my-activities` | `src/pages/MyActivities.tsx` | Signed-in hosting/attending dashboard |
 | `/login` | `src/pages/Login.tsx` | Magic-link sign-in; also hosts the "Find my bookings" recovery entry UI |
 | `/create-event` | `src/pages/CreateEvent.tsx` | Create flow; signed-out users can still fill the form before auth |
 | `/host/events/:id/edit` | `src/pages/CreateEvent.tsx` | Edit mode; requires signed-in user |
@@ -99,6 +100,8 @@ The route table lives in `src/App.tsx`.
 
 ### Important routing nuances
 
+- `/` stays public even when a user is signed in
+- `/my-activities` is the main signed-in personal area for hosting and attending
 - `/host/events/:id` and `/host/events/:id/edit` are auth-gated in `App.tsx`
 - `/create-event` is not route-gated because the delayed-auth create flow is intentional
 - `/moderation` is public and only surfaces public-facing moderation records
@@ -111,17 +114,15 @@ The route table lives in `src/App.tsx`.
 
 ### `Home.tsx`
 
-Two different products live here depending on auth state.
-
-Signed out:
-
 - landing page
 - primary CTAs: create activity, browse public activities, activities I'm in
 - "Why this exists" and "Help build it" modal content
+- stays the public home page even for signed-in users
+- signed-in users get a CTA into `/my-activities` instead of replacing the page with a dashboard
 
-Signed in:
+### `MyActivities.tsx`
 
-- hosting vs attending toggle
+- signed-in hosting vs attending dashboard
 - hosted activities from both `events.host_user_id` and `event_hosts`
 - joined activities plus "thinking about it" merged together
 - pending semi-public access requests for hosted activities
@@ -177,6 +178,7 @@ Signed in:
 - prefers private access links for already-joined semi-public attendees when available
 - shows a subtle count of other upcoming activities in the next 7 days that are not publicly visible, excluding spam-marked items
 - shows a create-activity CTA in the empty state
+- links to the public moderation transparency page
 
 ### `AdminModeration.tsx`
 
@@ -185,6 +187,7 @@ Signed in:
 - groups items into review, archived, spam, and all buckets
 - supports manual archive separate from discovery override
 - calls the moderation Edge Function for manual overrides and AI re-runs
+- now requires a moderator-written public explanation for manual public-facing moderation decisions
 
 ### `ModerationTransparency.tsx`
 
@@ -193,6 +196,7 @@ Signed in:
 - only shows moderation history for public content and semi-public previews
 - supports action filters and per-activity filtering
 - uses stable pseudonymous moderator handles rather than full personal names
+- can open the current public-facing activity page in a modal preview using a safe read path
 
 ### `Bookings.tsx`
 
@@ -392,7 +396,8 @@ So contributors should think of:
 
 ### Common page-level queries
 
-- `Home.tsx`: hosted events, joined events, interests, pending access requests
+- `Home.tsx`: public landing, community messaging, public CTAs
+- `MyActivities.tsx`: hosted events, joined events, interests, pending access requests
 - `Calendar.tsx`: future public/discoverable events, hidden upcoming count, and joined private-access map
 - `CreateEvent.tsx`: create/edit event reads and writes
 - `EventDetail.tsx`: activity, attendees, interests, access requests, RSVP and proxy flows

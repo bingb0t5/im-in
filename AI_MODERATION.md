@@ -307,6 +307,7 @@ Frontend optional env:
 - manual archive / return-to-review queue handling via `moderation_archived_at`
 - public moderation transparency page at `/moderation`
 - backend logging of public moderation actions into a separate public transparency log
+- manual moderator actions can include a required public explanation which is then shown in the transparency log
 - explicit backend rejection when platform moderation is attempted on private activities or on non-public fields of semi-public activities
 
 ## What Is Still Future Work
