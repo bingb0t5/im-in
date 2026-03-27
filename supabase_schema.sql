@@ -738,6 +738,10 @@ GRANT EXECUTE ON FUNCTION public.get_guest_interests(TEXT) TO anon, authenticate
 CREATE POLICY "Viewable events are readable" ON public.events
     FOR SELECT USING (
         COALESCE(events.visibility, CASE WHEN events.is_public THEN 'public' ELSE 'private' END) = 'public'
+        OR (
+            auth.uid() IS NOT NULL
+            AND auth.uid() = events.host_user_id
+        )
         OR public.can_read_event_row(events.id)
     );
 

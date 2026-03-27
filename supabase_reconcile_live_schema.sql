@@ -1237,6 +1237,25 @@ $$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
 
 GRANT EXECUTE ON FUNCTION public.get_guest_interests(TEXT) TO anon, authenticated;
 
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'events'
+          AND policyname = 'Hosts can create events'
+    ) THEN
+        CREATE POLICY "Hosts can create events"
+            ON public.events
+            FOR INSERT
+            WITH CHECK (
+                auth.uid() IS NOT NULL
+                AND auth.uid() = host_user_id
+            );
+    END IF;
+END $$;
+
 DROP POLICY IF EXISTS "Public events are viewable by everyone" ON public.events;
 DROP POLICY IF EXISTS "Viewable events are readable" ON public.events;
 CREATE POLICY "Viewable events are readable"
@@ -1244,6 +1263,10 @@ CREATE POLICY "Viewable events are readable"
     FOR SELECT
     USING (
         COALESCE(events.visibility, CASE WHEN events.is_public THEN 'public' ELSE 'private' END) = 'public'
+        OR (
+            auth.uid() IS NOT NULL
+            AND auth.uid() = events.host_user_id
+        )
         OR public.can_read_event_row(events.id)
     );
 
