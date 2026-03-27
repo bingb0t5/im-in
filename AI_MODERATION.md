@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This document explains the lightweight AI moderation system used for activity discovery.
+This document explains the lightweight moderation system used for public-facing activity discovery.
 
 It is deliberately narrow:
 
 - it does **not** stop people from creating activities
 - it does **not** act like a full trust-and-safety platform
-- it mainly decides whether a public or semi-public activity is ready for **broader public discovery**
+- it mainly decides whether a public-facing activity listing is ready for **broader public discovery**
 
 The core product rule is:
 
@@ -17,16 +17,19 @@ The core product rule is:
 
 ## What It Moderates
 
-The moderation pass currently runs for:
+The platform moderation pass currently runs for:
 
 - `public` activities
-- `semi_public` activities
+- `semi_public` public previews
 
 It does **not** run for:
 
 - `private` activities
 
-Private activities are still saved normally, but they are not eligible for broader public discovery.
+Semi-public activities are split:
+
+- the public preview surface is part of platform moderation review and can appear in the public moderation transparency log
+- the private-link-only surface is not part of platform moderation review and never appears in the public moderation transparency log
 
 ## When It Runs
 
@@ -36,7 +39,7 @@ Moderation is triggered in two layers:
 
 `events` rows now use a trigger to reset public discovery when meaningful public-facing content changes.
 
-That trigger marks qualifying activities as:
+That trigger marks qualifying public-facing activity listings as:
 
 - `moderation_status = 'pending'`
 - `public_discovery_enabled = false`
@@ -44,13 +47,12 @@ That trigger marks qualifying activities as:
 This happens on:
 
 - create
-- visibility changes between private and public/semi-public
+- visibility changes into or within `public` or `semi_public`
 - meaningful edits to:
   - `title`
-  - `description`
   - `public_summary`
-  - `location_text`
   - `public_location_text`
+  - and for `public` only, full public-facing fields such as `description` and `location_text`
 
 ### 2. Post-save AI moderation
 
@@ -105,6 +107,31 @@ The moderation system adds these fields to `public.events`:
   - optional manual reviewer archive timestamp for the admin queue only
 - `moderation_override`
   - simple manual override hook for operational use
+
+## Public Transparency Log
+
+Public moderation history is stored separately from the `events` row.
+
+Relevant database objects:
+
+- `public.public_moderation_log_entries`
+- `public.moderator_public_identities`
+- `public.list_public_moderation_log(...)`
+- `public.get_event_for_view(...)`
+- `public.list_public_calendar_events(...)`
+
+Important rules:
+
+- moderation actions for `public` activities and `semi_public` previews may be written to the public log
+- private content and private-link-only semi-public content must never be written to it
+- public reads should use the safe RPC, not direct table access
+- moderator public identity uses a stable pseudonymous handle such as `Moderator 01`
+
+Read-path enforcement now relies on explicit backend entry points:
+
+- `get_event_for_view(...)` returns full details for `public`, full details for `private` link holders, and preview-only fields for `semi_public` unless the private access token is present
+- `list_public_calendar_events(...)` returns public-safe browse data only
+- `get_guest_bookings(...)` and `get_guest_interests(...)` restore guest session data without reopening broad raw `events` reads
 
 ### Current `moderation_status` values
 
@@ -175,6 +202,16 @@ Supported values:
 These are intentionally simple operational hooks, not a full moderation workflow.
 
 Manual archive is separate from manual hide/review. Archiving only removes an item from the active review queue; it does not change the effective discovery decision by itself.
+
+## Privacy Boundary
+
+This is the core architectural rule:
+
+- platform moderation is for public-facing activity content
+- `semi_public` preview content is in scope
+- `semi_public` private-link-only content is out of scope
+- platform moderators should not review or log private content or private-link-only semi-public content through normal moderation tooling
+- public transparency should never expose private content or private-link-only semi-public content
 
 ## Exact Prompt Template
 
@@ -268,6 +305,9 @@ Frontend optional env:
 - hidden moderation admin page at `/admin/moderation` for allowlisted emails
 - manual override actions routed through the existing moderation edge function
 - manual archive / return-to-review queue handling via `moderation_archived_at`
+- public moderation transparency page at `/moderation`
+- backend logging of public moderation actions into a separate public transparency log
+- explicit backend rejection when platform moderation is attempted on private activities or on non-public fields of semi-public activities
 
 ## What Is Still Future Work
 

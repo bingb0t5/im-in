@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
 import { User } from '@supabase/supabase-js';
 import { Shield, ArrowLeft, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
-import { supabase } from '../supabase';
 import { Event } from '../types';
 import { isModerationAdminEmail } from '../lib/admin';
 import { invokeAuthedFunction } from '../lib/functions';
@@ -90,40 +89,17 @@ export default function AdminModeration({ user }: { user: User | null }) {
     setLoading(true);
     setError(null);
 
-    const { data, error: fetchError } = await supabase
-      .from('events')
-      .select(`
-        id,
-        slug,
-        title,
-        host_name,
-        visibility,
-        is_public,
-        status,
-        created_at,
-        public_discovery_enabled,
-        moderation_status,
-        moderation_risk_level,
-        moderation_action,
-        moderation_confidence,
-        moderation_reasons,
-        moderation_input_hash,
-        moderated_at,
-        moderation_archived_at,
-        moderation_override
-      `)
-      .in('visibility', ['public', 'semi_public'])
-      .order('created_at', { ascending: false })
-      .limit(150);
-
-    if (fetchError) {
-      setError(fetchError.message || 'Failed to load moderation queue.');
+    try {
+      const response = await invokeAuthedFunction<{ items: Event[] }>('moderate-activity', {
+        listQueue: true,
+      });
+      setEvents(response.items || []);
+    } catch (fetchError) {
+      setError(fetchError instanceof Error ? fetchError.message : 'Failed to load moderation queue.');
       setEvents([]);
-    } else {
-      setEvents((data || []) as Event[]);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -217,7 +193,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
             <div>
               <p className="text-sm font-bold text-slate-900">Manual discovery controls</p>
               <p className="text-sm text-slate-500 leading-relaxed mt-1">
-                Use this page to set a simple moderation override or re-run AI without editing rows directly in Supabase.
+                Use this page to review public-facing activity moderation only. Private activities and private-link-only semi-public content stay outside platform moderation tooling.
               </p>
             </div>
           </div>
@@ -298,11 +274,11 @@ export default function AdminModeration({ user }: { user: User | null }) {
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-base font-bold text-slate-900 truncate">{event.title}</p>
                         <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                          {event.visibility === 'semi_public' ? 'Semi-public' : 'Public'}
+                          {event.visibility === 'semi_public' ? 'Semi-public preview' : 'Public'}
                         </span>
                       </div>
                       <p className="text-sm text-slate-500 mt-1">
-                        Host: {event.host_name || 'Unknown host'}
+                        Host: {event.show_host_publicly && event.host_name ? event.host_name : 'Not shown publicly'}
                       </p>
                       <p className="text-xs text-slate-400 mt-1">
                         {bucket === 'review'

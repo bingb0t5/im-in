@@ -252,6 +252,12 @@ export default function Home({ user }: { user: User | null }) {
                   <Users className="w-3.5 h-3.5" />
                   How this works
                 </button>
+                <Link
+                  to="/moderation"
+                  className="text-slate-400 hover:text-slate-600 text-xs font-bold uppercase tracking-widest transition-colors"
+                >
+                  Moderation transparency
+                </Link>
               </div>
             </div>
 

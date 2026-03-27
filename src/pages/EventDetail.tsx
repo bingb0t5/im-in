@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, X, Plus } from 'lucide-react';
@@ -49,6 +49,8 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [requestSuccess, setRequestSuccess] = useState(false);
   const [rsvpToCancel, setRsvpToCancel] = useState<Attendee | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [hasPublicModerationHistory, setHasPublicModerationHistory] = useState(false);
+  const [canViewFullDetails, setCanViewFullDetails] = useState(false);
 
   const getErrorMessage = (error: unknown, fallback: string) => {
     if (error && typeof error === 'object') {
@@ -320,7 +322,37 @@ export default function EventDetail({ user }: { user: User | null }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [slug]);
+  }, [slug, searchParams.toString()]);
+
+  useEffect(() => {
+    const loadModerationHistoryPresence = async () => {
+      if (!event?.id) {
+        setHasPublicModerationHistory(false);
+        return;
+      }
+
+      const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+      if (visibility !== 'public') {
+        setHasPublicModerationHistory(false);
+        return;
+      }
+
+      const { data, error } = await supabase.rpc('list_public_moderation_log', {
+        p_target_id: event.id,
+        p_limit: 1,
+        p_offset: 0,
+      });
+
+      if (error) {
+        setHasPublicModerationHistory(false);
+        return;
+      }
+
+      setHasPublicModerationHistory(Array.isArray(data) && data.length > 0);
+    };
+
+    void loadModerationHistoryPresence();
+  }, [event?.id, event?.visibility, event?.is_public]);
 
   useEffect(() => {
     if (attendees.length > 0) {
@@ -337,51 +369,76 @@ export default function EventDetail({ user }: { user: User | null }) {
   }, [user, guestProfile, attendees]);
 
   const fetchEvent = async () => {
-    const { data, error } = await supabase
-      .from('events')
-      .select('*')
-      .eq('slug', slug)
-      .single();
-
-    if (error) {
-      console.error(error);
+    if (!slug) {
+      setEvent(null);
+      setAttendees([]);
+      setInterests([]);
+      setCanViewFullDetails(false);
       setLoading(false);
-    } else {
-      setEvent(data);
-      fetchAttendees(data.id);
-      fetchInterests(data.id);
+      return;
     }
+
+    setLoading(true);
+
+    const { data, error } = await supabase.rpc('get_event_for_view', {
+      p_slug: slug,
+      p_access_code: searchParams.get('access'),
+    });
+
+    if (error || !Array.isArray(data) || data.length === 0) {
+      console.error(error);
+      setEvent(null);
+      setAttendees([]);
+      setInterests([]);
+      setCanViewFullDetails(false);
+      setLoading(false);
+      return;
+    }
+
+    const nextEvent = data[0] as Event & { can_view_full_details?: boolean };
+    setEvent(nextEvent);
+    setCanViewFullDetails(!!nextEvent.can_view_full_details);
+
+    await Promise.all([
+      fetchAttendees(nextEvent.id),
+      fetchInterests(nextEvent.id),
+    ]);
+
+    setLoading(false);
   };
 
   const fetchAttendees = async (eventId?: string) => {
     const id = eventId || event?.id;
     if (!id) return;
 
-    const { data } = await supabase
-      .from('event_attendees')
-      .select('*')
-      .eq('event_id', id)
-      .neq('status', 'cancelled')
-      .order('joined_at', { ascending: true });
+    const { data } = await supabase.rpc('list_event_attendees_for_view', {
+      p_event_id: id,
+      p_access_code: searchParams.get('access'),
+    });
 
     if (data) {
       setAttendees(data);
       await hydrateAdderNames(data as Attendee[]);
+    } else {
+      setAttendees([]);
+      setAdderNamesByProfileId({});
     }
-    setLoading(false);
   };
 
   const fetchInterests = async (eventId?: string) => {
     const id = eventId || event?.id;
     if (!id) return;
 
-    const { data } = await supabase
-      .from('event_interests')
-      .select('*')
-      .eq('event_id', id)
-      .order('created_at', { ascending: true });
+    const { data } = await supabase.rpc('list_event_interests_for_view', {
+      p_event_id: id,
+      p_access_code: searchParams.get('access'),
+    });
 
-    if (data) setInterests(data as EventInterest[]);
+    if (data) {
+      setInterests(data as EventInterest[]);
+    } else {
+      setInterests([]);
+    }
   };
 
   const clearMyInterest = async (
@@ -737,7 +794,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const accessToken = searchParams.get('access');
   const hasAccessToken = !!(accessToken && event.access_code && accessToken === event.access_code);
   const isHostViewer = isEventHostViewer;
-  const hasFullEventAccess = eventVisibility !== 'semi_public' || hasAccessToken || isHostViewer;
+  const hasFullEventAccess = canViewFullDetails || hasAccessToken || isHostViewer;
   const publicEventUrl = `${window.location.origin}/events/${event.slug}`;
   const privateEventUrl =
     eventVisibility === 'semi_public' && event.access_code
@@ -1015,6 +1072,14 @@ export default function EventDetail({ user }: { user: User | null }) {
             ) : (
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Private Link</span>
             )}
+            {(eventVisibility === 'public' || eventVisibility === 'semi_public') && hasPublicModerationHistory ? (
+              <Link
+                to={`/moderation?activity=${event.id}`}
+                className="text-[10px] font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
+              >
+                View moderation history
+              </Link>
+            ) : null}
           </div>
 
           <h1 className="text-3xl font-black tracking-tight leading-tight text-slate-900">

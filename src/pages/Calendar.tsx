@@ -5,7 +5,7 @@ import { Calendar as CalendarIcon, ChevronRight, MapPin, Users, ArrowLeft, Searc
 import { motion } from 'motion/react';
 import { formatDay, formatTime } from '../utils';
 import { Event } from '../types';
-import { withConfirmedCounts, buildEventPath } from '../lib/events';
+import { buildEventPath } from '../lib/events';
 import { goBackOr } from '../lib/navigation';
 import { User } from '@supabase/supabase-js';
 
@@ -32,36 +32,19 @@ export default function Calendar({ user }: { user: User | null }) {
   }, [queryParam]);
 
   const fetchPublicEvents = async () => {
-    // Show upcoming scheduled events in UTC.
     const nowIso = new Date().toISOString();
     const weekAhead = new Date();
     weekAhead.setDate(weekAhead.getDate() + 7);
     const weekAheadIso = weekAhead.toISOString();
 
     const [publicResult, hiddenResult] = await Promise.all([
-      supabase
-        .from('events')
-        .select(`
-          *,
-          event_attendees(status),
-          event_interests(id)
-        `)
-        .eq('status', 'scheduled')
-        .eq('is_public', true)
-        .eq('public_discovery_enabled', true)
-        .gte('starts_at', nowIso)
-        .order('starts_at', { ascending: true }),
-      supabase
-        .from('events')
-        .select(`
-          id,
-          is_public,
-          public_discovery_enabled,
-          moderation_override
-        `)
-        .eq('status', 'scheduled')
-        .gte('starts_at', nowIso)
-        .lt('starts_at', weekAheadIso),
+      supabase.rpc('list_public_calendar_events', {
+        p_now: nowIso,
+      }),
+      supabase.rpc('count_hidden_upcoming_activities', {
+        p_now: nowIso,
+        p_week_ahead: weekAheadIso,
+      }),
     ]);
 
     const { data, error } = publicResult;
@@ -70,20 +53,14 @@ export default function Calendar({ user }: { user: User | null }) {
       console.error('Error fetching hidden upcoming activity count:', hiddenResult.error);
       setHiddenUpcomingCount(0);
     } else {
-      const hiddenCount = ((hiddenResult.data as Pick<Event, 'is_public' | 'public_discovery_enabled' | 'moderation_override'>[] | null) || [])
-        .filter((event) => event.moderation_override !== 'mark_spam')
-        .filter((event) => !(event.is_public && event.public_discovery_enabled))
-        .length;
-
-      setHiddenUpcomingCount(hiddenCount);
+      setHiddenUpcomingCount(Number(hiddenResult.data || 0));
     }
 
     if (error) {
       console.error('Error fetching public activities:', error);
       setEvents([]);
     } else if (data) {
-      const eventsWithCounts = withConfirmedCounts(data as any[]);
-      setEvents(eventsWithCounts);
+      setEvents(data as Event[]);
     }
     setLoading(false);
   };

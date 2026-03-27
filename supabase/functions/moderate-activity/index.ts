@@ -6,6 +6,7 @@ type ModerationAction = 'allow' | 'limit_visibility' | 'require_review' | 'block
 type ModerationStatus = 'not_required' | 'pending' | 'approved' | 'limited' | 'review' | 'blocked' | 'error';
 type ModerationOverride = 'force_visible' | 'force_limited' | 'hide' | 'mark_safe' | 'mark_spam';
 type HostTrustLevel = 'new' | 'established' | 'trusted';
+type PublicModerationLogAction = 'approved' | 'denied' | 'flagged' | 'marked_spam' | 'restored' | 'removed';
 
 type EventModerationShape = {
   title?: string | null;
@@ -14,6 +15,7 @@ type EventModerationShape = {
   location_text?: string | null;
   public_location_text?: string | null;
   host_name?: string | null;
+  show_host_publicly?: boolean | null;
   visibility?: EventVisibility | null;
   is_public?: boolean | null;
   moderation_status?: ModerationStatus | null;
@@ -126,8 +128,31 @@ const responseSchema = {
   },
 } as const;
 
+type MinimalStoredEvent = Pick<
+  EventModerationShape,
+  | 'visibility'
+  | 'is_public'
+  | 'show_host_publicly'
+  | 'moderation_status'
+  | 'moderation_risk_level'
+  | 'moderation_action'
+  | 'moderation_confidence'
+  | 'moderation_reasons'
+  | 'moderation_input_hash'
+  | 'moderated_at'
+  | 'moderation_archived_at'
+  | 'moderation_override'
+  | 'public_discovery_enabled'
+> & {
+  id: string;
+  slug?: string | null;
+  title?: string | null;
+  host_user_id: string;
+};
+
 type StoredEvent = EventModerationShape & {
   id: string;
+  slug?: string | null;
   host_user_id: string;
 };
 
@@ -164,13 +189,27 @@ function buildActivityModerationInput(event: EventModerationShape): ActivityMode
   const visibility = normalizeVisibility(event);
   if (visibility === 'private') return null;
 
+  const safePublicHostName = event.show_host_publicly ? normalizeText(event.host_name) : '';
+
+  if (visibility === 'semi_public') {
+    return {
+      title: normalizeText(event.title),
+      description: '',
+      publicSummary: normalizeText(event.public_summary),
+      location: '',
+      publicLocation: normalizeText(event.public_location_text),
+      hostName: safePublicHostName,
+      visibility,
+    };
+  }
+
   return {
     title: normalizeText(event.title),
     description: normalizeText(event.description),
     publicSummary: normalizeText(event.public_summary),
     location: normalizeText(event.location_text),
     publicLocation: normalizeText(event.public_location_text),
-    hostName: normalizeText(event.host_name),
+    hostName: safePublicHostName,
     visibility,
   };
 }
@@ -185,6 +224,11 @@ function buildModerationHash(input: ActivityModerationInput) {
   }
 
   return `fnv1a-${(hash >>> 0).toString(16)}`;
+}
+
+function isPlatformModeratedVisibility(event: Pick<EventModerationShape, 'visibility' | 'is_public'>) {
+  const visibility = normalizeVisibility(event);
+  return visibility === 'public' || visibility === 'semi_public';
 }
 
 function json(data: unknown, init: ResponseInit = {}) {
@@ -207,6 +251,108 @@ function getTrustLevel(priorHostedCount: number): HostTrustLevel {
   if (priorHostedCount >= 10) return 'trusted';
   if (priorHostedCount >= 3) return 'established';
   return 'new';
+}
+
+function getPublicReasonCode(reasons: string[]) {
+  return reasons[0] || 'other';
+}
+
+function getPublicExplanation(action: PublicModerationLogAction, reasonCode: string | null) {
+  switch (action) {
+    case 'approved':
+      return 'This public-facing activity listing was approved for broader public discovery.';
+    case 'restored':
+      return 'This public-facing activity listing was restored to broader public discovery.';
+    case 'flagged':
+      return reasonCode === 'low_detail'
+        ? 'This public-facing activity listing needs a little more review before broader public discovery.'
+        : 'This public-facing activity listing was flagged for review before broader public discovery.';
+    case 'marked_spam':
+      return 'This public-facing activity listing was marked as spam and removed from broader public discovery.';
+    case 'removed':
+      return 'This public-facing activity listing was removed from broader public discovery.';
+    case 'denied':
+      return 'This public-facing activity listing was not approved for broader public discovery.';
+    default:
+      return 'A moderation action was recorded for this public-facing activity listing.';
+  }
+}
+
+function derivePublicLogAction(
+  nextState: Pick<EffectiveModerationUpdate, 'public_discovery_enabled' | 'moderation_status'>,
+  context: {
+    previousDiscoveryEnabled?: boolean | null;
+    override?: ModerationOverride | null;
+    source: 'manual' | 'system';
+  },
+): PublicModerationLogAction {
+  if (context.override === 'mark_spam') return 'marked_spam';
+  if (context.override === 'hide') return 'removed';
+  if (context.override === 'force_limited') return 'removed';
+  if (context.override === 'force_visible' || context.override === 'mark_safe') {
+    return context.previousDiscoveryEnabled ? 'approved' : 'restored';
+  }
+
+  if (nextState.public_discovery_enabled) {
+    return context.previousDiscoveryEnabled ? 'approved' : context.source === 'manual' ? 'restored' : 'approved';
+  }
+
+  if (nextState.moderation_status === 'blocked') return 'removed';
+  if (nextState.moderation_status === 'review' || nextState.moderation_status === 'limited') return 'flagged';
+  return 'denied';
+}
+
+async function getModeratorPublicHandle(admin: ReturnType<typeof createClient>, moderatorInternalId: string | null) {
+  if (!moderatorInternalId) return 'System';
+
+  const { data, error } = await admin.rpc('get_or_create_public_moderator_handle', {
+    p_user_id: moderatorInternalId,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return typeof data === 'string' && data.trim() ? data : 'Moderator';
+}
+
+async function insertPublicModerationLog(
+  admin: ReturnType<typeof createClient>,
+  event: Pick<StoredEvent, 'id' | 'slug' | 'title' | 'visibility' | 'is_public'>,
+  update: EffectiveModerationUpdate,
+  options: {
+    previousDiscoveryEnabled?: boolean | null;
+    override?: ModerationOverride | null;
+    moderatorInternalId?: string | null;
+    source?: 'manual' | 'system';
+  } = {},
+) {
+  if (!isPlatformModeratedVisibility(event)) return;
+
+  const moderatorPublicHandle = await getModeratorPublicHandle(admin, options.moderatorInternalId || null);
+  const action = derivePublicLogAction(update, {
+    previousDiscoveryEnabled: options.previousDiscoveryEnabled,
+    override: options.override || null,
+    source: options.source || 'system',
+  });
+  const reasonCode = getPublicReasonCode(update.moderation_reasons || []);
+
+  const { error } = await admin.from('public_moderation_log_entries').insert({
+    target_type: 'activity',
+    target_id: event.id,
+    target_visibility_snapshot: normalizeVisibility(event),
+    public_title_snapshot: normalizeText(event.title),
+    public_slug_snapshot: normalizeText(event.slug),
+    action,
+    reason_code: reasonCode,
+    public_explanation: getPublicExplanation(action, reasonCode),
+    moderator_public_handle: moderatorPublicHandle,
+    moderator_internal_id: options.moderatorInternalId || null,
+  });
+
+  if (error) {
+    throw error;
+  }
 }
 
 function getManualOverrideUpdate(override: ModerationOverride): EffectiveModerationUpdate {
@@ -429,21 +575,139 @@ Deno.serve(async (request) => {
   let currentInputHash: string | null = null;
 
   try {
-    const { eventId, override, clearOverride, rerun, archive, unarchive } = await request.json();
+    const { eventId, override, clearOverride, rerun, archive, unarchive, listQueue } = await request.json();
+    const adminEmails = parseEmailAllowlist(Deno.env.get('MODERATION_ADMIN_EMAILS'));
+    const isAdmin = !!user.email && adminEmails.includes(user.email.trim().toLowerCase());
+
+    if (listQueue === true) {
+      if (!isAdmin) {
+        return json({ error: 'Admin permissions are required to view the moderation queue.' }, { status: 403 });
+      }
+
+      const { data: queueItems, error: queueError } = await admin
+        .from('events')
+        .select(`
+          id,
+          slug,
+          title,
+          host_name,
+          show_host_publicly,
+          visibility,
+          is_public,
+          status,
+          created_at,
+          public_discovery_enabled,
+          moderation_status,
+          moderation_risk_level,
+          moderation_action,
+          moderation_confidence,
+          moderation_reasons,
+          moderation_input_hash,
+          moderated_at,
+          moderation_archived_at,
+          moderation_override
+        `)
+        .in('visibility', ['public', 'semi_public'])
+        .order('created_at', { ascending: false })
+        .limit(150);
+
+      if (queueError) {
+        throw queueError;
+      }
+
+      const safeItems = (queueItems || []).map((item) => ({
+        ...item,
+        host_name:
+          item.visibility === 'semi_public' && !item.show_host_publicly
+            ? null
+            : item.host_name,
+      }));
+
+      return json({ items: safeItems });
+    }
+
     if (!eventId || typeof eventId !== 'string') {
       return json({ error: 'eventId is required.' }, { status: 400 });
     }
 
-    const { data: event, error: eventError } = await admin
+    const { data: minimalEvent, error: eventError } = await admin
       .from('events')
       .select(`
         id,
+        slug,
+        title,
+        show_host_publicly,
+        host_user_id,
+        visibility,
+        is_public,
+        moderation_status,
+        moderation_risk_level,
+        moderation_action,
+        moderation_confidence,
+        moderation_reasons,
+        moderation_input_hash,
+        moderated_at,
+        moderation_archived_at,
+        moderation_override,
+        public_discovery_enabled
+      `)
+      .eq('id', eventId)
+      .single<MinimalStoredEvent>();
+
+    if (eventError || !minimalEvent) {
+      return json({ error: 'Activity not found.' }, { status: 404 });
+    }
+
+    const { data: hostMembership } = await admin
+      .from('event_hosts')
+      .select('id')
+      .eq('event_id', eventId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (minimalEvent.host_user_id !== user.id && !hostMembership?.id && !isAdmin) {
+      return json({ error: 'You do not have permission to moderate this activity.' }, { status: 403 });
+    }
+
+    const requestedOverride = typeof override === 'string' ? override as ModerationOverride : null;
+    const shouldClearOverride = clearOverride === true;
+    const shouldRerun = rerun === true;
+    const shouldArchive = archive === true;
+    const shouldUnarchive = unarchive === true;
+
+    if ((requestedOverride || shouldClearOverride || shouldArchive || shouldUnarchive) && !isAdmin) {
+      return json({ error: 'Admin permissions are required for manual moderation overrides.' }, { status: 403 });
+    }
+
+    if (!isPlatformModeratedVisibility(minimalEvent)) {
+      if (isAdmin || requestedOverride || shouldClearOverride || shouldArchive || shouldUnarchive || shouldRerun) {
+        return json(
+          {
+            error: 'Platform moderation only applies to public-facing activity content. Private activities stay outside platform moderation review.',
+          },
+          { status: 403 },
+        );
+      }
+
+      return json({
+        reused: false,
+        skipped: true,
+        scope: 'non_public',
+      });
+    }
+
+    const { data: event, error: fullEventError } = await admin
+      .from('events')
+      .select(`
+        id,
+        slug,
         title,
         description,
         public_summary,
         location_text,
         public_location_text,
         host_name,
+        show_host_publicly,
         host_user_id,
         visibility,
         is_public,
@@ -461,34 +725,10 @@ Deno.serve(async (request) => {
       .eq('id', eventId)
       .single<StoredEvent>();
 
-    if (eventError || !event) {
+    if (fullEventError || !event) {
       return json({ error: 'Activity not found.' }, { status: 404 });
     }
     currentEvent = event;
-
-    const { data: hostMembership } = await admin
-      .from('event_hosts')
-      .select('id')
-      .eq('event_id', eventId)
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    const adminEmails = parseEmailAllowlist(Deno.env.get('MODERATION_ADMIN_EMAILS'));
-    const isAdmin = !!user.email && adminEmails.includes(user.email.trim().toLowerCase());
-
-    if (event.host_user_id !== user.id && !hostMembership?.id && !isAdmin) {
-      return json({ error: 'You do not have permission to moderate this activity.' }, { status: 403 });
-    }
-
-    const requestedOverride = typeof override === 'string' ? override as ModerationOverride : null;
-    const shouldClearOverride = clearOverride === true;
-    const shouldRerun = rerun === true;
-    const shouldArchive = archive === true;
-    const shouldUnarchive = unarchive === true;
-
-    if ((requestedOverride || shouldClearOverride || shouldArchive || shouldUnarchive) && !isAdmin) {
-      return json({ error: 'Admin permissions are required for manual moderation overrides.' }, { status: 403 });
-    }
 
     if (shouldArchive || shouldUnarchive) {
       const archiveValue = shouldArchive ? new Date().toISOString() : null;
@@ -522,6 +762,7 @@ Deno.serve(async (request) => {
     }
 
     if (requestedOverride) {
+      const previousDiscoveryEnabled = !!event.public_discovery_enabled;
       const { data: updatedEvent, error: overrideError } = await admin
         .from('events')
         .update({ moderation_override: requestedOverride })
@@ -543,6 +784,18 @@ Deno.serve(async (request) => {
       if (overrideError) {
         throw overrideError;
       }
+
+      await insertPublicModerationLog(
+        admin,
+        event,
+        getManualOverrideUpdate(requestedOverride),
+        {
+          previousDiscoveryEnabled,
+          override: requestedOverride,
+          moderatorInternalId: user.id,
+          source: 'manual',
+        },
+      );
 
       return json({ reused: false, override: requestedOverride, result: updatedEvent });
     }
@@ -585,6 +838,7 @@ Deno.serve(async (request) => {
     }
 
     if (event.moderation_override) {
+      const previousDiscoveryEnabled = !!event.public_discovery_enabled;
       const overrideUpdate = getManualOverrideUpdate(event.moderation_override);
       const { error: overrideError } = await admin
         .from('events')
@@ -594,6 +848,18 @@ Deno.serve(async (request) => {
       if (overrideError) {
         throw overrideError;
       }
+
+      await insertPublicModerationLog(
+        admin,
+        event,
+        overrideUpdate,
+        {
+          previousDiscoveryEnabled,
+          override: event.moderation_override,
+          moderatorInternalId: user.id,
+          source: 'manual',
+        },
+      );
 
       return json({ reused: false, override: event.moderation_override, result: overrideUpdate });
     }
@@ -649,6 +915,7 @@ Deno.serve(async (request) => {
     const priorHostedCount = await getPriorHostedCount(admin, event.host_user_id, event.id);
     const trustLevel = getTrustLevel(priorHostedCount);
     const aiResult = await callModerationModel(moderationInput, trustLevel, priorHostedCount);
+    const previousDiscoveryEnabled = !!event.public_discovery_enabled;
     const effectiveUpdate = buildEffectiveModerationUpdate(aiResult, inputHash, trustLevel);
 
     const { error: updateError } = await admin
@@ -659,6 +926,16 @@ Deno.serve(async (request) => {
     if (updateError) {
       throw updateError;
     }
+
+    await insertPublicModerationLog(
+      admin,
+      event,
+      effectiveUpdate,
+      {
+        previousDiscoveryEnabled,
+        source: 'system',
+      },
+    );
 
     return json({
       reused: false,

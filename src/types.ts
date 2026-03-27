@@ -37,6 +37,20 @@ export interface Event {
   thinking_count?: number;
 }
 
+export interface PublicModerationLogEntry {
+  id: string;
+  target_type: 'activity';
+  target_id: string;
+  target_visibility_snapshot: 'public' | 'semi_public';
+  public_title_snapshot: string | null;
+  public_slug_snapshot?: string | null;
+  action: 'approved' | 'denied' | 'flagged' | 'marked_spam' | 'restored' | 'removed';
+  reason_code: string | null;
+  public_explanation: string | null;
+  moderator_public_handle: string;
+  created_at: string;
+}
+
 export interface EventAccessRequest {
   id: string;
   event_id: string;

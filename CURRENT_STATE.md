@@ -46,8 +46,9 @@ The weakest / least finished areas are:
 - attendee list and waitlist
 - proxy RSVP / "add another person"
 - "thinking about it"
-- lightweight AI moderation for broader public discovery on public/semi-public activities
-- hidden moderation admin queue with review, archived, and spam buckets for allowlisted admins
+- lightweight AI moderation for broader public discovery on public activities and semi-public public previews
+- hidden moderation admin queue with review, archived, and spam buckets for allowlisted admins, scoped to public-facing activity moderation
+- public moderation transparency page for public-facing moderation history
 - Google Calendar link
 - `.ics` download
 - co-host support
@@ -67,6 +68,7 @@ The weakest / least finished areas are:
 - filtered realtime on the host dashboard
 - Supabase Edge Function moderation with content-hash reuse and stored discovery state
 - separate reviewer archive state for the moderation queue via `events.moderation_archived_at`
+- public moderation audit records stored separately from activity rows
 
 ## Partial Or Awkward
 
@@ -116,15 +118,19 @@ You need to read multiple files together:
 
 ### Moderation operations
 
-AI moderation now exists for public/semi-public discovery, but the operational tooling is still intentionally light.
+Platform moderation now exists for public discovery, but the operational tooling is still intentionally light and scoped to public-facing activity content only.
 
 What is real:
 
 - public browse is gated by `events.public_discovery_enabled`
-- public/semi-public activities are marked `pending` again when meaningful public-facing content changes
+- public activities are marked `pending` again when meaningful public-facing content changes
+- semi-public activities are marked `pending` again only when public-preview fields change
 - a Supabase Edge Function writes structured moderation results back onto `events`
 - a hidden admin page at `/admin/moderation` allows allowlisted admins to review items, archive queue entries, mark spam, and apply manual overrides
 - archive is separate from hide/review, so queue housekeeping does not change the effective moderation decision by itself
+- a public moderation transparency page at `/moderation` exposes public-facing moderation history with neutral language
+- semi-public private-link-only content stays outside platform moderation review and outside the public moderation log
+- private activities are excluded from platform moderation review and from the public moderation log
 
 What is still minimal:
 
@@ -140,7 +146,7 @@ These things are either planned, partial, or explicitly not complete:
 - a unified guest/auth identity model
 - automated tests
 - a clean contributor process backed by migrations/CI
-- a full moderation review queue / operator UI
+- a richer moderation operations console
 
 ## Important Review Findings
 

@@ -18,6 +18,7 @@ import Calendar from './pages/Calendar';
 import Recovery from './pages/Recovery';
 import Bookings from './pages/Bookings';
 import AdminModeration from './pages/AdminModeration';
+import ModerationTransparency from './pages/ModerationTransparency';
 import { guestService } from './services/guestService';
 
 export default function App() {
@@ -110,6 +111,7 @@ export default function App() {
           <Route path="/events/:slug" element={<EventDetail user={user} />} />
           <Route path="/host/events/:id" element={user ? <HostDashboard user={user} /> : <Navigate to="/login" />} />
           <Route path="/calendar" element={<Calendar user={user} />} />
+          <Route path="/moderation" element={<ModerationTransparency />} />
           <Route path="/bookings" element={<Bookings />} />
           <Route path="/recover" element={<Recovery />} />
           <Route path="/admin/moderation" element={user ? <AdminModeration user={user} /> : <Navigate to="/login" />} />

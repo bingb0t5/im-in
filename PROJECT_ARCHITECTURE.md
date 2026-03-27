@@ -35,7 +35,8 @@ The app still uses `event` naming internally in code, routes, and database table
 - supports co-hosts
 - supports Google Calendar links and `.ics` downloads
 - supports guest-session bookings and token-based recovery route handling
-- supports hidden moderation review tooling for allowlisted admins
+- supports hidden moderation review tooling for allowlisted admins for public-facing activity moderation
+- supports a public moderation transparency page for public-facing moderation history
 
 ### What it does not currently do well
 
@@ -90,6 +91,7 @@ The route table lives in `src/App.tsx`.
 | `/events/:slug` | `src/pages/EventDetail.tsx` | Attendee-facing activity detail page |
 | `/host/events/:id` | `src/pages/HostDashboard.tsx` | Host/co-host management page |
 | `/calendar` | `src/pages/Calendar.tsx` | Public browse/search page |
+| `/moderation` | `src/pages/ModerationTransparency.tsx` | Public-facing moderation transparency log for public activity moderation and semi-public preview moderation |
 | `/admin/moderation` | `src/pages/AdminModeration.tsx` | Hidden allowlist-gated moderation queue and override tooling |
 | `/bookings` | `src/pages/Bookings.tsx` | Guest-session bookings page |
 | `/recover` | `src/pages/Recovery.tsx` | Token-based guest-session restore |
@@ -99,6 +101,7 @@ The route table lives in `src/App.tsx`.
 
 - `/host/events/:id` and `/host/events/:id/edit` are auth-gated in `App.tsx`
 - `/create-event` is not route-gated because the delayed-auth create flow is intentional
+- `/moderation` is public and only surfaces public-facing moderation records
 - `/admin/moderation` requires both a signed-in user and an allowlisted admin email
 - `/bookings` is not the general signed-in attendee dashboard; it is guest-session driven
 - `/login` redirects authenticated users to `/create-event`, not `/`
@@ -178,10 +181,18 @@ Signed in:
 ### `AdminModeration.tsx`
 
 - hidden moderation operations page
-- fetches public/semi-public activities with stored moderation state
+- fetches public activities plus semi-public preview moderation state
 - groups items into review, archived, spam, and all buckets
 - supports manual archive separate from discovery override
 - calls the moderation Edge Function for manual overrides and AI re-runs
+
+### `ModerationTransparency.tsx`
+
+- public-facing moderation transparency page
+- reads a public-safe moderation log through a dedicated RPC
+- only shows moderation history for public content and semi-public previews
+- supports action filters and per-activity filtering
+- uses stable pseudonymous moderator handles rather than full personal names
 
 ### `Bookings.tsx`
 
@@ -338,6 +349,8 @@ This is one of the clearest code/product/docs mismatches in the current repo.
 - `visibility = public` means public details are intended to be fully visible
 - `visibility = semi_public` means public preview plus host-shared private access
 - `visibility = private` means unlisted/link-only behavior
+- platform moderation and public transparency apply to public-facing content
+- for `semi_public`, only the preview surface is in scope; private-link-only details stay outside platform moderation privacy boundaries
 
 ### Important nuance
 
@@ -385,6 +398,7 @@ So contributors should think of:
 - `EventDetail.tsx`: activity, attendees, interests, access requests, RSVP and proxy flows
 - `HostDashboard.tsx`: event, attendees, interests, access requests, co-hosts
 - `AdminModeration.tsx`: moderation queue and override operations
+- `ModerationTransparency.tsx`: public-safe moderation history feed
 - `guestService.ts`: profile/session reads and writes
 
 ## RPC And Trigger Architecture
@@ -395,11 +409,30 @@ So contributors should think of:
 - `cancel_attendee_with_promotion(...)`
 - `add_proxy_attendee(...)`
 - `toggle_event_interest(...)`
+- `get_event_for_view(...)`
+- `list_public_calendar_events(...)`
+- `count_hidden_upcoming_activities(...)`
+- `list_event_attendees_for_view(...)`
+- `list_event_interests_for_view(...)`
+- `get_guest_bookings(...)`
+- `get_guest_interests(...)`
 
 ### RLS helper functions used in SQL
 
 - `is_event_host(...)`
 - `event_host_count(...)`
+- `can_read_event_row(...)`
+
+### Read-boundary note
+
+Public and semi-public discovery should not rely on direct broad `events` table reads anymore.
+
+Current intended model:
+
+- public browse uses safe RPCs that return preview-safe fields
+- activity detail uses `get_event_for_view(...)` so semi-public pages can expose only their public preview unless the private access token is present
+- guest-session restore uses dedicated RPCs instead of nested raw `events (*)` reads
+- the base `events` table policy should be treated as a narrower membership/host read layer, not the public product API
 
 ### Important architectural caveat
 
