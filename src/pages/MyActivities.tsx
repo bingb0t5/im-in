@@ -43,100 +43,32 @@ export default function MyActivities({ user }: { user: User | null }) {
   const fetchAllData = async () => {
     setLoading(true);
 
-    const fetchEventsByIds = async (ids: string[]) => {
-      if (ids.length === 0) return [] as Event[];
-      const { data, error } = await supabase
-        .from('events')
-        .select('*')
-        .in('id', ids);
-      if (error) throw error;
-      return (data || []) as Event[];
-    };
-
     try {
       const {
         data: hostedByOwner,
         error: hostedByOwnerError,
       } = await supabase
-        .from('events')
-        .select('*')
-        .eq('host_user_id', user.id)
-        .order('starts_at', { ascending: true });
+        .rpc('list_my_hosted_events');
 
       if (hostedByOwnerError) throw hostedByOwnerError;
-
-      const {
-        data: hostedMembershipRows,
-        error: hostedByMembershipError,
-      } = await supabase
-        .from('event_hosts')
-        .select('event_id')
-        .eq('user_id', user.id);
-
-      if (hostedByMembershipError) throw hostedByMembershipError;
 
       const {
         data: joinedRows,
         error: joinedError,
       } = await supabase
-        .from('event_attendees')
-        .select('*')
-        .or(`user_id.eq.${user.id},guest_email.eq.${user.email}`)
-        .neq('status', 'cancelled')
-        .order('joined_at', { ascending: false });
+        .rpc('list_my_joined_activities');
 
       if (joinedError) throw joinedError;
-
-      const thinkingIdentityFilters = [
-        user.id ? `user_id.eq.${user.id}` : '',
-        user.email ? `guest_email.eq.${user.email}` : '',
-      ].filter(Boolean);
-
-      const thinkingQuery = supabase
-        .from('event_interests')
-        .select('*')
-        .order('created_at', { ascending: false });
 
       const {
         data: thinkingRows,
         error: thinkingError,
-      } = thinkingIdentityFilters.length > 0
-        ? await thinkingQuery.or(thinkingIdentityFilters.join(','))
-        : await thinkingQuery.limit(0);
+      } = await supabase
+        .rpc('list_my_interested_activities');
 
       if (thinkingError) throw thinkingError;
 
-      const hostedMembershipEventIds = (hostedMembershipRows || [])
-        .map((row: any) => row.event_id as string)
-        .filter(Boolean);
-
-      const joinedEventIds = (joinedRows || [])
-        .map((row: any) => row.event_id as string)
-        .filter(Boolean);
-
-      const thinkingEventIds = (thinkingRows || [])
-        .map((row: any) => row.event_id as string)
-        .filter(Boolean);
-
-      const [
-        hostedByMembershipEvents,
-        joinedEventRecords,
-        thinkingEventRecords,
-      ] = await Promise.all([
-        fetchEventsByIds(hostedMembershipEventIds),
-        fetchEventsByIds(Array.from(new Set(joinedEventIds))),
-        fetchEventsByIds(Array.from(new Set(thinkingEventIds))),
-      ]);
-
-      const joinedEventMap = Object.fromEntries(joinedEventRecords.map((event) => [event.id, event]));
-      const thinkingEventMap = Object.fromEntries(thinkingEventRecords.map((event) => [event.id, event]));
-
-      const hostedMerged = [
-        ...((hostedByOwner || []) as any[]),
-        ...(hostedByMembershipEvents as any[]),
-      ];
-
-      const hostedById = hostedMerged.reduce((acc: Record<string, any>, event: any) => {
+      const hostedById = ((hostedByOwner || []) as any[]).reduce((acc: Record<string, any>, event: any) => {
         if (!event?.id) return acc;
         acc[event.id] = event;
         return acc;
@@ -184,17 +116,9 @@ export default function MyActivities({ user }: { user: User | null }) {
       if (pendingRequestsError) throw pendingRequestsError;
 
       const normalizedJoinedRows = (joinedRows || [])
-        .map((row: any) => ({
-          ...row,
-          events: joinedEventMap[row.event_id] || null,
-        }))
         .filter((row: any) => row.events);
 
       const normalizedThinkingRows = (thinkingRows || [])
-        .map((row: any) => ({
-          ...row,
-          events: thinkingEventMap[row.event_id] || null,
-        }))
         .filter((row: any) => row.events);
 
       const thinkingRowsWithStatus = normalizedThinkingRows.map((row: any) => ({

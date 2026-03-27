@@ -734,6 +734,107 @@ $$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
 
 GRANT EXECUTE ON FUNCTION public.get_guest_interests(TEXT) TO anon, authenticated;
 
+CREATE OR REPLACE FUNCTION public.list_my_hosted_events()
+RETURNS SETOF public.events AS $$
+    SELECT DISTINCT e.*
+    FROM public.events e
+    LEFT JOIN public.event_hosts eh
+      ON eh.event_id = e.id
+    WHERE auth.uid() IS NOT NULL
+      AND (
+          e.host_user_id = auth.uid()
+          OR eh.user_id = auth.uid()
+      )
+    ORDER BY e.starts_at ASC;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.list_my_hosted_events() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.list_my_joined_activities()
+RETURNS TABLE (
+    id UUID,
+    event_id UUID,
+    user_id UUID,
+    attendee_profile_id UUID,
+    guest_name TEXT,
+    guest_email TEXT,
+    status TEXT,
+    joined_at TIMESTAMPTZ,
+    promoted_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    events JSONB
+) AS $$
+    SELECT
+        ea.id,
+        ea.event_id,
+        ea.user_id,
+        ea.attendee_profile_id,
+        ea.guest_name,
+        ea.guest_email,
+        ea.status,
+        ea.joined_at,
+        ea.promoted_at,
+        ea.cancelled_at,
+        to_jsonb(e) AS events
+    FROM public.event_attendees ea
+    JOIN public.events e
+      ON e.id = ea.event_id
+    LEFT JOIN public.attendee_profiles ap
+      ON ap.id = ea.attendee_profile_id
+    WHERE auth.uid() IS NOT NULL
+      AND ea.status <> 'cancelled'
+      AND (
+          ea.user_id = auth.uid()
+          OR ap.user_id = auth.uid()
+          OR lower(coalesce(ea.guest_email, '')) = lower(coalesce(auth.jwt() ->> 'email', ''))
+      )
+    ORDER BY ea.joined_at DESC;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.list_my_joined_activities() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.list_my_interested_activities()
+RETURNS TABLE (
+    id UUID,
+    event_id UUID,
+    user_id UUID,
+    attendee_profile_id UUID,
+    guest_name TEXT,
+    guest_email TEXT,
+    visibility_mode TEXT,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
+    status TEXT,
+    events JSONB
+) AS $$
+    SELECT
+        ei.id,
+        ei.event_id,
+        ei.user_id,
+        ei.attendee_profile_id,
+        ei.guest_name,
+        ei.guest_email,
+        ei.visibility_mode,
+        ei.created_at,
+        ei.updated_at,
+        'thinking'::TEXT AS status,
+        to_jsonb(e) AS events
+    FROM public.event_interests ei
+    JOIN public.events e
+      ON e.id = ei.event_id
+    LEFT JOIN public.attendee_profiles ap
+      ON ap.id = ei.attendee_profile_id
+    WHERE auth.uid() IS NOT NULL
+      AND (
+          ei.user_id = auth.uid()
+          OR ap.user_id = auth.uid()
+          OR lower(coalesce(ei.guest_email, '')) = lower(coalesce(auth.jwt() ->> 'email', ''))
+      )
+    ORDER BY ei.created_at DESC;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.list_my_interested_activities() TO authenticated;
+
 -- Events: public rows are readable broadly, everything else needs explicit membership/host access
 CREATE POLICY "Viewable events are readable" ON public.events
     FOR SELECT USING (
