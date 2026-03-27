@@ -17,6 +17,7 @@ import HostDashboard from './pages/HostDashboard';
 import Calendar from './pages/Calendar';
 import Recovery from './pages/Recovery';
 import Bookings from './pages/Bookings';
+import MyActivities from './pages/MyActivities';
 import AdminModeration from './pages/AdminModeration';
 import ModerationTransparency from './pages/ModerationTransparency';
 import { guestService } from './services/guestService';
@@ -111,6 +112,7 @@ export default function App() {
           <Route path="/events/:slug" element={<EventDetail user={user} />} />
           <Route path="/host/events/:id" element={user ? <HostDashboard user={user} /> : <Navigate to="/login" />} />
           <Route path="/calendar" element={<Calendar user={user} />} />
+          <Route path="/my-activities" element={user ? <MyActivities user={user} /> : <Navigate to="/login" />} />
           <Route path="/moderation" element={<ModerationTransparency />} />
           <Route path="/bookings" element={<Bookings />} />
           <Route path="/recover" element={<Recovery />} />
