@@ -20,6 +20,7 @@ export type EventModerationShape = {
   location_text?: string | null;
   public_location_text?: string | null;
   host_name?: string | null;
+  show_host_publicly?: boolean | null;
   visibility?: EventVisibility | null;
   is_public?: boolean | null;
   moderation_status?: ModerationStatus | null;
@@ -41,7 +42,7 @@ export type ActivityModerationInput = {
   location: string;
   publicLocation: string;
   hostName: string;
-  visibility: Exclude<EventVisibility, 'private'>;
+  visibility: 'public' | 'semi_public';
 };
 
 export type ActivityModerationResult = {
@@ -70,13 +71,27 @@ export function buildActivityModerationInput(event: EventModerationShape): Activ
   const visibility = normalizeVisibility(event);
   if (!shouldModerateVisibility(visibility)) return null;
 
+  const safePublicHostName = event.show_host_publicly ? normalizeText(event.host_name) : '';
+
+  if (visibility === 'semi_public') {
+    return {
+      title: normalizeText(event.title),
+      description: '',
+      publicSummary: normalizeText(event.public_summary),
+      location: '',
+      publicLocation: normalizeText(event.public_location_text),
+      hostName: safePublicHostName,
+      visibility,
+    };
+  }
+
   return {
     title: normalizeText(event.title),
     description: normalizeText(event.description),
     publicSummary: normalizeText(event.public_summary),
     location: normalizeText(event.location_text),
     publicLocation: normalizeText(event.public_location_text),
-    hostName: normalizeText(event.host_name),
+    hostName: safePublicHostName,
     visibility,
   };
 }

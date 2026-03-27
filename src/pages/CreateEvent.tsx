@@ -741,7 +741,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                 </p>
                 {formData.visibility !== 'private' ? (
                   <p className="text-xs text-slate-400 mt-1.5">
-                    Broader public discovery may stay limited at first, especially for newer hosts or low-detail listings.
+                    Public-facing listings may stay limited at first while broader public discovery is reviewed.
                   </p>
                 ) : null}
               </div>

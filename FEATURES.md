@@ -106,6 +106,7 @@ Features:
 - if a signed-in attendee already has access to a semi-public activity, the app prefers the private link path when they click it
 - shows a subtle count of other upcoming activities in the next 7 days that are not currently visible in public discovery, excluding spam-marked items
 - when the public list is empty, offers a `Create your own activity` CTA
+- links to the public moderation transparency page from the landing page
 
 ### Activity detail page
 
@@ -296,6 +297,7 @@ How it works:
 - public preview is intentionally limited
 - full access comes from a private host-shared link using `?access=...`
 - non-members can submit a request to view/join
+- kept outside platform moderation review and outside the public moderation log
 
 ### `private`
 
@@ -303,6 +305,7 @@ How it works:
 
 - not shown in public browse
 - intended as link-only / unlisted
+- kept outside platform moderation review and outside the public moderation log
 
 ### Important implementation nuance
 
@@ -685,14 +688,15 @@ These are important because they affect how confidently someone should describe 
 
 ### What it does
 
-Adds a lightweight discovery gate for public and semi-public activities so broader public browse can stay open without exposing every listing immediately.
+Adds a lightweight discovery gate for public activities so broader public browse can stay open without exposing every listing immediately.
 
 ### How it works
 
-- public and semi-public activities are reset to `pending` when meaningful public-facing fields change
+- public activities are reset to `pending` when meaningful public-facing fields change
 - the moderation Edge Function classifies the saved activity and writes structured fields back to `events`
 - trusted hosts may get slightly softer outcomes for some medium-risk low-detail cases
 - the public browse page only shows activities where `public_discovery_enabled = true`
+- semi-public public previews stay in platform moderation review, while semi-public private-link-only content stays outside it
 
 ### Review tooling
 
@@ -701,6 +705,7 @@ Adds a lightweight discovery gate for public and semi-public activities so broad
 - server-authorized override actions are controlled by `MODERATION_ADMIN_EMAILS`
 - queue buckets include `review`, `archived`, and `spam`
 - archive is a reviewer housekeeping action and is separate from hide/review
+- admin moderation tooling is scoped to public-facing activity moderation
 
 ### Manual actions
 
@@ -712,7 +717,27 @@ Adds a lightweight discovery gate for public and semi-public activities so broad
 - archive / return to review
 - re-run AI moderation
 
-## 26. Most Important Behavioral Caveats
+## 26. Public Moderation Transparency
+
+### What it does
+
+Lets the community see a calm, public-facing history of moderation actions for public activities.
+
+### How it works
+
+- public page: `/moderation`
+- uses a public-safe RPC-backed feed of moderation log entries
+- supports filtering by moderation action
+- can be linked from a public activity detail page when moderation history exists
+
+### Scope rules
+
+- public activity moderation appears here
+- semi-public preview moderation can also appear here
+- private content and private-link-only semi-public content are never included
+- moderator identities are shown through stable pseudonymous handles such as `Moderator 01`
+
+## 27. Most Important Behavioral Caveats
 
 ### `/bookings` is guest-session driven
 

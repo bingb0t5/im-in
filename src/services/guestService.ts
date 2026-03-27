@@ -150,32 +150,21 @@ export const guestService = {
     const profile = await this.validateSession(token);
     if (!profile) return [];
 
-    const { data, error } = await supabase
-      .from('event_attendees')
-      .select(`
-        *,
-        events (*)
-      `)
-      .eq('attendee_profile_id', profile.id)
-      .neq('status', 'cancelled')
-      .order('joined_at', { ascending: false });
+    const { data, error } = await supabase.rpc('get_guest_bookings', {
+      p_session_token: token,
+    });
 
     if (error) throw error;
-    return data;
+    return (data || []) as BookingRow[];
   },
 
   async getMyInterests(token: string): Promise<BookingRow[]> {
     const profile = await this.validateSession(token);
     if (!profile) return [];
 
-    const { data, error } = await supabase
-      .from('event_interests')
-      .select(`
-        *,
-        events (*)
-      `)
-      .eq('attendee_profile_id', profile.id)
-      .order('created_at', { ascending: false });
+    const { data, error } = await supabase.rpc('get_guest_interests', {
+      p_session_token: token,
+    });
 
     if (error) throw error;
     return (data || []).map((row: any) => ({

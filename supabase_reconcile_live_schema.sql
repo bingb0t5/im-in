@@ -173,6 +173,45 @@ ALTER TABLE public.events
 ALTER TABLE public.events
     ADD COLUMN IF NOT EXISTS moderation_override TEXT;
 
+CREATE TABLE IF NOT EXISTS public.moderator_public_identities (
+    user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    public_handle TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.moderator_public_identities ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.public_moderation_log_entries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    target_type TEXT NOT NULL DEFAULT 'activity' CHECK (target_type IN ('activity')),
+    target_id UUID NOT NULL,
+    target_visibility_snapshot TEXT NOT NULL CHECK (target_visibility_snapshot IN ('public', 'semi_public')),
+    public_title_snapshot TEXT,
+    public_slug_snapshot TEXT,
+    action TEXT NOT NULL CHECK (action IN ('approved', 'denied', 'flagged', 'marked_spam', 'restored', 'removed')),
+    reason_code TEXT,
+    public_explanation TEXT,
+    moderator_public_handle TEXT NOT NULL,
+    moderator_internal_id UUID,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.public_moderation_log_entries ENABLE ROW LEVEL SECURITY;
+
+CREATE SEQUENCE IF NOT EXISTS public.moderator_public_handle_seq START 1;
+
+CREATE INDEX IF NOT EXISTS idx_public_moderation_log_entries_target_id
+    ON public.public_moderation_log_entries(target_id);
+
+CREATE INDEX IF NOT EXISTS idx_public_moderation_log_entries_created_at
+    ON public.public_moderation_log_entries(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_public_moderation_log_entries_action
+    ON public.public_moderation_log_entries(action);
+
+REVOKE ALL ON public.moderator_public_identities FROM anon, authenticated;
+REVOKE ALL ON public.public_moderation_log_entries FROM anon, authenticated;
+
 UPDATE public.events
 SET visibility = CASE WHEN is_public THEN 'public' ELSE 'private' END
 WHERE visibility IS NULL;
@@ -642,6 +681,620 @@ CREATE OR REPLACE FUNCTION public.event_host_count(
 $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
 
 GRANT EXECUTE ON FUNCTION public.event_host_count(UUID) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_or_create_public_moderator_handle(
+    p_user_id UUID
+) RETURNS TEXT AS $$
+DECLARE
+    existing_handle TEXT;
+    next_number BIGINT;
+    new_handle TEXT;
+BEGIN
+    SELECT mpi.public_handle
+    INTO existing_handle
+    FROM public.moderator_public_identities mpi
+    WHERE mpi.user_id = p_user_id;
+
+    IF existing_handle IS NOT NULL THEN
+        RETURN existing_handle;
+    END IF;
+
+    next_number := nextval('public.moderator_public_handle_seq');
+    new_handle := 'Moderator ' || lpad(next_number::TEXT, 2, '0');
+
+    INSERT INTO public.moderator_public_identities (user_id, public_handle)
+    VALUES (p_user_id, new_handle)
+    ON CONFLICT (user_id) DO UPDATE
+    SET public_handle = public.moderator_public_identities.public_handle;
+
+    RETURN (
+        SELECT mpi.public_handle
+        FROM public.moderator_public_identities mpi
+        WHERE mpi.user_id = p_user_id
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+REVOKE ALL ON FUNCTION public.get_or_create_public_moderator_handle(UUID) FROM anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.list_public_moderation_log(
+    p_action TEXT DEFAULT NULL,
+    p_target_id UUID DEFAULT NULL,
+    p_limit INTEGER DEFAULT 30,
+    p_offset INTEGER DEFAULT 0
+) RETURNS TABLE (
+    id UUID,
+    target_type TEXT,
+    target_id UUID,
+    target_visibility_snapshot TEXT,
+    public_title_snapshot TEXT,
+    public_slug_snapshot TEXT,
+    action TEXT,
+    reason_code TEXT,
+    public_explanation TEXT,
+    moderator_public_handle TEXT,
+    created_at TIMESTAMPTZ
+) AS $$
+    SELECT
+        entry.id,
+        entry.target_type,
+        entry.target_id,
+        entry.target_visibility_snapshot,
+        entry.public_title_snapshot,
+        entry.public_slug_snapshot,
+        entry.action,
+        entry.reason_code,
+        entry.public_explanation,
+        entry.moderator_public_handle,
+        entry.created_at
+    FROM public.public_moderation_log_entries entry
+    WHERE (p_action IS NULL OR entry.action = p_action)
+      AND (p_target_id IS NULL OR entry.target_id = p_target_id)
+      AND entry.target_visibility_snapshot IN ('public', 'semi_public')
+    ORDER BY entry.created_at DESC
+    LIMIT LEAST(GREATEST(COALESCE(p_limit, 30), 1), 100)
+    OFFSET GREATEST(COALESCE(p_offset, 0), 0);
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.list_public_moderation_log(TEXT, UUID, INTEGER, INTEGER) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.can_read_event_row(
+    p_event_id UUID
+) RETURNS BOOLEAN AS $$
+DECLARE
+    v_user_id UUID := auth.uid();
+    v_email TEXT := lower(coalesce(auth.jwt() ->> 'email', ''));
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM public.events e
+        WHERE e.id = p_event_id
+          AND COALESCE(e.visibility, CASE WHEN e.is_public THEN 'public' ELSE 'private' END) = 'public'
+    ) THEN
+        RETURN true;
+    END IF;
+
+    IF v_user_id IS NULL AND v_email = '' THEN
+        RETURN false;
+    END IF;
+
+    IF v_user_id IS NOT NULL AND public.is_event_host(p_event_id, v_user_id) THEN
+        RETURN true;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.event_attendees ea
+        LEFT JOIN public.attendee_profiles ap
+          ON ap.id = ea.attendee_profile_id
+        WHERE ea.event_id = p_event_id
+          AND ea.status <> 'cancelled'
+          AND (
+              (v_user_id IS NOT NULL AND ea.user_id = v_user_id)
+              OR (v_user_id IS NOT NULL AND ap.user_id = v_user_id)
+              OR (v_email <> '' AND lower(coalesce(ea.guest_email, '')) = v_email)
+          )
+    ) THEN
+        RETURN true;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.event_interests ei
+        LEFT JOIN public.attendee_profiles ap
+          ON ap.id = ei.attendee_profile_id
+        WHERE ei.event_id = p_event_id
+          AND (
+              (v_user_id IS NOT NULL AND ei.user_id = v_user_id)
+              OR (v_user_id IS NOT NULL AND ap.user_id = v_user_id)
+              OR (v_email <> '' AND lower(coalesce(ei.guest_email, '')) = v_email)
+          )
+    ) THEN
+        RETURN true;
+    END IF;
+
+    RETURN false;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.can_read_event_row(UUID) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_event_for_view(
+    p_slug TEXT,
+    p_access_code TEXT DEFAULT NULL
+) RETURNS TABLE (
+    id UUID,
+    slug TEXT,
+    title TEXT,
+    description TEXT,
+    public_summary TEXT,
+    location_text TEXT,
+    public_location_text TEXT,
+    google_maps_url TEXT,
+    starts_at TIMESTAMPTZ,
+    timezone TEXT,
+    duration_minutes INTEGER,
+    ends_at TIMESTAMPTZ,
+    capacity INTEGER,
+    host_user_id UUID,
+    host_name TEXT,
+    host_contact_text TEXT,
+    show_host_publicly BOOLEAN,
+    access_code TEXT,
+    visibility TEXT,
+    allow_waitlist BOOLEAN,
+    is_public BOOLEAN,
+    public_discovery_enabled BOOLEAN,
+    moderation_status TEXT,
+    moderation_risk_level TEXT,
+    moderation_action TEXT,
+    moderation_confidence NUMERIC,
+    moderation_reasons TEXT[],
+    moderation_input_hash TEXT,
+    moderated_at TIMESTAMPTZ,
+    moderation_archived_at TIMESTAMPTZ,
+    moderation_override TEXT,
+    status TEXT,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
+    can_view_full_details BOOLEAN
+) AS $$
+DECLARE
+    v_event public.events%ROWTYPE;
+    v_visibility TEXT;
+    v_is_host BOOLEAN := false;
+    v_has_access_code BOOLEAN := false;
+    v_can_view_full BOOLEAN := false;
+BEGIN
+    SELECT *
+    INTO v_event
+    FROM public.events e
+    WHERE e.slug = p_slug
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    v_visibility := COALESCE(v_event.visibility, CASE WHEN v_event.is_public THEN 'public' ELSE 'private' END);
+    v_is_host := auth.uid() IS NOT NULL AND public.is_event_host(v_event.id, auth.uid());
+    v_has_access_code := nullif(trim(coalesce(p_access_code, '')), '') IS NOT NULL
+        AND p_access_code = v_event.access_code;
+
+    v_can_view_full := v_visibility = 'public'
+        OR v_visibility = 'private'
+        OR (v_visibility = 'semi_public' AND (v_is_host OR v_has_access_code));
+
+    RETURN QUERY
+    SELECT
+        v_event.id,
+        v_event.slug,
+        v_event.title,
+        CASE
+            WHEN v_visibility = 'semi_public' AND NOT v_can_view_full THEN NULL
+            ELSE v_event.description
+        END,
+        v_event.public_summary,
+        CASE
+            WHEN v_visibility = 'semi_public' AND NOT v_can_view_full THEN NULL
+            ELSE v_event.location_text
+        END,
+        v_event.public_location_text,
+        CASE
+            WHEN v_visibility = 'semi_public' AND NOT v_can_view_full THEN NULL
+            ELSE v_event.google_maps_url
+        END,
+        v_event.starts_at,
+        v_event.timezone,
+        v_event.duration_minutes,
+        v_event.ends_at,
+        v_event.capacity,
+        v_event.host_user_id,
+        CASE
+            WHEN v_visibility = 'semi_public' AND NOT v_can_view_full AND NOT coalesce(v_event.show_host_publicly, false) THEN NULL
+            ELSE v_event.host_name
+        END,
+        CASE
+            WHEN v_visibility = 'semi_public' AND NOT v_can_view_full THEN NULL
+            ELSE v_event.host_contact_text
+        END,
+        v_event.show_host_publicly,
+        CASE
+            WHEN v_visibility = 'semi_public' AND NOT v_can_view_full THEN NULL
+            ELSE v_event.access_code
+        END,
+        v_event.visibility,
+        v_event.allow_waitlist,
+        v_event.is_public,
+        v_event.public_discovery_enabled,
+        v_event.moderation_status,
+        v_event.moderation_risk_level,
+        v_event.moderation_action,
+        v_event.moderation_confidence,
+        v_event.moderation_reasons,
+        v_event.moderation_input_hash,
+        v_event.moderated_at,
+        v_event.moderation_archived_at,
+        v_event.moderation_override,
+        v_event.status,
+        v_event.created_at,
+        v_event.updated_at,
+        v_can_view_full;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.get_event_for_view(TEXT, TEXT) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.list_public_calendar_events(
+    p_now TIMESTAMPTZ DEFAULT now()
+) RETURNS TABLE (
+    id UUID,
+    slug TEXT,
+    title TEXT,
+    location_text TEXT,
+    public_location_text TEXT,
+    starts_at TIMESTAMPTZ,
+    timezone TEXT,
+    duration_minutes INTEGER,
+    capacity INTEGER,
+    visibility TEXT,
+    is_public BOOLEAN,
+    public_discovery_enabled BOOLEAN,
+    status TEXT,
+    access_code TEXT,
+    confirmed_count INTEGER,
+    thinking_count INTEGER
+) AS $$
+    SELECT
+        e.id,
+        e.slug,
+        e.title,
+        CASE
+            WHEN COALESCE(e.visibility, CASE WHEN e.is_public THEN 'public' ELSE 'private' END) = 'semi_public' THEN NULL
+            ELSE e.location_text
+        END AS location_text,
+        e.public_location_text,
+        e.starts_at,
+        e.timezone,
+        e.duration_minutes,
+        e.capacity,
+        e.visibility,
+        e.is_public,
+        e.public_discovery_enabled,
+        e.status,
+        CASE
+            WHEN COALESCE(e.visibility, CASE WHEN e.is_public THEN 'public' ELSE 'private' END) = 'semi_public'
+                AND public.can_read_event_row(e.id)
+                THEN e.access_code
+            ELSE NULL
+        END AS access_code,
+        (
+            SELECT count(*)::INTEGER
+            FROM public.event_attendees ea
+            WHERE ea.event_id = e.id
+              AND ea.status = 'confirmed'
+        ) AS confirmed_count,
+        (
+            SELECT count(*)::INTEGER
+            FROM public.event_interests ei
+            WHERE ei.event_id = e.id
+        ) AS thinking_count
+    FROM public.events e
+    WHERE e.status = 'scheduled'
+      AND e.is_public = true
+      AND e.public_discovery_enabled = true
+      AND e.starts_at >= COALESCE(p_now, now())
+    ORDER BY e.starts_at ASC;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.list_public_calendar_events(TIMESTAMPTZ) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.count_hidden_upcoming_activities(
+    p_now TIMESTAMPTZ DEFAULT now(),
+    p_week_ahead TIMESTAMPTZ DEFAULT now() + interval '7 days'
+) RETURNS INTEGER AS $$
+    SELECT count(*)::INTEGER
+    FROM public.events e
+    WHERE e.status = 'scheduled'
+      AND e.starts_at >= COALESCE(p_now, now())
+      AND e.starts_at < COALESCE(p_week_ahead, now() + interval '7 days')
+      AND COALESCE(e.moderation_override, '') <> 'mark_spam'
+      AND NOT (e.is_public = true AND coalesce(e.public_discovery_enabled, false) = true);
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.count_hidden_upcoming_activities(TIMESTAMPTZ, TIMESTAMPTZ) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.list_event_attendees_for_view(
+    p_event_id UUID,
+    p_access_code TEXT DEFAULT NULL
+) RETURNS SETOF public.event_attendees AS $$
+DECLARE
+    v_visibility TEXT;
+    v_event_access_code TEXT;
+    v_can_view BOOLEAN := false;
+BEGIN
+    SELECT
+        COALESCE(e.visibility, CASE WHEN e.is_public THEN 'public' ELSE 'private' END),
+        e.access_code
+    INTO
+        v_visibility,
+        v_event_access_code
+    FROM public.events e
+    WHERE e.id = p_event_id;
+
+    IF v_visibility IS NULL THEN
+        RETURN;
+    END IF;
+
+    v_can_view := v_visibility = 'public'
+        OR v_visibility = 'private'
+        OR (
+            v_visibility = 'semi_public'
+            AND (
+                (auth.uid() IS NOT NULL AND public.is_event_host(p_event_id, auth.uid()))
+                OR (
+                    nullif(trim(coalesce(p_access_code, '')), '') IS NOT NULL
+                    AND p_access_code = v_event_access_code
+                )
+            )
+        );
+
+    IF NOT v_can_view THEN
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+    SELECT ea.*
+    FROM public.event_attendees ea
+    WHERE ea.event_id = p_event_id
+      AND ea.status <> 'cancelled'
+    ORDER BY ea.joined_at ASC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.list_event_attendees_for_view(UUID, TEXT) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.list_event_interests_for_view(
+    p_event_id UUID,
+    p_access_code TEXT DEFAULT NULL
+) RETURNS SETOF public.event_interests AS $$
+DECLARE
+    v_visibility TEXT;
+    v_event_access_code TEXT;
+    v_can_view_named BOOLEAN := false;
+BEGIN
+    SELECT
+        COALESCE(e.visibility, CASE WHEN e.is_public THEN 'public' ELSE 'private' END),
+        e.access_code
+    INTO
+        v_visibility,
+        v_event_access_code
+    FROM public.events e
+    WHERE e.id = p_event_id;
+
+    IF v_visibility IS NULL THEN
+        RETURN;
+    END IF;
+
+    IF v_visibility = 'public' THEN
+        RETURN QUERY
+        SELECT ei.*
+        FROM public.event_interests ei
+        WHERE ei.event_id = p_event_id
+          AND ei.visibility_mode = 'count_only'
+        ORDER BY ei.created_at ASC;
+        RETURN;
+    END IF;
+
+    v_can_view_named := v_visibility = 'private'
+        OR (
+            v_visibility = 'semi_public'
+            AND (
+                (auth.uid() IS NOT NULL AND public.is_event_host(p_event_id, auth.uid()))
+                OR (
+                    nullif(trim(coalesce(p_access_code, '')), '') IS NOT NULL
+                    AND p_access_code = v_event_access_code
+                )
+            )
+        );
+
+    IF NOT v_can_view_named THEN
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+    SELECT ei.*
+    FROM public.event_interests ei
+    WHERE ei.event_id = p_event_id
+    ORDER BY ei.created_at ASC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.list_event_interests_for_view(UUID, TEXT) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_guest_bookings(
+    p_session_token TEXT
+) RETURNS TABLE (
+    id UUID,
+    event_id UUID,
+    user_id UUID,
+    attendee_profile_id UUID,
+    guest_name TEXT,
+    guest_email TEXT,
+    status TEXT,
+    joined_at TIMESTAMPTZ,
+    promoted_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    events JSONB
+) AS $$
+DECLARE
+    v_profile_id UUID;
+BEGIN
+    SELECT s.attendee_profile_id
+    INTO v_profile_id
+    FROM public.attendee_sessions s
+    WHERE s.token = p_session_token
+      AND s.expires_at > now()
+    LIMIT 1;
+
+    IF v_profile_id IS NULL THEN
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+    SELECT
+        ea.id,
+        ea.event_id,
+        ea.user_id,
+        ea.attendee_profile_id,
+        ea.guest_name,
+        ea.guest_email,
+        ea.status,
+        ea.joined_at,
+        ea.promoted_at,
+        ea.cancelled_at,
+        to_jsonb(e) AS events
+    FROM public.event_attendees ea
+    JOIN public.events e
+      ON e.id = ea.event_id
+    WHERE ea.attendee_profile_id = v_profile_id
+      AND ea.status <> 'cancelled'
+    ORDER BY ea.joined_at DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.get_guest_bookings(TEXT) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_guest_interests(
+    p_session_token TEXT
+) RETURNS TABLE (
+    id UUID,
+    event_id UUID,
+    user_id UUID,
+    attendee_profile_id UUID,
+    guest_name TEXT,
+    guest_email TEXT,
+    visibility_mode TEXT,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
+    status TEXT,
+    events JSONB
+) AS $$
+DECLARE
+    v_profile_id UUID;
+BEGIN
+    SELECT s.attendee_profile_id
+    INTO v_profile_id
+    FROM public.attendee_sessions s
+    WHERE s.token = p_session_token
+      AND s.expires_at > now()
+    LIMIT 1;
+
+    IF v_profile_id IS NULL THEN
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+    SELECT
+        ei.id,
+        ei.event_id,
+        ei.user_id,
+        ei.attendee_profile_id,
+        ei.guest_name,
+        ei.guest_email,
+        ei.visibility_mode,
+        ei.created_at,
+        ei.updated_at,
+        'thinking'::TEXT AS status,
+        to_jsonb(e) AS events
+    FROM public.event_interests ei
+    JOIN public.events e
+      ON e.id = ei.event_id
+    WHERE ei.attendee_profile_id = v_profile_id
+    ORDER BY ei.created_at DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.get_guest_interests(TEXT) TO anon, authenticated;
+
+DROP POLICY IF EXISTS "Public events are viewable by everyone" ON public.events;
+DROP POLICY IF EXISTS "Viewable events are readable" ON public.events;
+CREATE POLICY "Viewable events are readable"
+    ON public.events
+    FOR SELECT
+    USING (
+        COALESCE(events.visibility, CASE WHEN events.is_public THEN 'public' ELSE 'private' END) = 'public'
+        OR public.can_read_event_row(events.id)
+    );
+
+DROP POLICY IF EXISTS "Attendees are viewable by everyone" ON public.event_attendees;
+DROP POLICY IF EXISTS "Public attendees are viewable for public activities" ON public.event_attendees;
+CREATE POLICY "Public attendees are viewable for public activities"
+    ON public.event_attendees
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1
+            FROM public.events e
+            WHERE e.id = event_attendees.event_id
+              AND COALESCE(e.visibility, CASE WHEN e.is_public THEN 'public' ELSE 'private' END) = 'public'
+        )
+    );
+
+DROP POLICY IF EXISTS "Hosts and members can view attendee rows" ON public.event_attendees;
+CREATE POLICY "Hosts and members can view attendee rows"
+    ON public.event_attendees
+    FOR SELECT
+    USING (
+        auth.uid() IS NOT NULL
+        AND (
+            public.is_event_host(event_id, auth.uid())
+            OR user_id = auth.uid()
+            OR attendee_profile_id IN (
+                SELECT ap.id
+                FROM public.attendee_profiles ap
+                WHERE ap.user_id = auth.uid()
+            )
+            OR lower(coalesce(guest_email, '')) = lower(coalesce(auth.jwt() ->> 'email', ''))
+        )
+    );
+
+DROP POLICY IF EXISTS "Waitlist positions are viewable by everyone" ON public.event_waitlist_positions;
+DROP POLICY IF EXISTS "Viewable waitlist positions" ON public.event_waitlist_positions;
+CREATE POLICY "Viewable waitlist positions"
+    ON public.event_waitlist_positions
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1
+            FROM public.events e
+            WHERE e.id = event_waitlist_positions.event_id
+              AND (
+                  COALESCE(e.visibility, CASE WHEN e.is_public THEN 'public' ELSE 'private' END) = 'public'
+                  OR public.can_read_event_row(e.id)
+              )
+        )
+    );
 
 DROP POLICY IF EXISTS "Hosts can view event host rows" ON public.event_hosts;
 CREATE POLICY "Hosts can view event host rows"
@@ -1525,14 +2178,25 @@ BEGIN
     END IF;
 
     IF TG_OP = 'INSERT' THEN
-        should_reset := true;
+        should_reset := next_visibility IN ('public', 'semi_public');
     ELSE
-        should_reset := NEW.visibility IS DISTINCT FROM OLD.visibility
-            OR NEW.title IS DISTINCT FROM OLD.title
-            OR NEW.description IS DISTINCT FROM OLD.description
-            OR NEW.public_summary IS DISTINCT FROM OLD.public_summary
-            OR NEW.location_text IS DISTINCT FROM OLD.location_text
-            OR NEW.public_location_text IS DISTINCT FROM OLD.public_location_text;
+        should_reset := NEW.visibility IS DISTINCT FROM OLD.visibility;
+
+        IF NOT should_reset THEN
+            IF next_visibility = 'semi_public' THEN
+                should_reset := NEW.title IS DISTINCT FROM OLD.title
+                    OR NEW.public_summary IS DISTINCT FROM OLD.public_summary
+                    OR NEW.public_location_text IS DISTINCT FROM OLD.public_location_text
+                    OR NEW.show_host_publicly IS DISTINCT FROM OLD.show_host_publicly;
+            ELSE
+                should_reset := NEW.title IS DISTINCT FROM OLD.title
+                    OR NEW.description IS DISTINCT FROM OLD.description
+                    OR NEW.public_summary IS DISTINCT FROM OLD.public_summary
+                    OR NEW.location_text IS DISTINCT FROM OLD.location_text
+                    OR NEW.public_location_text IS DISTINCT FROM OLD.public_location_text
+                    OR NEW.show_host_publicly IS DISTINCT FROM OLD.show_host_publicly;
+            END IF;
+        END IF;
     END IF;
 
     IF next_visibility = 'private' THEN
@@ -1544,6 +2208,8 @@ BEGIN
         NEW.moderation_reasons := ARRAY[]::TEXT[];
         NEW.moderation_input_hash := NULL;
         NEW.moderated_at := NULL;
+        NEW.moderation_archived_at := NULL;
+        NEW.moderation_override := NULL;
         RETURN NEW;
     END IF;
 

@@ -2,6 +2,15 @@
 
 ## 2026-03-24
 
+### Public moderation transparency
+
+- added a public moderation transparency page at `/moderation`
+- added a separate public moderation log data model for public-facing moderation history
+- added stable pseudonymous moderator handles for public-facing moderation records
+- added subtle public-activity history links for public and semi-public preview activity pages with moderation history
+- added explicit backend guards so platform moderation only applies to public-facing activity content
+- kept semi-public preview moderation in scope while excluding private-link-only semi-public content from platform moderation and public transparency
+
 ### AI moderation and public discovery
 
 - added lightweight AI moderation for `public` and `semi_public` activities using the `moderate-activity` Supabase Edge Function

@@ -66,7 +66,51 @@ Important behavioral meaning:
 - `visibility` controls whether it behaves as `public`, `semi_public`, or `private`
 - `access_code` is used to construct the private semi-public link
 - `public_discovery_enabled` is the additional gate for broader public discovery
-- moderation fields store the latest AI classification, any simple manual override state, and an optional reviewer archive timestamp for the admin queue
+- moderation fields store the latest public-moderation classification, any simple manual override state, and an optional reviewer archive timestamp for the admin queue
+- platform moderation applies to public-facing activity content
+- `semi_public` preview fields are in scope for platform moderation and transparency logging
+- `semi_public` private-link-only fields and `private` activities stay outside that workflow
+
+### `public_moderation_log_entries`
+
+This table stores the public moderation transparency history.
+
+Important fields:
+
+- `id`
+- `target_type`
+- `target_id`
+- `target_visibility_snapshot`
+- `public_title_snapshot`
+- `public_slug_snapshot`
+- `action`
+- `reason_code`
+- `public_explanation`
+- `moderator_public_handle`
+- `moderator_internal_id`
+- `created_at`
+
+Important behavioral meaning:
+
+- only public-facing moderation records should ever be written here
+- `target_visibility_snapshot` records that the target was public at the time of moderation
+- `moderator_internal_id` is internal traceability data
+- public-facing reads should happen through a safe RPC, not by exposing raw moderation internals directly
+
+### `moderator_public_identities`
+
+This table stores stable public-facing pseudonyms for moderators.
+
+Important fields:
+
+- `user_id`
+- `public_handle`
+- `created_at`
+
+Important behavioral meaning:
+
+- lets the public see that moderation actions are traceable to a stable moderator identity
+- avoids exposing full personal names in the transparency log
 
 ### `event_attendees`
 
@@ -259,8 +303,9 @@ This is why attendee matching and name resolution are more complex than a typica
 
 - `visibility = public`
 - `is_public = true`
-- browseable in `/calendar`
+- browseable in `/calendar` when `public_discovery_enabled = true`
 - public details shown
+- eligible for platform moderation and public moderation transparency logging
 
 ### `semi_public`
 
@@ -270,6 +315,7 @@ This is why attendee matching and name resolution are more complex than a typica
 - public preview uses limited details
 - full detail access depends on `access_code` or host/co-host context
 - access requests live in `event_access_requests`
+- not eligible for platform moderation review or the public moderation transparency log
 
 ### `private`
 
@@ -277,6 +323,7 @@ This is why attendee matching and name resolution are more complex than a typica
 - `is_public = false`
 - should not appear in public browse
 - intended as unlisted/link-only
+- not eligible for platform moderation review or the public moderation transparency log
 
 ## Waitlist And Attendance Behavior
 
@@ -296,8 +343,21 @@ These RPCs are important to the current app:
 - `cancel_attendee_with_promotion(...)`
 - `add_proxy_attendee(...)`
 - `toggle_event_interest(...)`
+- `get_event_for_view(...)`
+- `list_public_calendar_events(...)`
+- `count_hidden_upcoming_activities(...)`
+- `list_event_attendees_for_view(...)`
+- `list_event_interests_for_view(...)`
+- `get_guest_bookings(...)`
+- `get_guest_interests(...)`
 
 These are the safer paths for fragile operations.
+
+The newer read-side RPCs matter for privacy as much as convenience:
+
+- they let the app return semi-public preview fields without exposing private-link-only fields through raw table reads
+- they keep guest booking restore working after tightening `events` read access
+- they reduce reliance on broad `SELECT * FROM events` patterns for public-facing pages
 
 The repo also contains older SQL functions and trigger-based behavior in the starter schema. Do not assume the frontend still uses those directly.
 
