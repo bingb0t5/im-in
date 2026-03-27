@@ -53,79 +53,130 @@ export default function Home({ user }: { user: User | null }) {
   const fetchAllData = async () => {
     if (!user) return;
     setLoading(true);
-    try {
-      // 1. Fetch Hosted Events (legacy owner + co-host memberships)
-      const { data: hostedByOwner, error: hostedByOwnerError } = await supabase
+
+    const fetchEventsByIds = async (ids: string[]) => {
+      if (ids.length === 0) return [] as Event[];
+      const { data, error } = await supabase
         .from('events')
-        .select(`
-          *,
-          event_attendees(status)
-        `)
+        .select('*')
+        .in('id', ids);
+      if (error) throw error;
+      return (data || []) as Event[];
+    };
+
+    try {
+      const {
+        data: hostedByOwner,
+        error: hostedByOwnerError,
+      } = await supabase
+        .from('events')
+        .select('*')
         .eq('host_user_id', user.id)
         .order('starts_at', { ascending: true });
 
       if (hostedByOwnerError) throw hostedByOwnerError;
 
-      const { data: hostedByMembership, error: hostedByMembershipError } = await supabase
+      const {
+        data: hostedMembershipRows,
+        error: hostedByMembershipError,
+      } = await supabase
         .from('event_hosts')
-        .select(`
-          event_id,
-          events (
-            *,
-            event_attendees(status)
-          )
-        `)
+        .select('event_id')
         .eq('user_id', user.id);
 
       if (hostedByMembershipError) throw hostedByMembershipError;
 
-      // 2. Fetch Joined Events (More resilient)
-      const { data: joined, error: joinedError } = await supabase
+      const {
+        data: joinedRows,
+        error: joinedError,
+      } = await supabase
         .from('event_attendees')
-        .select(`
-          *,
-          events (*)
-        `)
+        .select('*')
         .or(`user_id.eq.${user.id},guest_email.eq.${user.email}`)
         .neq('status', 'cancelled')
         .order('joined_at', { ascending: false });
 
       if (joinedError) throw joinedError;
 
-      // 3. Fetch Thinking-About-It events
       const thinkingIdentityFilters = [
         user.id ? `user_id.eq.${user.id}` : '',
         user.email ? `guest_email.eq.${user.email}` : '',
       ].filter(Boolean);
       const thinkingQuery = supabase
         .from('event_interests')
-        .select(`
-          *,
-          events (*)
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
-      const { data: thinking, error: thinkingError } =
+      const {
+        data: thinkingRows,
+        error: thinkingError,
+      } =
         thinkingIdentityFilters.length > 0
           ? await thinkingQuery.or(thinkingIdentityFilters.join(','))
           : await thinkingQuery.limit(0);
 
       if (thinkingError) throw thinkingError;
 
+      const hostedMembershipEventIds = (hostedMembershipRows || [])
+        .map((row: any) => row.event_id as string)
+        .filter(Boolean);
+
+      const joinedEventIds = (joinedRows || [])
+        .map((row: any) => row.event_id as string)
+        .filter(Boolean);
+
+      const thinkingEventIds = (thinkingRows || [])
+        .map((row: any) => row.event_id as string)
+        .filter(Boolean);
+
+      const [
+        hostedByMembershipEvents,
+        joinedEventRecords,
+        thinkingEventRecords,
+      ] = await Promise.all([
+        fetchEventsByIds(hostedMembershipEventIds),
+        fetchEventsByIds(Array.from(new Set(joinedEventIds))),
+        fetchEventsByIds(Array.from(new Set(thinkingEventIds))),
+      ]);
+
+      const joinedEventMap = Object.fromEntries(
+        joinedEventRecords.map((event) => [event.id, event]),
+      );
+
+      const thinkingEventMap = Object.fromEntries(
+        thinkingEventRecords.map((event) => [event.id, event]),
+      );
+
       const hostedMerged = [
         ...((hostedByOwner || []) as any[]),
-        ...((hostedByMembership || [])
-          .map((row: any) => (Array.isArray(row.events) ? row.events[0] : row.events))
-          .filter(Boolean) as any[]),
+        ...(hostedByMembershipEvents as any[]),
       ];
       const hostedById = hostedMerged.reduce((acc: Record<string, any>, event: any) => {
         if (!event?.id) return acc;
         acc[event.id] = event;
         return acc;
       }, {});
-      const hostedWithCounts = withConfirmedCounts(Object.values(hostedById));
+
+      const hostedIds = Object.keys(hostedById);
+      const { data: hostedAttendeeRows, error: hostedAttendeeRowsError } = hostedIds.length > 0
+        ? await supabase
+            .from('event_attendees')
+            .select('event_id, status')
+            .in('event_id', hostedIds)
+            .neq('status', 'cancelled')
+        : { data: [], error: null };
+
+      if (hostedAttendeeRowsError) throw hostedAttendeeRowsError;
+
+      const hostedEventsWithAttendees = Object.values(hostedById).map((event: any) => ({
+        ...event,
+        event_attendees: ((hostedAttendeeRows || []) as Array<{ event_id: string; status: string }>)
+          .filter((row) => row.event_id === event.id)
+          .map((row) => ({ status: row.status })),
+      }));
+
+      const hostedWithCounts = withConfirmedCounts(hostedEventsWithAttendees);
       const hostedEventIds = hostedWithCounts.map((event) => event.id);
 
-      // 4. Fetch pending "request to view" rows for hosted activities
       const { data: pendingRequests, error: pendingRequestsError } = await supabase
         .from('event_access_requests')
         .select(`
@@ -146,11 +197,26 @@ export default function Home({ user }: { user: User | null }) {
 
       if (pendingRequestsError) throw pendingRequestsError;
 
-      const thinkingRows = (thinking || []).map((row: any) => ({
+      const normalizedJoinedRows = (joinedRows || [])
+        .map((row: any) => ({
+          ...row,
+          events: joinedEventMap[row.event_id] || null,
+        }))
+        .filter((row: any) => row.events);
+
+      const normalizedThinkingRows = (thinkingRows || [])
+        .map((row: any) => ({
+          ...row,
+          events: thinkingEventMap[row.event_id] || null,
+        }))
+        .filter((row: any) => row.events);
+
+      const thinkingRowsWithStatus = normalizedThinkingRows.map((row: any) => ({
         ...row,
         status: 'thinking',
       }));
-      const combinedJoined = [...(joined || []), ...thinkingRows];
+
+      const combinedJoined = [...normalizedJoinedRows, ...thinkingRowsWithStatus];
 
       setHostedEvents(hostedWithCounts);
       setJoinedEvents(combinedJoined);
@@ -164,7 +230,6 @@ export default function Home({ user }: { user: User | null }) {
       }));
       setPendingAccessRequests(normalizedPendingRequests);
 
-      // 5. Smart Default Logic (Only if not already set)
       if (hostedWithCounts.length === 0 && combinedJoined.length > 0) {
         setView('attending');
       }

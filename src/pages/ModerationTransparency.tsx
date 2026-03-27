@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Calendar, ExternalLink, MapPin, X } from 'lucide-react';
 import { supabase } from '../supabase';
-import { PublicModerationLogEntry } from '../types';
+import { Event, PublicModerationLogEntry } from '../types';
+import { formatDate } from '../utils';
 
 type ActionFilter = 'all' | PublicModerationLogEntry['action'];
 
@@ -36,6 +37,10 @@ export default function ModerationTransparency() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<PublicModerationLogEntry | null>(null);
+  const [previewEvent, setPreviewEvent] = useState<(Event & { can_view_full_details?: boolean }) | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const actionFilter = (searchParams.get('action') as ActionFilter | null) || 'all';
   const activityFilter = searchParams.get('activity') || null;
@@ -92,6 +97,42 @@ export default function ModerationTransparency() {
     }
     setSearchParams(nextParams, { replace: true });
   };
+
+  const openPreviewModal = async (entry: PublicModerationLogEntry) => {
+    setSelectedEntry(entry);
+    setPreviewEvent(null);
+    setPreviewError(null);
+
+    if (!entry.public_slug_snapshot) {
+      setPreviewLoading(false);
+      return;
+    }
+
+    setPreviewLoading(true);
+
+    const { data, error: previewRpcError } = await supabase.rpc('get_event_for_view', {
+      p_slug: entry.public_slug_snapshot,
+      p_access_code: null,
+    });
+
+    if (previewRpcError || !Array.isArray(data) || data.length === 0) {
+      setPreviewError('The current public page is not available right now.');
+      setPreviewLoading(false);
+      return;
+    }
+
+    setPreviewEvent(data[0] as Event & { can_view_full_details?: boolean });
+    setPreviewLoading(false);
+  };
+
+  const closePreviewModal = () => {
+    setSelectedEntry(null);
+    setPreviewEvent(null);
+    setPreviewError(null);
+    setPreviewLoading(false);
+  };
+
+  const previewPath = selectedEntry?.public_slug_snapshot ? `/events/${selectedEntry.public_slug_snapshot}` : null;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
@@ -165,7 +206,12 @@ export default function ModerationTransparency() {
           ) : (
             <div className="space-y-3">
               {entries.map((entry) => (
-                <article key={entry.id} className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4 space-y-2">
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => { void openPreviewModal(entry); }}
+                  className="w-full text-left rounded-2xl border border-slate-100 bg-slate-50/60 p-4 space-y-2 hover:bg-slate-50 transition-colors"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold bg-slate-900 text-white">
@@ -193,8 +239,9 @@ export default function ModerationTransparency() {
 
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
                     <span>{entry.moderator_public_handle}</span>
+                    <span>Tap to view current public page</span>
                   </div>
-                </article>
+                </button>
               ))}
 
               {hasMore ? (
@@ -213,6 +260,102 @@ export default function ModerationTransparency() {
           )}
         </section>
       </main>
+
+      {selectedEntry ? (
+        <div className="fixed inset-0 z-50 bg-slate-900/30 px-4 py-6 overflow-y-auto overscroll-contain">
+          <div className="min-h-full flex items-center justify-center">
+            <div className="w-full max-w-2xl bg-white rounded-3xl p-6 shadow-xl space-y-5 my-auto">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-lg font-bold text-slate-900">
+                    {previewEvent?.title || selectedEntry.public_title_snapshot || 'Public activity'}
+                  </p>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Current public-facing page preview for this moderation log entry.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closePreviewModal}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                  aria-label="Close activity preview modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold bg-slate-900 text-white">
+                    {formatAction(selectedEntry.action)}
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                    {selectedEntry.target_visibility_snapshot === 'semi_public' ? 'Semi-public preview' : 'Public'}
+                  </span>
+                </div>
+                {selectedEntry.public_explanation ? (
+                  <p className="text-sm text-slate-500 leading-relaxed">{selectedEntry.public_explanation}</p>
+                ) : null}
+              </div>
+
+              {previewLoading ? (
+                <div className="rounded-2xl border border-slate-100 p-5 space-y-3 animate-pulse">
+                  <div className="h-5 w-1/2 rounded-full bg-slate-100" />
+                  <div className="h-4 w-1/3 rounded-full bg-slate-100" />
+                  <div className="h-4 w-2/3 rounded-full bg-slate-100" />
+                </div>
+              ) : previewError ? (
+                <div className="rounded-2xl border border-slate-100 p-5 space-y-3">
+                  <p className="text-sm font-bold text-slate-900">
+                    {selectedEntry.public_title_snapshot || 'Public activity'}
+                  </p>
+                  <p className="text-sm text-slate-500 leading-relaxed">{previewError}</p>
+                </div>
+              ) : previewEvent ? (
+                <div className="rounded-2xl border border-slate-100 p-5 space-y-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                      <p className="text-sm font-bold text-slate-800">{formatDate(previewEvent.starts_at, previewEvent.timezone)}</p>
+                    </div>
+                    {(previewEvent.location_text || previewEvent.public_location_text) ? (
+                      <div className="flex items-center gap-3">
+                        <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                        <p className="text-sm text-slate-600">
+                          {previewEvent.location_text || previewEvent.public_location_text}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {previewEvent.public_summary ? (
+                    <p className="text-sm text-slate-500 leading-relaxed">{previewEvent.public_summary}</p>
+                  ) : null}
+
+                  {previewEvent.description ? (
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Description</p>
+                      <p className="text-sm text-slate-500 leading-relaxed whitespace-pre-wrap">{previewEvent.description}</p>
+                    </div>
+                  ) : null}
+
+                  {previewPath ? (
+                    <div className="pt-1">
+                      <Link
+                        to={previewPath}
+                        className="inline-flex items-center gap-2 text-sm font-bold text-brand-600 hover:text-brand-500 transition-colors"
+                      >
+                        Open public page
+                        <ExternalLink className="w-4 h-4" />
+                      </Link>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
