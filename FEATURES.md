@@ -99,10 +99,13 @@ Implemented in `src/pages/Calendar.tsx`.
 Features:
 
 - shows future activities where `is_public = true`
+- only lists activities where `public_discovery_enabled = true`
 - search by query string
 - public list styling for browse mode
 - semi-public previews show reduced detail
 - if a signed-in attendee already has access to a semi-public activity, the app prefers the private link path when they click it
+- shows a subtle count of other upcoming activities in the next 7 days that are not currently visible in public discovery, excluding spam-marked items
+- when the public list is empty, offers a `Create your own activity` CTA
 
 ### Activity detail page
 
@@ -265,6 +268,7 @@ Lets users discover upcoming public-facing activities.
   - scheduled activities
   - future activities
   - `is_public = true`
+- `public_discovery_enabled = true`
 
 ### Search behavior
 
@@ -280,7 +284,7 @@ Lets users discover upcoming public-facing activities.
 
 How it works:
 
-- appears in public browse
+- appears in public browse when discovery is enabled
 - public detail is fully visible
 - exact time is shown publicly
 
@@ -288,7 +292,7 @@ How it works:
 
 How it works:
 
-- appears in public browse
+- appears in public browse when discovery is enabled
 - public preview is intentionally limited
 - full access comes from a private host-shared link using `?access=...`
 - non-members can submit a request to view/join
@@ -677,7 +681,38 @@ These are important because they affect how confidently someone should describe 
 - full sync calendar integration
 - production-grade guest recovery email delivery
 
-## 25. Most Important Behavioral Caveats
+## 25. AI Moderation And Review Queue
+
+### What it does
+
+Adds a lightweight discovery gate for public and semi-public activities so broader public browse can stay open without exposing every listing immediately.
+
+### How it works
+
+- public and semi-public activities are reset to `pending` when meaningful public-facing fields change
+- the moderation Edge Function classifies the saved activity and writes structured fields back to `events`
+- trusted hosts may get slightly softer outcomes for some medium-risk low-detail cases
+- the public browse page only shows activities where `public_discovery_enabled = true`
+
+### Review tooling
+
+- hidden page: `/admin/moderation`
+- frontend access is controlled by `VITE_MODERATION_ADMIN_EMAILS`
+- server-authorized override actions are controlled by `MODERATION_ADMIN_EMAILS`
+- queue buckets include `review`, `archived`, and `spam`
+- archive is a reviewer housekeeping action and is separate from hide/review
+
+### Manual actions
+
+- force visible
+- force limited
+- hide / review
+- mark safe
+- mark spam
+- archive / return to review
+- re-run AI moderation
+
+## 26. Most Important Behavioral Caveats
 
 ### `/bookings` is guest-session driven
 

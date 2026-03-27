@@ -47,6 +47,7 @@ The weakest / least finished areas are:
 - proxy RSVP / "add another person"
 - "thinking about it"
 - lightweight AI moderation for broader public discovery on public/semi-public activities
+- hidden moderation admin queue with review, archived, and spam buckets for allowlisted admins
 - Google Calendar link
 - `.ics` download
 - co-host support
@@ -65,6 +66,7 @@ The weakest / least finished areas are:
 - route-aware private link building for semi-public activities
 - filtered realtime on the host dashboard
 - Supabase Edge Function moderation with content-hash reuse and stored discovery state
+- separate reviewer archive state for the moderation queue via `events.moderation_archived_at`
 
 ## Partial Or Awkward
 
@@ -121,11 +123,12 @@ What is real:
 - public browse is gated by `events.public_discovery_enabled`
 - public/semi-public activities are marked `pending` again when meaningful public-facing content changes
 - a Supabase Edge Function writes structured moderation results back onto `events`
+- a hidden admin page at `/admin/moderation` allows allowlisted admins to review items, archive queue entries, mark spam, and apply manual overrides
+- archive is separate from hide/review, so queue housekeeping does not change the effective moderation decision by itself
 
 What is still minimal:
 
-- there is no dedicated reviewer dashboard
-- manual overrides currently mean editing moderation fields in Supabase Studio / admin tooling
+- the reviewer UI is intentionally lightweight and hidden, not a full operations console
 - trust scoring is intentionally simple and based on prior hosted-activity count, not a richer reputation system
 
 ## Not Implemented / Not Production-Ready

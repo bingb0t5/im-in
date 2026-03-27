@@ -35,6 +35,7 @@ The app still uses `event` naming internally in code, routes, and database table
 - supports co-hosts
 - supports Google Calendar links and `.ics` downloads
 - supports guest-session bookings and token-based recovery route handling
+- supports hidden moderation review tooling for allowlisted admins
 
 ### What it does not currently do well
 
@@ -89,6 +90,7 @@ The route table lives in `src/App.tsx`.
 | `/events/:slug` | `src/pages/EventDetail.tsx` | Attendee-facing activity detail page |
 | `/host/events/:id` | `src/pages/HostDashboard.tsx` | Host/co-host management page |
 | `/calendar` | `src/pages/Calendar.tsx` | Public browse/search page |
+| `/admin/moderation` | `src/pages/AdminModeration.tsx` | Hidden allowlist-gated moderation queue and override tooling |
 | `/bookings` | `src/pages/Bookings.tsx` | Guest-session bookings page |
 | `/recover` | `src/pages/Recovery.tsx` | Token-based guest-session restore |
 | `*` | redirect | Redirects to `/` |
@@ -97,6 +99,7 @@ The route table lives in `src/App.tsx`.
 
 - `/host/events/:id` and `/host/events/:id/edit` are auth-gated in `App.tsx`
 - `/create-event` is not route-gated because the delayed-auth create flow is intentional
+- `/admin/moderation` requires both a signed-in user and an allowlisted admin email
 - `/bookings` is not the general signed-in attendee dashboard; it is guest-session driven
 - `/login` redirects authenticated users to `/create-event`, not `/`
 - unknown routes redirect to `/`
@@ -165,9 +168,20 @@ Signed in:
 ### `Calendar.tsx`
 
 - fetches future `events` where `is_public = true`
+- only shows items where `public_discovery_enabled = true`
 - supports search via query param
 - hides exact time for semi-public previews
 - prefers private access links for already-joined semi-public attendees when available
+- shows a subtle count of other upcoming activities in the next 7 days that are not publicly visible, excluding spam-marked items
+- shows a create-activity CTA in the empty state
+
+### `AdminModeration.tsx`
+
+- hidden moderation operations page
+- fetches public/semi-public activities with stored moderation state
+- groups items into review, archived, spam, and all buckets
+- supports manual archive separate from discovery override
+- calls the moderation Edge Function for manual overrides and AI re-runs
 
 ### `Bookings.tsx`
 
@@ -198,8 +212,11 @@ Signed in:
 Important files:
 
 - `authRedirect.ts`: deployment-aware auth redirect URL building
+- `admin.ts`: frontend admin-email allowlist helpers
 - `navigation.ts`: `goBackOr(...)`
 - `events.ts`: event-path building and count hydration
+- `functions.ts`: authenticated Supabase Edge Function invocation helper
+- `moderation.ts`: shared moderation types, hash logic, and UI messaging helpers
 - `attendees.ts`: attendee ownership and summary helpers
 - `bookings.ts`: booking grouping
 - `interests.ts`: "thinking about it" helpers
@@ -317,6 +334,7 @@ This is one of the clearest code/product/docs mismatches in the current repo.
 
 - `is_public = true` means the activity may appear in browse/search
 - `is_public = false` means it should not appear in public browse
+- `public_discovery_enabled = true` is the extra gate that allows broader public discovery
 - `visibility = public` means public details are intended to be fully visible
 - `visibility = semi_public` means public preview plus host-shared private access
 - `visibility = private` means unlisted/link-only behavior
@@ -334,6 +352,7 @@ So contributors should think of:
 
 - `is_public` as the broad browse flag
 - `visibility` as the product-level visibility mode
+- `public_discovery_enabled` as the moderation/trust gate for whether a public-capable item is actually shown in `/calendar`
 
 ### Share behavior
 
@@ -361,10 +380,11 @@ So contributors should think of:
 ### Common page-level queries
 
 - `Home.tsx`: hosted events, joined events, interests, pending access requests
-- `Calendar.tsx`: future public events and joined private-access map
+- `Calendar.tsx`: future public/discoverable events, hidden upcoming count, and joined private-access map
 - `CreateEvent.tsx`: create/edit event reads and writes
 - `EventDetail.tsx`: activity, attendees, interests, access requests, RSVP and proxy flows
 - `HostDashboard.tsx`: event, attendees, interests, access requests, co-hosts
+- `AdminModeration.tsx`: moderation queue and override operations
 - `guestService.ts`: profile/session reads and writes
 
 ## RPC And Trigger Architecture

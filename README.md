@@ -18,8 +18,10 @@ What is solid today:
 - guest session persistence and guest bookings
 - host dashboard and co-host support
 - public browse/search
+- public browse/search with a subtle "other activities this week" count for hidden upcoming activity volume
 - Google Calendar and `.ics` export from joined activities
 - "thinking about it" interest tracking
+- lightweight AI moderation with a hidden admin review queue
 
 What is still rough or partial:
 
@@ -49,6 +51,7 @@ Main product areas:
 - `semi_public`: appears in public browse with limited details; host shares the private access link manually
 - `private`: unlisted / link-only
 - public and semi-public discovery is now further gated by lightweight AI moderation and host trust before broader browse visibility is enabled
+- the public browse page can also show a subtle count of upcoming activities that are happening this week but are not currently visible in public discovery, excluding items marked as spam
 
 ### Scheduling model
 
@@ -76,6 +79,7 @@ Main product areas:
 - share public and private links
 - add co-hosts
 - see neutral discovery-status messaging when broader public visibility is limited
+- allowlisted admins can use a hidden moderation page to review, archive, spam-mark, or manually override discovery decisions
 
 ## Core User Flows
 
@@ -237,12 +241,14 @@ Important app routes:
 - `/events/:slug`
 - `/host/events/:id`
 - `/calendar`
+- `/admin/moderation`
 - `/bookings`
 - `/recover`
 
 Important route behavior:
 
 - `/host/events/:id` and `/host/events/:id/edit` require a signed-in user
+- `/admin/moderation` is a hidden allowlist-gated admin page layered on top of normal auth
 - `/bookings` is guest-session driven, not the main authenticated dashboard
 - unknown routes redirect to `/`
 
@@ -332,6 +338,7 @@ The product is positioned as an open, community-built project. The landing page 
 - `CONTRIBUTING.md`: contributor guidance and safety notes
 - `SCHEMA_OR_DATA_MODEL.md`: data model and identity/schema assumptions
 - `AI_MODERATION.md`: moderation triggers, stored fields, prompt, and cost-control strategy
+- `CHANGELOG.md`: human-readable summary of notable product and technical changes
 - `AI_DEV_RULES.md`: implementation safety guidance
 - `AUTH_UNIFICATION_PLAN.md`: future-facing auth unification plan
 - `SCHEMA_ALIGNMENT.md`: schema drift notes

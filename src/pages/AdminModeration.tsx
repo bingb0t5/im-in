@@ -279,11 +279,12 @@ export default function AdminModeration({ user }: { user: User | null }) {
               const isExpanded = expandedEventId === event.id;
               const bucket = getModerationBucket(event);
               const statusBadge =
-                bucket === 'archived'
-                  ? { label: 'Archived', className: 'bg-slate-100 text-slate-700 border border-slate-200' }
-                  : bucket === 'spam'
-                    ? { label: 'Spam', className: 'bg-red-50 text-red-700 border border-red-100' }
-                    : getModerationStatusBadge(event);
+                bucket === 'spam'
+                  ? { label: 'Spam', className: 'bg-red-50 text-red-700 border border-red-100' }
+                  : getModerationStatusBadge(event);
+              const archiveBadge = event.moderation_archived_at
+                ? { label: 'Inbox archived', className: 'bg-slate-100 text-slate-700 border border-slate-200' }
+                : null;
               const overrideLabel = getOverrideLabel(event);
 
               return (
@@ -307,7 +308,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
                         {bucket === 'review'
                           ? aiStatus.detail
                           : bucket === 'archived'
-                            ? 'Archived from broader discovery.'
+                            ? 'Archived from the moderator inbox. Discovery status stays the same.'
                             : bucket === 'spam'
                               ? 'Marked as spam.'
                               : 'Not currently in the review queue.'}
@@ -315,6 +316,11 @@ export default function AdminModeration({ user }: { user: User | null }) {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
+                      {archiveBadge ? (
+                        <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-bold ${archiveBadge.className}`}>
+                          {archiveBadge.label}
+                        </span>
+                      ) : null}
                       {statusBadge ? (
                         <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-bold ${statusBadge.className}`}>
                           {statusBadge.label}
@@ -328,7 +334,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
                     <>
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-xs text-slate-400">
-                          `/events/{event.slug}`{overrideLabel ? ` · override: ${overrideLabel}` : ''}{event.moderation_archived_at ? ` · archived ${formatDate(event.moderation_archived_at)}` : ''}
+                          `/events/{event.slug}`{overrideLabel ? ` · override: ${overrideLabel}` : ''}{event.moderation_archived_at ? ` · inbox archived ${formatDate(event.moderation_archived_at)}` : ''}
                         </p>
                         <Link
                           to={`/host/events/${event.id}`}
@@ -418,7 +424,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
                             }}
                             className="px-3 py-2 rounded-xl bg-slate-50 text-slate-700 text-sm font-bold hover:bg-slate-100 transition-all disabled:opacity-50"
                           >
-                            {bucket === 'archived' ? 'Return to review' : 'Archive'}
+                            {bucket === 'archived' ? 'Return to inbox' : 'Archive from inbox'}
                           </button>
                         ) : null}
                         <button

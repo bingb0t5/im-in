@@ -160,7 +160,7 @@ This keeps the system aligned with product intent:
 
 ## Current Manual Override Scaffolding
 
-There is no full reviewer dashboard yet.
+There is now a small hidden admin review page, but it is intentionally lightweight rather than a full moderation operations console.
 
 The current MVP uses `events.moderation_override` plus a separate `events.moderation_archived_at` field for reviewer queue housekeeping.
 
@@ -263,13 +263,15 @@ Frontend optional env:
 - Edge Function moderation endpoint
 - content-hash result reuse
 - public calendar discovery gated by `public_discovery_enabled`
+- public calendar can show a subtle count of other upcoming hidden activities in the next 7 days, excluding spam-marked items
 - neutral host-facing messaging on the host dashboard
 - hidden moderation admin page at `/admin/moderation` for allowlisted emails
 - manual override actions routed through the existing moderation edge function
+- manual archive / return-to-review queue handling via `moderation_archived_at`
 
 ## What Is Still Future Work
 
-- real reviewer/admin UI
+- richer reviewer/admin tooling beyond the current hidden queue
 - backfill tooling for older activities
 - richer trust scoring
 - user reports
