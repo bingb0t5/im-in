@@ -36,7 +36,8 @@ The weakest / least finished areas are:
 ### Product features
 
 - signed-out landing page
-- signed-in dashboard
+- public home page for everyone
+- signed-in dashboard at `/my-activities`
 - public search and browse
 - public / semi-public / private visibility modes
 - delayed-auth create flow
@@ -129,6 +130,8 @@ What is real:
 - a hidden admin page at `/admin/moderation` allows allowlisted admins to review items, archive queue entries, mark spam, and apply manual overrides
 - archive is separate from hide/review, so queue housekeeping does not change the effective moderation decision by itself
 - a public moderation transparency page at `/moderation` exposes public-facing moderation history with neutral language
+- manual moderator decisions can now include a required public explanation that is shown in the transparency log
+- transparency log entries can open the current public-facing activity page in a modal preview
 - semi-public private-link-only content stays outside platform moderation review and outside the public moderation log
 - private activities are excluded from platform moderation review and from the public moderation log
 
@@ -185,6 +188,7 @@ The biggest gaps were:
 - under-documenting `event_interests`
 - under-documenting co-host behavior
 - not clearly enough separating guest bookings from signed-in dashboard behavior
+- not clearly enough separating the public home page from the signed-in dashboard
 - stale release checklist references to Google login
 - not having a practical contributor/current-state doc set
 

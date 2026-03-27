@@ -36,8 +36,9 @@ Although the codebase still uses many `event` names internally, the live product
 
 Main product areas:
 
-- a signed-out landing page with browse, create, and community/about messaging
+- a public home page for everyone, with browse, create, transparency, and community/about messaging
 - public activity browsing through `/calendar`
+- a signed-in dashboard through `/my-activities`
 - activity detail pages with RSVP, proxy RSVP, cancellation, sharing, and host contact actions
 - a create/edit flow with delayed authentication
 - a host dashboard for attendee, host, and access-request management
@@ -237,6 +238,7 @@ Notes:
 Important app routes:
 
 - `/`
+- `/my-activities`
 - `/login`
 - `/create-event`
 - `/host/events/:id/edit`
@@ -250,6 +252,8 @@ Important app routes:
 
 Important route behavior:
 
+- `/` is the public home page for both signed-out and signed-in users
+- `/my-activities` is the signed-in dashboard for hosting and attending
 - `/host/events/:id` and `/host/events/:id/edit` require a signed-in user
 - `/moderation` is public-facing and only shows moderation history for public content
 - `/admin/moderation` is a hidden allowlist-gated admin page layered on top of normal auth

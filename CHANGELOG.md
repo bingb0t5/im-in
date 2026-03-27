@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## 2026-03-27
+
+### Home and navigation
+
+- changed `/` so it is now the real public home page for everyone, including signed-in users
+- moved the signed-in hosting/attending dashboard to `/my-activities`
+- updated the main home CTA so signed-in users now go to `My Activities`, while guest-session users still go to `/bookings`
+- added a `Moderation transparency` link on the public activities page at `/calendar`
+
+### Moderation transparency UX
+
+- made public moderation log entries clickable so they can open the current public-facing activity page in a modal
+- kept those modal previews privacy-safe by loading them through the existing safe event read RPC
+- added required moderator-written public explanations for manual moderation decisions
+- now stores those moderator explanations in the public moderation transparency log instead of only generic system copy
+
 ## 2026-03-24
 
 ### Public moderation transparency
