@@ -324,6 +324,7 @@ async function insertPublicModerationLog(
     previousDiscoveryEnabled?: boolean | null;
     override?: ModerationOverride | null;
     moderatorInternalId?: string | null;
+    publicExplanation?: string | null;
     source?: 'manual' | 'system';
   } = {},
 ) {
@@ -336,6 +337,7 @@ async function insertPublicModerationLog(
     source: options.source || 'system',
   });
   const reasonCode = getPublicReasonCode(update.moderation_reasons || []);
+  const manualExplanation = normalizeText(options.publicExplanation);
 
   const { error } = await admin.from('public_moderation_log_entries').insert({
     target_type: 'activity',
@@ -345,7 +347,7 @@ async function insertPublicModerationLog(
     public_slug_snapshot: normalizeText(event.slug),
     action,
     reason_code: reasonCode,
-    public_explanation: getPublicExplanation(action, reasonCode),
+    public_explanation: manualExplanation || getPublicExplanation(action, reasonCode),
     moderator_public_handle: moderatorPublicHandle,
     moderator_internal_id: options.moderatorInternalId || null,
   });
@@ -575,7 +577,7 @@ Deno.serve(async (request) => {
   let currentInputHash: string | null = null;
 
   try {
-    const { eventId, override, clearOverride, rerun, archive, unarchive, listQueue } = await request.json();
+    const { eventId, override, clearOverride, rerun, archive, unarchive, listQueue, publicExplanation } = await request.json();
     const adminEmails = parseEmailAllowlist(Deno.env.get('MODERATION_ADMIN_EMAILS'));
     const isAdmin = !!user.email && adminEmails.includes(user.email.trim().toLowerCase());
 
@@ -793,6 +795,7 @@ Deno.serve(async (request) => {
           previousDiscoveryEnabled,
           override: requestedOverride,
           moderatorInternalId: user.id,
+          publicExplanation: typeof publicExplanation === 'string' ? publicExplanation : null,
           source: 'manual',
         },
       );
@@ -857,6 +860,7 @@ Deno.serve(async (request) => {
           previousDiscoveryEnabled,
           override: event.moderation_override,
           moderatorInternalId: user.id,
+          publicExplanation: typeof publicExplanation === 'string' ? publicExplanation : null,
           source: 'manual',
         },
       );
@@ -933,6 +937,7 @@ Deno.serve(async (request) => {
       effectiveUpdate,
       {
         previousDiscoveryEnabled,
+        publicExplanation: typeof publicExplanation === 'string' ? publicExplanation : null,
         source: 'system',
       },
     );

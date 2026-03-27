@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
 import { User } from '@supabase/supabase-js';
-import { Shield, ArrowLeft, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Shield, ArrowLeft, RefreshCw, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { Event } from '../types';
 import { isModerationAdminEmail } from '../lib/admin';
 import { invokeAuthedFunction } from '../lib/functions';
@@ -10,6 +10,20 @@ import { formatDate } from '../utils';
 
 type OverrideOption = 'force_visible' | 'force_limited' | 'hide' | 'mark_safe' | 'mark_spam';
 type FilterOption = 'review' | 'archived' | 'spam' | 'all';
+type ModerationActionPayload = {
+  override?: OverrideOption;
+  clearOverride?: boolean;
+  rerun?: boolean;
+  archive?: boolean;
+  unarchive?: boolean;
+  publicExplanation?: string;
+};
+
+type PendingModerationAction = {
+  eventId: string;
+  label: string;
+  payload: ModerationActionPayload;
+};
 
 function getAiStatusSummary(event: Event) {
   if (event.moderation_status === 'error') {
@@ -82,6 +96,8 @@ export default function AdminModeration({ user }: { user: User | null }) {
   const [actionEventId, setActionEventId] = useState<string | null>(null);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingModerationAction | null>(null);
+  const [moderatorExplanation, setModeratorExplanation] = useState('');
 
   const isAdmin = isModerationAdminEmail(user?.email);
 
@@ -136,7 +152,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
 
   const applyModerationAction = async (
     eventId: string,
-    payload: { override?: OverrideOption; clearOverride?: boolean; rerun?: boolean; archive?: boolean; unarchive?: boolean },
+    payload: ModerationActionPayload,
   ) => {
     setActionEventId(eventId);
     setError(null);
@@ -147,11 +163,46 @@ export default function AdminModeration({ user }: { user: User | null }) {
         ...payload,
       });
       await fetchEvents();
+      return true;
     } catch (invokeError) {
       setError(invokeError instanceof Error ? invokeError.message : 'Moderation action failed.');
+      return false;
+    }
+    finally {
+      setActionEventId(null);
+    }
+  };
+
+  const openDecisionModal = (eventId: string, label: string, payload: ModerationActionPayload) => {
+    setPendingAction({ eventId, label, payload });
+    setModeratorExplanation('');
+    setError(null);
+  };
+
+  const closeDecisionModal = () => {
+    if (actionEventId) return;
+    setPendingAction(null);
+    setModeratorExplanation('');
+  };
+
+  const submitDecision = async () => {
+    if (!pendingAction) return;
+
+    const explanation = moderatorExplanation.trim();
+    if (!explanation) {
+      setError('Please add a short explanation for this moderation decision.');
+      return;
     }
 
-    setActionEventId(null);
+    const wasSuccessful = await applyModerationAction(pendingAction.eventId, {
+      ...pendingAction.payload,
+      publicExplanation: explanation,
+    });
+
+    if (wasSuccessful) {
+      setPendingAction(null);
+      setModeratorExplanation('');
+    }
   };
 
   if (!user) {
@@ -367,7 +418,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
                         <button
                           type="button"
                           disabled={isBusy}
-                          onClick={() => { void applyModerationAction(event.id, { override: 'force_visible' }); }}
+                          onClick={() => { openDecisionModal(event.id, 'Force visible', { override: 'force_visible' }); }}
                           className="px-3 py-2 rounded-xl bg-brand-600 text-white text-sm font-bold hover:bg-brand-500 transition-all disabled:opacity-50"
                         >
                           Force visible
@@ -375,7 +426,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
                         <button
                           type="button"
                           disabled={isBusy}
-                          onClick={() => { void applyModerationAction(event.id, { override: 'force_limited' }); }}
+                          onClick={() => { openDecisionModal(event.id, 'Force limited', { override: 'force_limited' }); }}
                           className="px-3 py-2 rounded-xl bg-amber-50 text-amber-700 text-sm font-bold hover:bg-amber-100 transition-all disabled:opacity-50"
                         >
                           Force limited
@@ -383,7 +434,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
                         <button
                           type="button"
                           disabled={isBusy}
-                          onClick={() => { void applyModerationAction(event.id, { override: 'hide' }); }}
+                          onClick={() => { openDecisionModal(event.id, 'Hide / review', { override: 'hide' }); }}
                           className="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 transition-all disabled:opacity-50"
                         >
                           Hide / review
@@ -406,7 +457,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
                         <button
                           type="button"
                           disabled={isBusy}
-                          onClick={() => { void applyModerationAction(event.id, { override: 'mark_safe' }); }}
+                          onClick={() => { openDecisionModal(event.id, 'Mark safe', { override: 'mark_safe' }); }}
                           className="px-3 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-bold hover:bg-brand-100 transition-all disabled:opacity-50"
                         >
                           Mark safe
@@ -414,7 +465,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
                         <button
                           type="button"
                           disabled={isBusy}
-                          onClick={() => { void applyModerationAction(event.id, { override: 'mark_spam' }); }}
+                          onClick={() => { openDecisionModal(event.id, 'Mark spam', { override: 'mark_spam' }); }}
                           className="px-3 py-2 rounded-xl bg-red-50 text-red-700 text-sm font-bold hover:bg-red-100 transition-all disabled:opacity-50"
                         >
                           Mark spam
@@ -433,7 +484,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
                         <button
                           type="button"
                           disabled={isBusy}
-                          onClick={() => { void applyModerationAction(event.id, { clearOverride: true, rerun: true }); }}
+                          onClick={() => { openDecisionModal(event.id, 'Re-run AI moderation', { clearOverride: true, rerun: true }); }}
                           className="text-sm font-bold text-slate-500 hover:text-brand-600 transition-colors disabled:opacity-50"
                         >
                           Re-run AI moderation
@@ -447,6 +498,65 @@ export default function AdminModeration({ user }: { user: User | null }) {
           </div>
         )}
       </main>
+
+      {pendingAction ? (
+        <div className="fixed inset-0 z-50 bg-slate-900/30 px-4 py-6 overflow-y-auto overscroll-contain">
+          <div className="min-h-full flex items-center justify-center">
+            <div className="w-full max-w-lg bg-white rounded-3xl p-6 shadow-xl space-y-4 my-auto">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-lg font-bold text-slate-900">{pendingAction.label}</p>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Add a short public explanation for this moderation decision. It will appear in the moderation transparency log.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeDecisionModal}
+                  disabled={!!actionEventId}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
+                  aria-label="Close moderation explanation modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <textarea
+                value={moderatorExplanation}
+                onChange={(e) => setModeratorExplanation(e.target.value)}
+                rows={5}
+                placeholder="Explain the decision in calm, factual language."
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all resize-none"
+              />
+
+              {error ? (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                  {error}
+                </p>
+              ) : null}
+
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closeDecisionModal}
+                  disabled={!!actionEventId}
+                  className="px-4 py-2 rounded-full bg-slate-100 text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { void submitDecision(); }}
+                  disabled={!!actionEventId}
+                  className="px-4 py-2 rounded-full bg-slate-900 text-sm font-bold text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+                >
+                  {actionEventId ? 'Saving...' : 'Save decision'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
