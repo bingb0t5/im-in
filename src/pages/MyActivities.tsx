@@ -83,7 +83,9 @@ export default function MyActivities({ user }: { user: User | null }) {
             .neq('status', 'cancelled')
         : { data: [], error: null };
 
-      if (hostedAttendeeRowsError) throw hostedAttendeeRowsError;
+      if (hostedAttendeeRowsError) {
+        console.warn('Could not load hosted attendee counts for My Activities:', hostedAttendeeRowsError);
+      }
 
       const hostedEventsWithAttendees = Object.values(hostedById).map((event: any) => ({
         ...event,
@@ -113,7 +115,9 @@ export default function MyActivities({ user }: { user: User | null }) {
         .in('event_id', hostedEventIds.length > 0 ? hostedEventIds : ['00000000-0000-0000-0000-000000000000'])
         .order('created_at', { ascending: false });
 
-      if (pendingRequestsError) throw pendingRequestsError;
+      if (pendingRequestsError) {
+        console.warn('Could not load pending access requests for My Activities:', pendingRequestsError);
+      }
 
       const normalizedJoinedRows = (joinedRows || [])
         .filter((row: any) => row.events);
@@ -130,7 +134,7 @@ export default function MyActivities({ user }: { user: User | null }) {
 
       setHostedEvents(hostedWithCounts);
       setJoinedEvents(combinedJoined);
-      setPendingAccessRequests((pendingRequests || []).map((row: any) => ({
+      setPendingAccessRequests(((pendingRequests || []) as any[]).map((row: any) => ({
         id: row.id,
         event_id: row.event_id,
         requester_name: row.requester_name,
