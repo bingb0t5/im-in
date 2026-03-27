@@ -3,7 +3,7 @@ import { User } from '@supabase/supabase-js';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Calendar as CalendarIcon, ChevronRight, Eye, LogOut, MessageSquare, Plus, Search } from 'lucide-react';
 import { supabase } from '../supabase';
-import { formatDate } from '../utils';
+import { formatDate, isOnOrAfterTodayInTimeZone } from '../utils';
 import { Event } from '../types';
 import { groupBookingsByEvent } from '../lib/bookings';
 import { withConfirmedCounts, buildEventPath } from '../lib/events';
@@ -29,6 +29,8 @@ export default function MyActivities({ user }: { user: User | null }) {
   const [view, setView] = useState<'hosting' | 'attending'>('hosting');
   const [publicSearchQuery, setPublicSearchQuery] = useState('');
   const [showRequestsPanel, setShowRequestsPanel] = useState(false);
+  const [showPastHosting, setShowPastHosting] = useState(false);
+  const [showPastAttending, setShowPastAttending] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -165,6 +167,18 @@ export default function MyActivities({ user }: { user: User | null }) {
   };
 
   const groupedJoinedEvents = groupBookingsByEvent(joinedEvents);
+  const upcomingHostedEvents = hostedEvents.filter((event) =>
+    isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone),
+  );
+  const pastHostedEvents = hostedEvents.filter((event) =>
+    !isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone),
+  );
+  const upcomingJoinedEvents = groupedJoinedEvents.filter((groupedBooking) =>
+    isOnOrAfterTodayInTimeZone(groupedBooking.events.starts_at, groupedBooking.events.timezone),
+  );
+  const pastJoinedEvents = groupedJoinedEvents.filter((groupedBooking) =>
+    !isOnOrAfterTodayInTimeZone(groupedBooking.events.starts_at, groupedBooking.events.timezone),
+  );
 
   return (
     <div className="min-h-screen bg-slate-50 pb-32">
@@ -279,7 +293,7 @@ export default function MyActivities({ user }: { user: User | null }) {
             ))}
           </div>
         ) : view === 'hosting' ? (
-          hostedEvents.length === 0 ? (
+          upcomingHostedEvents.length === 0 ? (
             <div className="text-center py-16">
               <MessageSquare className="w-8 h-8 text-slate-200 mx-auto mb-4" />
               <h3 className="text-base font-bold text-slate-900 mb-1">Nothing scheduled</h3>
@@ -290,11 +304,11 @@ export default function MyActivities({ user }: { user: User | null }) {
             </div>
           ) : (
             <div className="bg-white rounded-2xl overflow-hidden">
-              {hostedEvents.map((event, idx) => (
+              {upcomingHostedEvents.map((event, idx) => (
                 <Link
                   key={event.id}
                   to={`/host/events/${event.id}`}
-                  className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${idx < hostedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
+                  className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${idx < upcomingHostedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -309,7 +323,7 @@ export default function MyActivities({ user }: { user: User | null }) {
             </div>
           )
         ) : (
-          joinedEvents.length === 0 ? (
+          upcomingJoinedEvents.length === 0 ? (
             <div className="text-center py-16">
               <CalendarIcon className="w-8 h-8 text-slate-200 mx-auto mb-4" />
               <h3 className="text-base font-bold text-slate-900 mb-1">No activities yet</h3>
@@ -320,11 +334,11 @@ export default function MyActivities({ user }: { user: User | null }) {
             </div>
           ) : (
             <div className="bg-white rounded-2xl overflow-hidden">
-              {groupedJoinedEvents.map((groupedBooking: any, idx: number) => (
+              {upcomingJoinedEvents.map((groupedBooking: any, idx: number) => (
                 <Link
                   key={groupedBooking.events.id}
                   to={buildEventPath(groupedBooking.events, { preferPrivateAccess: true })}
-                  className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${groupedBooking.status === 'thinking' ? 'bg-indigo-50/60' : ''} ${idx < groupedJoinedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
+                  className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${groupedBooking.status === 'thinking' ? 'bg-indigo-50/60' : ''} ${idx < upcomingJoinedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -348,6 +362,79 @@ export default function MyActivities({ user }: { user: User | null }) {
             </div>
           )
         )}
+
+        {!loading && view === 'hosting' && pastHostedEvents.length > 0 ? (
+          <section className="pt-1">
+            <button
+              type="button"
+              onClick={() => setShowPastHosting((prev) => !prev)}
+              className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
+            >
+              {showPastHosting ? 'Hide past activities' : `Past activities (${pastHostedEvents.length})`}
+            </button>
+            {showPastHosting ? (
+              <div className="mt-3 bg-white rounded-2xl overflow-hidden">
+                {pastHostedEvents.map((event, idx) => (
+                  <Link
+                    key={event.id}
+                    to={`/host/events/${event.id}`}
+                    className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${idx < pastHostedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-bold text-slate-900 leading-tight truncate">{event.title}</h3>
+                        <p className="text-xs text-slate-400 mt-0.5">{formatDate(event.starts_at, event.timezone)}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{event.location_text || 'No location'} · {(event as any).confirmed_count || 0} going</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {!loading && view === 'attending' && pastJoinedEvents.length > 0 ? (
+          <section className="pt-1">
+            <button
+              type="button"
+              onClick={() => setShowPastAttending((prev) => !prev)}
+              className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
+            >
+              {showPastAttending ? 'Hide past activities' : `Past activities (${pastJoinedEvents.length})`}
+            </button>
+            {showPastAttending ? (
+              <div className="mt-3 bg-white rounded-2xl overflow-hidden">
+                {pastJoinedEvents.map((groupedBooking: any, idx: number) => (
+                  <Link
+                    key={groupedBooking.events.id}
+                    to={buildEventPath(groupedBooking.events, { preferPrivateAccess: true })}
+                    className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${groupedBooking.status === 'thinking' ? 'bg-indigo-50/60' : ''} ${idx < pastJoinedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-bold text-slate-900 leading-tight truncate">{groupedBooking.events.title}</h3>
+                        {groupedBooking.status === 'thinking' ? (
+                          <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-0.5">I'm thinking about it</p>
+                        ) : null}
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {groupedBooking.attendees.map((name: string, i: number) => (
+                            <span key={i} className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md">
+                              {name}
+                            </span>
+                          ))}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">{formatDate(groupedBooking.events.starts_at, groupedBooking.events.timezone)}</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
       </main>
     </div>
   );

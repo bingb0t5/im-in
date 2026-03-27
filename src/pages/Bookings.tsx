@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { guestService } from '../services/guestService';
 import { ArrowLeft, Calendar, MapPin, AlertCircle, LogOut } from 'lucide-react';
-import { formatDate } from '../utils';
+import { formatDate, isOnOrAfterTodayInTimeZone } from '../utils';
 import { motion } from 'motion/react';
 import { BookingRow, GroupedBooking, groupBookingsByEvent } from '../lib/bookings';
 import { AttendeeProfile } from '../services/guestService';
@@ -14,6 +14,7 @@ export default function Bookings() {
   const [bookings, setBookings] = useState<BookingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<AttendeeProfile | null>(null);
+  const [showPastActivities, setShowPastActivities] = useState(false);
 
   useEffect(() => {
     const fetchBookings = async () => {
@@ -45,6 +46,12 @@ export default function Bookings() {
   };
 
   const groupedBookings = groupBookingsByEvent(bookings);
+  const upcomingBookings = groupedBookings.filter((groupedBooking) =>
+    isOnOrAfterTodayInTimeZone(groupedBooking.events.starts_at, groupedBooking.events.timezone),
+  );
+  const pastBookings = groupedBookings.filter((groupedBooking) =>
+    !isOnOrAfterTodayInTimeZone(groupedBooking.events.starts_at, groupedBooking.events.timezone),
+  );
 
   if (loading) {
     return (
@@ -93,7 +100,7 @@ export default function Bookings() {
           </p>
         </header>
 
-        {bookings.length === 0 ? (
+        {groupedBookings.length === 0 ? (
           <div className="text-center py-20">
             <AlertCircle className="w-8 h-8 text-slate-200 mx-auto mb-4" />
             <p className="text-slate-400 text-sm mb-6">No activities found.</p>
@@ -104,15 +111,20 @@ export default function Bookings() {
               Browse what's on →
             </button>
           </div>
+        ) : upcomingBookings.length === 0 ? (
+          <div className="text-center py-20">
+            <AlertCircle className="w-8 h-8 text-slate-200 mx-auto mb-4" />
+            <p className="text-slate-400 text-sm">No upcoming activities right now.</p>
+          </div>
         ) : (
           <div className="bg-white rounded-2xl overflow-hidden">
-            {groupedBookings.map((groupedBooking: GroupedBooking, idx: number) => (
+            {upcomingBookings.map((groupedBooking: GroupedBooking, idx: number) => (
               <motion.div
                 key={groupedBooking.events.id}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 onClick={() => navigate(buildEventPath(groupedBooking.events as any, { preferPrivateAccess: true }))}
-                className={`px-5 py-4 hover:bg-slate-50 transition-all cursor-pointer active:scale-[0.99] ${groupedBooking.status === 'thinking' ? 'bg-indigo-50/60' : ''} ${idx < groupedBookings.length - 1 ? 'border-b border-slate-50' : ''}`}
+                className={`px-5 py-4 hover:bg-slate-50 transition-all cursor-pointer active:scale-[0.99] ${groupedBooking.status === 'thinking' ? 'bg-indigo-50/60' : ''} ${idx < upcomingBookings.length - 1 ? 'border-b border-slate-50' : ''}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
@@ -148,6 +160,62 @@ export default function Bookings() {
             ))}
           </div>
         )}
+
+        {!loading && pastBookings.length > 0 ? (
+          <section className="pt-1">
+            <button
+              type="button"
+              onClick={() => setShowPastActivities((prev) => !prev)}
+              className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
+            >
+              {showPastActivities ? 'Hide past activities' : `Past activities (${pastBookings.length})`}
+            </button>
+            {showPastActivities ? (
+              <div className="mt-3 bg-white rounded-2xl overflow-hidden">
+                {pastBookings.map((groupedBooking: GroupedBooking, idx: number) => (
+                  <motion.div
+                    key={groupedBooking.events.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    onClick={() => navigate(buildEventPath(groupedBooking.events as any, { preferPrivateAccess: true }))}
+                    className={`px-5 py-4 hover:bg-slate-50 transition-all cursor-pointer active:scale-[0.99] ${groupedBooking.status === 'thinking' ? 'bg-indigo-50/60' : ''} ${idx < pastBookings.length - 1 ? 'border-b border-slate-50' : ''}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-bold text-slate-900 leading-tight">{groupedBooking.events.title}</h3>
+                        {groupedBooking.status === 'thinking' && (
+                          <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-0.5">I'm thinking about it</p>
+                        )}
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {groupedBooking.attendees.map((name: string, i: number) => (
+                            <span key={i} className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md">
+                              {name}
+                            </span>
+                          ))}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">{formatDate(groupedBooking.events.starts_at, groupedBooking.events.timezone)}</p>
+                        {groupedBooking.events.location_text && (
+                          <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                            <MapPin className="w-3 h-3" />{groupedBooking.events.location_text}
+                          </p>
+                        )}
+                      </div>
+                      <span className={`text-[9px] font-bold uppercase tracking-widest shrink-0 ${
+                        groupedBooking.status === 'confirmed'
+                          ? 'text-brand-600'
+                          : groupedBooking.status === 'thinking'
+                            ? 'text-indigo-500'
+                            : 'text-amber-500'
+                      }`}>
+                        {groupedBooking.status}
+                      </span>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
       </main>
     </div>
   );

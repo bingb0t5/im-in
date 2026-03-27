@@ -53,6 +53,20 @@ function getDatePartsInTimeZone(date: Date, timeZone: string) {
   };
 }
 
+export function getDateKeyInTimeZone(date: string | Date, timeZone = DEFAULT_EVENT_TIMEZONE) {
+  const parts = getDatePartsInTimeZone(new Date(date), timeZone);
+  const year = String(parts.year).padStart(4, '0');
+  const month = String(parts.month).padStart(2, '0');
+  const day = String(parts.day).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function isOnOrAfterTodayInTimeZone(date: string | Date, timeZone = DEFAULT_EVENT_TIMEZONE) {
+  const eventDayKey = getDateKeyInTimeZone(date, timeZone);
+  const todayKey = getDateKeyInTimeZone(new Date(), timeZone);
+  return eventDayKey >= todayKey;
+}
+
 function getTimeZoneOffsetMs(date: Date, timeZone: string) {
   const tz = getDatePartsInTimeZone(date, timeZone);
   const asUtc = Date.UTC(tz.year, tz.month - 1, tz.day, tz.hour, tz.minute, tz.second);
