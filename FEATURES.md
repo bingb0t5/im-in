@@ -242,6 +242,10 @@ Lets a host create a new activity with scheduling, visibility, capacity, and hos
 
 - route: `/create-event`
 - page: `CreateEvent.tsx`
+- uses a 3-step flow:
+  - visibility
+  - activity details
+  - joining settings
 - signed-out users can complete the form before auth
 - on save, unsigned users are prompted for email and sent a magic link
 - draft state is stored locally until the user comes back and completes save
@@ -262,12 +266,13 @@ Lets a host create a new activity with scheduling, visibility, capacity, and hos
 - host contact text
 - visibility
 - allow waitlist
-- show host publicly
 
 ### Notes
 
 - newly created activities default to `semi_public`
 - for signed-in users, host name is auto-hydrated and treated as account-backed
+- host name is always shown for `public` and `semi_public` activities
+- field-level `Public` / `Private` badges are used in the form to make visibility clearer
 
 ## 2. Activity Editing
 

@@ -68,6 +68,7 @@ Important behavioral meaning:
 - `access_code` is used to construct the private semi-public link
 - `public_discovery_enabled` is the additional gate for broader public discovery
 - `require_host_approval_for_join` controls whether join attempts become pending host-reviewed requests
+- `show_host_publicly` still exists in data, but the create/edit product flow now treats host names as always public for `public` and `semi_public` activities
 - moderation fields store the latest public-moderation classification, any simple manual override state, and an optional reviewer archive timestamp for the admin queue
 - platform moderation applies to public-facing activity content
 - `semi_public` preview fields are in scope for platform moderation and transparency logging

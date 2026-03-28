@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, AlertCircle, Plus } from 'lucide-react';
+import { ArrowLeft, Save, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   buildDurationOptions,
@@ -22,6 +22,30 @@ import { guestService, getAccountNameFromUser } from '../services/guestService';
 
 const CREATE_EVENT_DRAFT_KEY = 'im_in_create_event_draft';
 const CREATE_EVENT_PENDING_AUTH_KEY = 'im_in_create_event_pending_auth';
+const DETECTED_EVENT_TIMEZONE = (() => {
+  const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return EVENT_TIMEZONE_OPTIONS.some((option) => option.value === browserTimezone)
+    ? browserTimezone
+    : DEFAULT_EVENT_TIMEZONE;
+})();
+const VISIBILITY_OPTIONS = [
+  {
+    value: 'public' as const,
+    label: 'Public',
+    description: 'Anyone can find it on the public activities page and see the exact time, location and whos attending.',
+  },
+  {
+    value: 'semi_public' as const,
+    label: 'Semi-public',
+    description: 'People can discover it, but the full details are only shared after you have approved their request to view.',
+    recommended: true,
+  },
+  {
+    value: 'private' as const,
+    label: 'Private',
+    description: 'Only people with your private link can access it.',
+  },
+];
 
 type CreateEventDraft = {
   formData: {
@@ -53,6 +77,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
   const navigate = useNavigate();
   const isEditing = !!id;
   const hasHydratedDraft = useRef(false);
+  const step3EnteredAtRef = useRef(0);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(isEditing);
   const [formData, setFormData] = useState({
@@ -63,12 +88,12 @@ export default function CreateEvent({ user }: { user: User | null }) {
     location_text: '',
     google_maps_url: '',
     starts_at: '',
-    timezone: DEFAULT_EVENT_TIMEZONE,
+    timezone: DETECTED_EVENT_TIMEZONE,
     duration_minutes: 60,
     capacity: 10,
     host_name: '',
     host_contact_text: '',
-    show_host_publicly: false,
+    show_host_publicly: true,
     visibility: 'semi_public' as 'public' | 'semi_public' | 'private',
     allow_waitlist: true,
     require_host_approval_for_join: false,
@@ -85,9 +110,9 @@ export default function CreateEvent({ user }: { user: User | null }) {
   const [profileWhatsapp, setProfileWhatsapp] = useState('');
   const [needsProfileDetails, setNeedsProfileDetails] = useState(false);
   const [accountHostName, setAccountHostName] = useState('');
-  const [showOptionalFields, setShowOptionalFields] = useState(false);
-  const hasOptionalDetails = (draft?: Partial<CreateEventDraft['formData']> | null) =>
-    !!draft?.google_maps_url?.trim();
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(isEditing ? 2 : 1);
+  const [visibilitySelected, setVisibilitySelected] = useState(isEditing);
+  const [showTimezoneField, setShowTimezoneField] = useState(isEditing);
 
   const pickHostNameFromProfile = (profile: any) => {
     const fullName = (profile?.full_name || '').trim();
@@ -134,7 +159,11 @@ export default function CreateEvent({ user }: { user: User | null }) {
           timezone: draft.formData.timezone || prev.timezone,
           duration_minutes: draft.formData.duration_minutes || prev.duration_minutes,
         }));
-        setShowOptionalFields(hasOptionalDetails(draft.formData));
+        setVisibilitySelected(true);
+        setCurrentStep(2);
+        setShowTimezoneField(
+          !!draft.formData.timezone && draft.formData.timezone !== DETECTED_EVENT_TIMEZONE,
+        );
       }
       setAuthEmail(draft.authEmail || '');
       setNeedsProfileDetails(!!draft.needsProfileDetails);
@@ -302,19 +331,17 @@ export default function CreateEvent({ user }: { user: User | null }) {
         require_host_approval_for_join: normalizedEvent.require_host_approval_for_join ?? false,
         is_public: normalizedEvent.is_public ?? true,
       });
-      setShowOptionalFields(
-        hasOptionalDetails({
-          google_maps_url: normalizedEvent.google_maps_url || '',
-          public_summary: normalizedEvent.public_summary || '',
-          public_location_text: normalizedEvent.public_location_text || '',
-        }),
-      );
+      setVisibilitySelected(true);
+      setCurrentStep(2);
+      setShowTimezoneField(timezone !== DETECTED_EVENT_TIMEZONE);
       setInitialLoading(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (currentStep !== 3) return;
+    if (Date.now() - step3EnteredAtRef.current < 450) return;
     if (!user) {
       setShowEmailModal(true);
       return;
@@ -364,6 +391,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
         host_name: resolvedHostName,
         visibility: resolvedVisibility,
         is_public: resolvedVisibility !== 'private',
+        show_host_publicly: resolvedVisibility !== 'private',
         description: formData.description.trim() || null,
         public_summary: formData.public_summary.trim() || null,
         location_text: formData.location_text.trim() || null,
@@ -542,6 +570,33 @@ export default function CreateEvent({ user }: { user: User | null }) {
     setAuthMessage('Details saved. Click Create Activity to finish.');
   };
 
+  const selectedVisibilityOption = VISIBILITY_OPTIONS.find((option) => option.value === formData.visibility);
+
+  const handleSelectVisibility = (visibility: 'public' | 'semi_public' | 'private') => {
+    setFormData((prev) => ({
+      ...prev,
+      visibility,
+      is_public: visibility !== 'private',
+      show_host_publicly: visibility !== 'private',
+    }));
+    setVisibilitySelected(true);
+    setCurrentStep(2);
+  };
+
+  const goToStep = (step: 1 | 2 | 3) => {
+    if (step === 3) {
+      step3EnteredAtRef.current = Date.now();
+    }
+    setCurrentStep(step);
+  };
+
+  const stepTitle =
+    currentStep === 1
+      ? 'Who should be able to find this activity?'
+      : currentStep === 2
+        ? 'Activity details'
+        : 'Joining settings';
+
   if (initialLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -562,307 +617,446 @@ export default function CreateEvent({ user }: { user: User | null }) {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-6 pt-7">
+      <main className="max-w-2xl mx-auto px-6 pt-4">
         <motion.form 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           onSubmit={handleSubmit} 
-          className="space-y-8"
+          className="space-y-6"
         >
-          <div className="-mt-3 mb-1 px-1">
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Activities should be created by the person actually hosting them.
-            </p>
+          <div className="space-y-3">
+            <p className="text-[11px] font-bold text-brand-600 uppercase tracking-[0.25em]">Step {currentStep} of 3</p>
+            {currentStep > 1 ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  {[1, 2, 3].map((step) => (
+                    <div
+                      key={step}
+                      className={`h-1.5 flex-1 rounded-full ${
+                        step <= currentStep ? 'bg-brand-600' : 'bg-slate-200'
+                      }`}
+                    />
+                  ))}
+                </div>
+
+                <div className="bg-white rounded-2xl px-4 py-3 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Visibility</p>
+                    <p className="text-base font-black text-slate-900">{selectedVisibilityOption?.label || 'Not selected'}</p>
+                  </div>
+                  <button
+                    type="button"
+                      onClick={() => goToStep(1)}
+                    className="text-sm font-bold text-brand-600 hover:text-brand-500 transition-all"
+                  >
+                    Change
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
-          {/* Basic Info */}
-          <section className="bg-white rounded-2xl p-6 space-y-5">
-            <div>
-              <label className="block text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-2">Activity Title</label>
-              <input
-                required
-                type="text"
-                placeholder="e.g. Sunday Morning Yoga"
-                className="w-full text-2xl font-black bg-transparent border-b-2 border-slate-100 focus:border-brand-600 outline-none pb-2 transition-all placeholder:text-slate-200"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              />
-            </div>
-
-            <div>
-              <label className="block text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-2">
-                {formData.visibility === 'public' ? 'Description' : 'Full Description'}
-              </label>
-              <textarea
-                rows={3}
-                placeholder={formData.visibility === 'public' ? 'What should people know?' : 'Visible only via the direct activity link'}
-                className="w-full p-3 rounded-xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 outline-none transition-all text-sm"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              />
-            </div>
-          </section>
-
-          {/* Logistics */}
-          <section className="bg-white rounded-2xl p-6 space-y-5">
-            <div className="grid grid-cols-2 gap-4">
+          {currentStep === 1 ? (
+            <section className="space-y-5">
               <div>
-                <label className="block text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-2">Starts At</label>
-                <input
-                  required
-                  type="datetime-local"
-                  step={900}
-                  className="w-full p-3 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
-                  value={formData.starts_at}
-                  onChange={(e) => setFormData({ ...formData, starts_at: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-2">Duration</label>
-                <select
-                  className="w-full p-3 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
-                  value={String(formData.duration_minutes)}
-                  onChange={(e) => setFormData({ ...formData, duration_minutes: parseInt(e.target.value, 10) })}
-                >
-                  {buildDurationOptions(360, 15).map((minutes) => {
-                    const hours = Math.floor(minutes / 60);
-                    const remainder = minutes % 60;
-                    const label =
-                      hours > 0 && remainder > 0
-                        ? `${hours}h ${remainder}m`
-                        : hours > 0
-                          ? `${hours}h`
-                          : `${minutes}m`;
-                    return (
-                      <option key={minutes} value={minutes}>
-                        {label}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-2">Timezone</label>
-              <select
-                className="w-full p-3 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
-                value={formData.timezone}
-                onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
-              >
-                {EVENT_TIMEZONE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-2">
-                {formData.visibility === 'public' ? 'Location' : 'Exact Location'}
-              </label>
-              <input
-                type="text"
-                placeholder={formData.visibility === 'public' ? 'Where is it happening?' : 'Exact location — only shown via your shared link'}
-                className="w-full p-3 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
-                value={formData.location_text}
-                onChange={(e) => setFormData({ ...formData, location_text: e.target.value })}
-              />
-            </div>
-
-            {formData.visibility === 'semi_public' && (
-              <>
-                <div>
-                  <label className="block text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-2">Public Summary</label>
-                  <textarea
-                    rows={3}
-                    placeholder="Shown on the public activities list"
-                    className="w-full p-3 rounded-xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 outline-none transition-all text-sm"
-                    value={formData.public_summary}
-                    onChange={(e) => setFormData({ ...formData, public_summary: e.target.value })}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-2">Public Town / City</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Nelson, Wellington, Auckland"
-                    className="w-full p-3 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
-                    value={formData.public_location_text}
-                    onChange={(e) => setFormData({ ...formData, public_location_text: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-
-            <div className="grid grid-cols-2 gap-4 items-start">
-              <div>
-                <label className="block text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-2">Capacity</label>
-                <input
-                  required
-                  type="number"
-                  min="1"
-                  className="w-full p-3 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-center text-sm"
-                  value={formData.capacity}
-                  onChange={(e) => setFormData({ ...formData, capacity: parseInt(e.target.value) })}
-                />
-              </div>
-              <div className="pt-7">
-                <label className="flex items-center gap-2.5 cursor-pointer select-none text-sm text-slate-600 font-medium">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all"
-                    checked={formData.allow_waitlist}
-                    onChange={(e) => setFormData({ ...formData, allow_waitlist: e.target.checked })}
-                  />
-                  Allow waitlist
-                </label>
-              </div>
-            </div>
-
-            <label className="flex items-start gap-3 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all mt-0.5"
-                checked={formData.require_host_approval_for_join}
-                onChange={(e) => setFormData({ ...formData, require_host_approval_for_join: e.target.checked })}
-              />
-              <div>
-                <p className="text-sm font-bold text-slate-700">Require host approval before joining</p>
-                <p className="text-xs text-slate-400">
-                  When enabled, join attempts become requests until a host approves them.
-                </p>
-              </div>
-            </label>
-
-            <div className="pt-2 border-t border-slate-50 space-y-4">
-              <div>
-                <label className="block text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-2">Visibility</label>
-                <select
-                  className="w-full p-3 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
-                  value={formData.visibility}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      visibility: e.target.value as 'public' | 'semi_public' | 'private',
-                    })
-                  }
-                >
-                  <option value="semi_public">Semi-public (recommended)</option>
-                  <option value="public">Public</option>
-                  <option value="private">Private link only</option>
-                </select>
-                <p className="text-xs text-slate-400 mt-1.5">
-                  Semi-public appears in browse with limited info. Full details via your shared link only.
-                </p>
-                {formData.visibility !== 'private' ? (
-                  <p className="text-xs text-slate-400 mt-1.5">
-                    Public-facing listings may stay limited at first while broader public discovery is reviewed.
-                  </p>
-                ) : null}
+                <h2 className="text-3xl font-black text-slate-900 tracking-tight">{stepTitle}</h2>
+                <p className="text-sm text-slate-500 mt-2">Choose the visibility first. You can change it later.</p>
               </div>
 
-              <label className="flex items-center gap-3 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all"
-                  checked={formData.show_host_publicly}
-                  onChange={(e) => setFormData({ ...formData, show_host_publicly: e.target.checked })}
-                />
-                <div>
-                  <p className="text-sm font-bold text-slate-700">Show my name on public listing</p>
-                  <p className="text-xs text-slate-400">Hidden in browse previews if off.</p>
-                </div>
-              </label>
-            </div>
-
-            {/* Optional extras — progressive disclosure */}
-            {!showOptionalFields ? (
-              <button
-                type="button"
-                onClick={() => setShowOptionalFields(true)}
-                className="text-sm text-slate-400 hover:text-brand-600 transition-all flex items-center gap-1.5 pt-1"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add optional details
-              </button>
-            ) : (
-              <div className="space-y-4 pt-2 border-t border-slate-50">
-                <div>
-                  <label className="block text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-2">Google Maps Link</label>
-                  <input
-                    type="url"
-                    placeholder="Paste Google Maps share URL"
-                    className="w-full p-3 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
-                    value={formData.google_maps_url}
-                    onChange={(e) => setFormData({ ...formData, google_maps_url: e.target.value })}
-                  />
-                  <p className="text-xs text-slate-400 mt-1.5">
-                    Use the Share button in Google Maps, paste the URL here. Attendees see a "Directions" button.
-                  </p>
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* Host Info */}
-          {user ? (
-            <section className="bg-white rounded-2xl p-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-2">Host Name</label>
-                  <input
-                    required
-                    type="text"
-                    placeholder="Your Name"
-                    readOnly
-                    disabled
-                    className="w-full p-3 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 outline-none transition-all font-bold text-sm cursor-not-allowed"
-                    value={accountHostName || formData.host_name}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-2">Contact (Optional)</label>
-                  <input
-                    type="text"
-                    placeholder="WhatsApp / Phone"
-                    className="w-full p-3 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
-                    value={formData.host_contact_text}
-                    onChange={(e) => setFormData({ ...formData, host_contact_text: e.target.value })}
-                  />
-                </div>
+              <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white">
+                {VISIBILITY_OPTIONS.map((option, index) => {
+                  const isSelected = visibilitySelected && formData.visibility === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => handleSelectVisibility(option.value)}
+                      className={`w-full px-5 py-5 text-left transition-all ${
+                        isSelected ? 'bg-brand-50' : 'bg-white hover:bg-slate-50'
+                      } ${index > 0 ? 'border-t border-slate-100' : ''}`}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-xl font-black text-slate-900">{option.label}</h3>
+                            {option.recommended ? (
+                              <span className="rounded-full bg-brand-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-brand-700">
+                                Recommended
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="text-sm text-slate-500 mt-2 leading-relaxed pr-2">{option.description}</p>
+                        </div>
+                        <div
+                          className={`mt-1 h-5 w-5 min-h-5 min-w-5 shrink-0 rounded-full border-2 ${
+                            isSelected ? 'border-brand-600 bg-brand-600' : 'border-slate-300 bg-white'
+                          }`}
+                        />
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </section>
           ) : (
-            <section className="bg-white rounded-2xl p-5">
-              <p className="text-sm text-slate-500">
-                Fill out your activity now. On save, we'll ask for your email and send a magic link to finish.
-              </p>
-            </section>
-          )}
+            <>
+              <div className="-mt-1 px-1">
+                <p className="text-xs text-slate-400">Activities should be created by the person actually hosting them.</p>
+              </div>
 
-          {authMessage && (
-            <div className="p-4 bg-brand-50 border border-brand-100 rounded-2xl text-brand-700 text-sm font-medium">
-              {authMessage}
-            </div>
-          )}
+              {currentStep === 2 ? (
+                <>
+                  <section className="bg-white rounded-3xl overflow-hidden">
+                    <div className="px-6 py-5 border-b border-slate-100">
+                      <h2 className="text-2xl font-black text-slate-900 tracking-tight">{stepTitle}</h2>
+                    </div>
 
-          {error && (
-            <div className="p-5 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 animate-in fade-in slide-in-from-top-2">
-              <AlertCircle className="w-5 h-5 shrink-0" />
-              <p className="font-bold text-sm">{error}</p>
-            </div>
-          )}
+                    <div className="px-6 py-5">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Title</label>
+                      <input
+                        required
+                        type="text"
+                        placeholder="e.g. Sunday Morning Yoga"
+                        className="w-full text-2xl font-black bg-transparent border-b-2 border-slate-100 focus:border-brand-600 outline-none pb-2 transition-all placeholder:text-slate-200"
+                        value={formData.title}
+                        onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                      />
+                    </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
-          >
-            {loading ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Activity'}
-            {!loading && <Save className="w-4 h-4" />}
-          </button>
+                    <div className="px-6 py-5 border-t border-slate-100 space-y-4">
+                      <div>
+                        <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                          <span>Short description</span>
+                          <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[9px] text-orange-700">Public</span>
+                        </label>
+                        <textarea
+                          rows={3}
+                          placeholder="A quick summary people can read at a glance"
+                          className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 outline-none transition-all text-sm"
+                          value={formData.public_summary}
+                          onChange={(e) => setFormData({ ...formData, public_summary: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                          <span>Detailed description (optional)</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] ${
+                            formData.visibility === 'public'
+                              ? 'bg-orange-100 text-orange-700'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {formData.visibility === 'public' ? 'Public' : 'Private'}
+                          </span>
+                        </label>
+                        <textarea
+                          rows={4}
+                          placeholder="Put info here that you only want people with the private link to be able to see."
+                          className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 outline-none transition-all text-sm"
+                          value={formData.description}
+                          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="px-6 py-5 border-t border-slate-100">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="flex flex-wrap items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                            <span>Start date and time</span>
+                            {formData.visibility === 'semi_public' ? (
+                              <>
+                                <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[9px] text-orange-700 normal-case tracking-normal">
+                                  DATE IS PUBLIC
+                                </span>
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] text-slate-500 normal-case tracking-normal">
+                                  TIME IS PRIVATE
+                                </span>
+                              </>
+                            ) : null}
+                          </label>
+                          <input
+                            required
+                            type="datetime-local"
+                            step={900}
+                            className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                            value={formData.starts_at}
+                            onChange={(e) => setFormData({ ...formData, starts_at: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Duration</label>
+                          <select
+                            className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                            value={String(formData.duration_minutes)}
+                            onChange={(e) => setFormData({ ...formData, duration_minutes: parseInt(e.target.value, 10) })}
+                          >
+                            {buildDurationOptions(360, 15).map((minutes) => {
+                              const hours = Math.floor(minutes / 60);
+                              const remainder = minutes % 60;
+                              const label =
+                                hours > 0 && remainder > 0
+                                  ? `${hours}h ${remainder}m`
+                                  : hours > 0
+                                    ? `${hours}h`
+                                    : `${minutes}m`;
+                              return (
+                                <option key={minutes} value={minutes}>
+                                  {label}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        {showTimezoneField ? (
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Timezone</label>
+                            <select
+                              className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                              value={formData.timezone}
+                              onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
+                            >
+                              {EVENT_TIMEZONE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3">
+                            <div>
+                              <p className="text-sm font-bold text-slate-700">Timezone: {formData.timezone}</p>
+                              <p className="text-xs text-slate-400">Using your current timezone.</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowTimezoneField(true)}
+                              className="text-sm font-bold text-brand-600 hover:text-brand-500 transition-all"
+                            >
+                              Change
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="px-6 py-5 border-t border-slate-100 space-y-4">
+                      <div>
+                        <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                          <span>Public location</span>
+                          <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[9px] text-orange-700">Public</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="City, suburb, or general area"
+                          className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                          value={formData.public_location_text}
+                          onChange={(e) => setFormData({ ...formData, public_location_text: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                          <span>Exact location</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] ${
+                            formData.visibility === 'public'
+                              ? 'bg-orange-100 text-orange-700'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {formData.visibility === 'public' ? 'Public' : 'Private'}
+                          </span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="The exact meetup spot"
+                          className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                          value={formData.location_text}
+                          onChange={(e) => setFormData({ ...formData, location_text: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                          <span>Google Maps link (optional)</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] ${
+                            formData.visibility === 'public'
+                              ? 'bg-orange-100 text-orange-700'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {formData.visibility === 'public' ? 'Public' : 'Private'}
+                          </span>
+                        </label>
+                        <input
+                          type="url"
+                          placeholder="Paste a Google Maps share link"
+                          className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                          value={formData.google_maps_url}
+                          onChange={(e) => setFormData({ ...formData, google_maps_url: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  {authMessage && (
+                    <div className="p-4 bg-brand-50 border border-brand-100 rounded-2xl text-brand-700 text-sm font-medium">
+                      {authMessage}
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="p-5 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 animate-in fade-in slide-in-from-top-2">
+                      <AlertCircle className="w-5 h-5 shrink-0" />
+                      <p className="font-bold text-sm">{error}</p>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                      type="button"
+                      onClick={() => goToStep(1)}
+                      className="sm:w-40 bg-white border border-slate-200 text-slate-600 font-bold text-base py-4 rounded-2xl transition-all active:scale-95"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => goToStep(3)}
+                      className="flex-1 bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all active:scale-95"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <section className="bg-white rounded-3xl overflow-hidden">
+                    <div className="px-6 py-5 border-b border-slate-100">
+                      <h2 className="text-2xl font-black text-slate-900 tracking-tight">{stepTitle}</h2>
+                    </div>
+
+                    <div className="px-6 py-5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Capacity</label>
+                          <input
+                            required
+                            type="number"
+                            min="1"
+                            className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                            value={formData.capacity}
+                            onChange={(e) => setFormData({ ...formData, capacity: parseInt(e.target.value, 10) })}
+                          />
+                        </div>
+                        <label className="flex items-center gap-3 cursor-pointer select-none rounded-2xl bg-slate-50 px-4 py-4">
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all"
+                            checked={formData.allow_waitlist}
+                            onChange={(e) => setFormData({ ...formData, allow_waitlist: e.target.checked })}
+                          />
+                          <div>
+                            <p className="text-sm font-bold text-slate-700">Allow waitlist</p>
+                            <p className="text-xs text-slate-400">Let people join the queue when it fills up.</p>
+                          </div>
+                        </label>
+                      </div>
+
+                      <label className="mt-4 flex items-start gap-3 cursor-pointer select-none rounded-2xl bg-slate-50 px-4 py-4">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all mt-0.5"
+                          checked={formData.require_host_approval_for_join}
+                          onChange={(e) => setFormData({ ...formData, require_host_approval_for_join: e.target.checked })}
+                        />
+                        <div>
+                          <p className="text-sm font-bold text-slate-700">Require approval to join</p>
+                          <p className="text-xs text-slate-400">People can request to join, and you approve them later.</p>
+                        </div>
+                      </label>
+                    </div>
+
+                    <div className="px-6 py-5 border-t border-slate-100 space-y-4">
+                      {user ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                              <span>Host name</span>
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[9px] ${
+                                  formData.visibility !== 'private'
+                                    ? 'bg-orange-100 text-orange-700'
+                                    : 'bg-slate-100 text-slate-500'
+                                }`}
+                              >
+                                {formData.visibility !== 'private' ? 'Public' : 'Private'}
+                              </span>
+                            </label>
+                            <input
+                              required
+                              type="text"
+                              placeholder="Your name"
+                              readOnly
+                              disabled
+                              className="w-full p-4 rounded-2xl bg-slate-100 border border-slate-200 text-slate-600 outline-none transition-all font-bold text-sm cursor-not-allowed"
+                              value={accountHostName || formData.host_name}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Contact (optional)</label>
+                            <input
+                              type="text"
+                              placeholder="WhatsApp or phone"
+                              className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                              value={formData.host_contact_text}
+                              onChange={(e) => setFormData({ ...formData, host_contact_text: e.target.value })}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl bg-slate-50 p-4">
+                          <p className="text-sm text-slate-500">
+                            You can fill this out now. We’ll ask for your email when you create the activity.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  {authMessage && (
+                    <div className="p-4 bg-brand-50 border border-brand-100 rounded-2xl text-brand-700 text-sm font-medium">
+                      {authMessage}
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="p-5 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 animate-in fade-in slide-in-from-top-2">
+                      <AlertCircle className="w-5 h-5 shrink-0" />
+                      <p className="font-bold text-sm">{error}</p>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                      type="button"
+                      onClick={() => goToStep(2)}
+                      className="sm:w-40 bg-white border border-slate-200 text-slate-600 font-bold text-base py-4 rounded-2xl transition-all active:scale-95"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="flex-1 bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
+                    >
+                      {loading ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Activity'}
+                      {!loading && <Save className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </motion.form>
       </main>
 
