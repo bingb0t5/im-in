@@ -69,8 +69,9 @@ Main product areas:
 - guest RSVP
 - waitlist placement when full
 - optional host approval before membership is granted
+- pending-approval attendees appear in `Going` with clear `Pending host approval` labels
 - cancellation with promotion
-- proxy RSVP / "add another person"
+- proxy RSVP / "add another person" (approval-aware when host approval is enabled)
 - host-added attendees
 - "thinking about it" interests
 
@@ -93,7 +94,7 @@ Main product areas:
 - browse public activities on `/calendar`
 - open `/events/:slug`
 - RSVP directly as a signed-in user or guest
-- if host approval is enabled, submit a join request and wait for host review
+- if host approval is enabled, submit a join request and appear in `Going` as `Pending host approval` until host review
 - if full, join the waitlist when allowed
 - optionally add another person
 - optionally mark "thinking about it"
@@ -105,6 +106,7 @@ Main product areas:
 - land on `/host/events/:id` after save
 - manage attendees, requests, hosts, sharing, and duplication
 - edit through `/host/events/:id/edit`
+- review pending join requests where pending attendees are already visible in `Going`
 
 ### Delayed-auth create flow
 
@@ -324,6 +326,44 @@ The app also relies on these core tables:
 - `attendee_sessions`
 - `feedback_submissions`
 - `trello_prompt_jobs`
+
+### Quick DB Hotfix (legacy status constraint)
+
+If join requests fail with `event_attendees_status_check` errors about `pending_approval`, run this in Supabase SQL editor:
+
+```sql
+DO $$
+DECLARE
+  c RECORD;
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'public.event_attendees'::regclass
+      AND conname = 'event_attendees_status_check'
+  ) THEN
+    ALTER TABLE public.event_attendees
+      DROP CONSTRAINT event_attendees_status_check;
+  END IF;
+
+  FOR c IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'public.event_attendees'::regclass
+      AND contype = 'c'
+      AND conname <> 'event_attendees_status_check'
+      AND pg_get_constraintdef(oid) ILIKE '%status%'
+  LOOP
+    EXECUTE format('ALTER TABLE public.event_attendees DROP CONSTRAINT %I', c.conname);
+  END LOOP;
+
+  ALTER TABLE public.event_attendees
+    ADD CONSTRAINT event_attendees_status_check
+    CHECK (status IN ('confirmed', 'waitlist', 'pending_approval', 'cancelled'));
+END $$;
+```
+
+This hotfix is safe to run multiple times and is already included in `supabase_reconcile_live_schema.sql`.
 
 ## Deployment Notes
 

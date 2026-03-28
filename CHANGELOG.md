@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## 2026-03-28
+
+### Host approval join flow refinements
+
+- changed approval-required joins so requesters are now added to the `Going` list immediately with a `Pending host approval` state instead of staying invisible until review
+- updated attendee self-management UI so pending rows show `Cancel request` instead of generic `Cancel`
+- updated proxy RSVP (`Add someone else`) so it now respects `require_host_approval_for_join` and creates pending join requests rather than bypassing host approval
+- updated host approval/rejection handling so proxy pending rows are promoted or cancelled in sync with join-request decisions
+- hardened `event_attendees` status-constraint migration logic to reliably replace legacy checks and allow `pending_approval` safely across drifted live schemas
+
 ## 2026-03-27
 
 ### Home and navigation

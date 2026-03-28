@@ -46,7 +46,7 @@ The weakest / least finished areas are:
 - access requests for semi-public activities
 - attendee list and waitlist
 - optional host-approval join flow before membership is granted
-- proxy RSVP / "add another person"
+- proxy RSVP / "add another person" with host-approval-aware pending request behavior
 - "thinking about it"
 - lightweight AI moderation for broader public discovery on public activities and semi-public public previews
 - hidden moderation admin queue with review, archived, and spam buckets for allowlisted admins, scoped to public-facing activity moderation
@@ -76,6 +76,7 @@ The weakest / least finished areas are:
 - RLS-sensitive flows routed through RPCs for RSVP/cancel/proxy/interest where needed
 - route-aware private link building for semi-public activities
 - dedicated join-request queue (`event_join_requests`) plus host approve/reject RPCs for approval-required activities
+- approval-required joins now create visible `event_attendees` rows in `pending_approval` state so pending people show in `Going`
 - filtered realtime on the host dashboard
 - Supabase Edge Function moderation with content-hash reuse and stored discovery state
 - separate reviewer archive state for the moderation queue via `events.moderation_archived_at`

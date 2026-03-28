@@ -45,6 +45,44 @@ Use this before shipping a new build of `I'm In`.
 - **Bookings:** guest bookings page loads with active guest session.
 - **Recovery:** recovery link restores a guest session.
 
+## Known hotfixes
+
+- If join requests or proxy add fail with `event_attendees_status_check` / `pending_approval`, run this SQL in Supabase:
+
+```sql
+DO $$
+DECLARE
+  c RECORD;
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'public.event_attendees'::regclass
+      AND conname = 'event_attendees_status_check'
+  ) THEN
+    ALTER TABLE public.event_attendees
+      DROP CONSTRAINT event_attendees_status_check;
+  END IF;
+
+  FOR c IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'public.event_attendees'::regclass
+      AND contype = 'c'
+      AND conname <> 'event_attendees_status_check'
+      AND pg_get_constraintdef(oid) ILIKE '%status%'
+  LOOP
+    EXECUTE format('ALTER TABLE public.event_attendees DROP CONSTRAINT %I', c.conname);
+  END LOOP;
+
+  ALTER TABLE public.event_attendees
+    ADD CONSTRAINT event_attendees_status_check
+    CHECK (status IN ('confirmed', 'waitlist', 'pending_approval', 'cancelled'));
+END $$;
+```
+
+- This is idempotent and already included in `supabase_reconcile_live_schema.sql`.
+
 ## 4) Deploy On Render
 
 - Static site build command: `npm run build`

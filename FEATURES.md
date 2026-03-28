@@ -439,8 +439,10 @@ Lets a host require approval before a person is added as an attendee.
 
 - per-activity setting on create/edit: `require_host_approval_for_join`
 - when enabled, attendee-side join attempts create rows in `event_join_requests` with `pending` status
+- the attendee is also shown in `Going` immediately with `event_attendees.status = pending_approval`
 - hosts review in `HostDashboard.tsx` and can approve/reject
-- approval creates the attendee row (`confirmed` or `waitlist` based on capacity and `allow_waitlist`)
+- approval promotes the pending attendee to `confirmed` or `waitlist` based on capacity and `allow_waitlist`
+- rejection/cancel marks the pending attendee row as `cancelled`
 
 ## 8. Waitlist
 
@@ -493,6 +495,7 @@ Lets a person add someone else to the activity without making that second person
 
 - supports adding another person after joining
 - supports host-added and proxy-added labeling in attendee lists
+- when host approval is enabled, proxy add creates a pending join request and `pending_approval` attendee instead of bypassing approval
 - proxy-added rows track provenance through:
   - `added_by_type`
   - `added_by_attendee_profile_id`

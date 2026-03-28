@@ -198,9 +198,10 @@ Important fields:
 
 Important behavioral meaning:
 
-- `status` is currently `confirmed`, `waitlist`, or `cancelled`
+- `status` is currently `confirmed`, `waitlist`, `pending_approval`, or `cancelled`
 - one activity can have both signed-in and guest-backed attendees
 - proxy and host-added attendees are distinguished through `added_by_type`
+- `pending_approval` rows are used so hosts and attendees can still see pending join requests directly in `Going`
 
 ### `event_hosts`
 
@@ -297,7 +298,8 @@ Current statuses visible in code:
 Important behavioral note:
 
 - this queue is about membership approval, separate from semi-public request-to-view access
-- host approval can create attendee rows as `confirmed` or `waitlist` depending on current capacity and waitlist settings
+- join requests now create visible attendee rows in `event_attendees` as `pending_approval`
+- host approval promotes those rows to `confirmed` or `waitlist` depending on current capacity and waitlist settings
 
 ### `attendee_profiles`
 
