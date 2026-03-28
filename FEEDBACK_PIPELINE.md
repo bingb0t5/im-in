@@ -57,6 +57,25 @@ Stores:
 - screenshot bucket is private (`feedback-screenshots`)
 - abuse-blocked submissions are not sent to Trello
 
+## Internal review path
+
+Items that do not make it to the public Trello board still remain internal:
+
+- abuse-blocked items stay in `feedback_submissions` with `status = blocked_abuse`
+- failed Trello sync items stay in `feedback_submissions` with `trello_sync_status = failed`
+- unsent review items stay internal until explicitly retried
+
+These are reviewed through:
+
+- `/admin/feedback`
+
+That page can:
+
+- inspect full private details
+- open private screenshots via signed URLs
+- retry sending an item to the Trello intake list
+- archive/restore internal items
+
 ## Required secrets (Edge functions)
 
 - `SUPABASE_SERVICE_ROLE_KEY` (provided automatically by Supabase Edge Functions; do not manually set it with `supabase secrets set`)
@@ -88,6 +107,13 @@ Optional:
 - supports admin-triggered manual sync mode (`syncFromTriggerList: true`)
 - generates Codex prompts only when card is in trigger list
 - writes prompt section into card description
+
+### `feedback-admin`
+
+- hidden admin endpoint for listing internal feedback items
+- returns signed screenshot URLs for review
+- supports retrying Trello sync
+- supports archive/restore of internal feedback rows
 
 ## Webhook setup
 

@@ -18,7 +18,9 @@ import Calendar from './pages/Calendar';
 import Recovery from './pages/Recovery';
 import Bookings from './pages/Bookings';
 import MyActivities from './pages/MyActivities';
+import AdminHome from './pages/AdminHome';
 import AdminModeration from './pages/AdminModeration';
+import AdminFeedback from './pages/AdminFeedback';
 import ModerationTransparency from './pages/ModerationTransparency';
 import { guestService } from './services/guestService';
 
@@ -116,7 +118,9 @@ export default function App() {
           <Route path="/moderation" element={<ModerationTransparency />} />
           <Route path="/bookings" element={<Bookings />} />
           <Route path="/recover" element={<Recovery />} />
+          <Route path="/admin" element={user ? <AdminHome user={user} /> : <Navigate to="/login" />} />
           <Route path="/admin/moderation" element={user ? <AdminModeration user={user} /> : <Navigate to="/login" />} />
+          <Route path="/admin/feedback" element={user ? <AdminFeedback user={user} /> : <Navigate to="/login" />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </div>

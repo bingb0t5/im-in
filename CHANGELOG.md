@@ -20,6 +20,8 @@
 - added SQL support for `feedback_submissions` and `trello_prompt_jobs` with private-by-default access boundaries
 - documented and verified the Trello board webhook path for automatic prompt generation when cards enter the configured trigger list
 - documented the manual admin sync fallback and clarified that `SUPABASE_SERVICE_ROLE_KEY` is runtime-provided by Supabase rather than manually set as a secret
+- added hidden `/admin` hub page to link current and future `/admin/*` tools from one place
+- added hidden `/admin/feedback` page plus `feedback-admin` function to review blocked/failed/internal feedback items and retry or archive them
 
 ### Moderation transparency UX
 

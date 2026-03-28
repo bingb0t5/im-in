@@ -79,6 +79,22 @@ Features:
 - "Send feedback" modal (bug / feature / feedback) with optional screenshot upload
 - roadmap and email links
 
+### Admin tooling
+
+Implemented in:
+
+- `src/pages/AdminHome.tsx`
+- `src/pages/AdminModeration.tsx`
+- `src/pages/AdminFeedback.tsx`
+
+Features:
+
+- hidden `/admin` landing page for internal tooling
+- moderation review page
+- feedback review page for blocked abuse items, failed Trello syncs, review items, and archived items
+- retry sending eligible feedback to the Trello board
+- archive / restore internal feedback items
+
 ### Signed-in dashboard
 
 Implemented in `src/pages/MyActivities.tsx`.
@@ -210,6 +226,7 @@ Lets any visitor submit bug reports, feature requests, or general feedback from 
 - Trello intake cards are sanitized/minimized by design
 - prompt-generation runs are tracked in `trello_prompt_jobs` to avoid duplicate generation on repeated moves
 - prompt generation can apply to cards created manually in Trello as well as cards originating from the app
+- internal review of non-board items happens through `/admin/feedback`
 
 ## 1. Activity Creation
 

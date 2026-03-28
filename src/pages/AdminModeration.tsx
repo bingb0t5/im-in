@@ -3,7 +3,7 @@ import { Navigate, Link } from 'react-router-dom';
 import { User } from '@supabase/supabase-js';
 import { Shield, ArrowLeft, RefreshCw, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { Event } from '../types';
-import { isModerationAdminEmail } from '../lib/admin';
+import { canAccessModerationAdminFrontend } from '../lib/admin';
 import { invokeAuthedFunction } from '../lib/functions';
 import { getModerationStatusBadge } from '../lib/moderation';
 import { formatDate } from '../utils';
@@ -99,7 +99,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
   const [pendingAction, setPendingAction] = useState<PendingModerationAction | null>(null);
   const [moderatorExplanation, setModeratorExplanation] = useState('');
 
-  const isAdmin = isModerationAdminEmail(user?.email);
+  const isAdmin = canAccessModerationAdminFrontend(user?.email);
 
   const fetchEvents = async () => {
     setLoading(true);
@@ -217,7 +217,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
     <div className="min-h-screen bg-slate-50 pb-24">
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-20">
         <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link to="/" className="p-2 hover:bg-slate-100 rounded-xl transition-all active:scale-95">
+          <Link to="/admin" className="p-2 hover:bg-slate-100 rounded-xl transition-all active:scale-95">
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </Link>
           <div className="flex flex-col items-center">
