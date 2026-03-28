@@ -12,6 +12,13 @@
 - moved yesterday-and-older activities behind a compact `Past activities` toggle on both dashboard views
 - simplified the home-page explainer links down to two modals by folding `How this works` into `Why this exists`
 
+### Host approval join flow
+
+- added per-activity host control to require approval before someone is added as a member (`require_host_approval_for_join`)
+- added `event_join_requests` data model plus host-safe review RPCs (`request_or_submit_rsvp`, `list_event_join_requests_for_host`, `approve_event_join_request`, `reject_event_join_request`)
+- updated attendee join UX so approval-required activities create pending join requests with clear request-state messaging
+- added host-side join-request review controls in the host dashboard (approve/reject queues)
+
 ### Feedback to Trello pipeline
 
 - added a public `Send feedback` modal on the home page for bug reports, feature requests, and general feedback

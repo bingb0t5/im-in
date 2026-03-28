@@ -47,6 +47,7 @@ Important fields the frontend uses:
 - `access_code`
 - `visibility`
 - `allow_waitlist`
+- `require_host_approval_for_join`
 - `is_public`
 - `public_discovery_enabled`
 - `moderation_status`
@@ -66,6 +67,7 @@ Important behavioral meaning:
 - `visibility` controls whether it behaves as `public`, `semi_public`, or `private`
 - `access_code` is used to construct the private semi-public link
 - `public_discovery_enabled` is the additional gate for broader public discovery
+- `require_host_approval_for_join` controls whether join attempts become pending host-reviewed requests
 - moderation fields store the latest public-moderation classification, any simple manual override state, and an optional reviewer archive timestamp for the admin queue
 - platform moderation applies to public-facing activity content
 - `semi_public` preview fields are in scope for platform moderation and transparency logging
@@ -266,6 +268,37 @@ Important behavioral note:
 
 - the current host UI mainly operates around `pending`, `approved`, and `declined`
 
+### `event_join_requests`
+
+This table backs host-reviewed join requests for activities where approval is required.
+
+Important fields:
+
+- `id`
+- `event_id`
+- `user_id`
+- `attendee_profile_id`
+- `guest_name`
+- `guest_email`
+- `request_note`
+- `status`
+- `reviewed_by_user_id`
+- `reviewed_at`
+- `created_at`
+- `updated_at`
+
+Current statuses visible in code:
+
+- `pending`
+- `approved`
+- `rejected`
+- `cancelled`
+
+Important behavioral note:
+
+- this queue is about membership approval, separate from semi-public request-to-view access
+- host approval can create attendee rows as `confirmed` or `waitlist` depending on current capacity and waitlist settings
+
 ### `attendee_profiles`
 
 This is the shared identity bridge between guests and signed-in users.
@@ -314,6 +347,7 @@ High-level relationships:
 - one `events` row has many `event_hosts`
 - one `events` row has many `event_interests`
 - one `events` row has many `event_access_requests`
+- one `events` row has many `event_join_requests`
 - one `attendee_profiles` row can link to many `event_attendees`
 - one `attendee_profiles` row can link to many `event_interests`
 - one `attendee_profiles` row can have many `attendee_sessions`

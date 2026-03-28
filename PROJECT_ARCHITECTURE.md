@@ -148,6 +148,7 @@ The route table lives in `src/App.tsx`.
 - local draft persistence
 - timezone-aware scheduling
 - duration-based scheduling instead of direct end-time authoring
+- per-activity host-approval setting for membership requests
 - signed-in host-name hydration and normalization
 - co-host access check for edit mode
 
@@ -156,6 +157,7 @@ The route table lives in `src/App.tsx`.
 - activity read page
 - attendee list rendering
 - signed-in and guest RSVP
+- request-aware RSVP path for host-approval activities
 - cancellation
 - waitlist messaging
 - proxy RSVP / add another person
@@ -172,6 +174,7 @@ The route table lives in `src/App.tsx`.
 - add/remove attendee actions
 - copy/share public and private links
 - access-request review
+- join-request review and approve/reject actions when enabled
 - host list and add-host flow
 - duplicate activity
 - delete activity
@@ -438,6 +441,11 @@ So contributors should think of:
 ### RPCs the app actively depends on
 
 - `submit_rsvp(...)`
+- `request_or_submit_rsvp(...)`
+- `get_my_join_request_for_event(...)`
+- `list_event_join_requests_for_host(...)`
+- `approve_event_join_request(...)`
+- `reject_event_join_request(...)`
 - `cancel_attendee_with_promotion(...)`
 - `add_proxy_attendee(...)`
 - `toggle_event_interest(...)`

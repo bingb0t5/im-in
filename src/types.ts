@@ -19,6 +19,7 @@ export interface Event {
   access_code?: string;
   visibility?: 'public' | 'semi_public' | 'private';
   allow_waitlist: boolean;
+  require_host_approval_for_join?: boolean;
   is_public: boolean;
   public_discovery_enabled?: boolean;
   moderation_status?: 'not_required' | 'pending' | 'approved' | 'limited' | 'review' | 'blocked' | 'error';
@@ -121,6 +122,21 @@ export interface EventAccessRequest {
   updated_at: string;
 }
 
+export interface EventJoinRequest {
+  id: string;
+  event_id: string;
+  user_id?: string | null;
+  attendee_profile_id?: string | null;
+  guest_name: string;
+  guest_email: string;
+  request_note?: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  reviewed_by_user_id?: string | null;
+  reviewed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Attendee {
   id: string;
   event_id: string;
@@ -130,7 +146,7 @@ export interface Attendee {
   added_by_attendee_profile_id?: string | null;
   guest_name: string;
   guest_email: string;
-  status: 'confirmed' | 'waitlist' | 'cancelled';
+  status: 'confirmed' | 'waitlist' | 'pending_approval' | 'cancelled';
   joined_at: string;
   promoted_at?: string;
   cancelled_at?: string;

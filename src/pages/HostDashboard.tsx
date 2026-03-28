@@ -5,7 +5,7 @@ import { User } from '@supabase/supabase-js';
 import { Users, Share2, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Clock, Edit2, Plus, X, AlertCircle, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, formatDurationMinutes, generateSlug } from '../utils';
-import { Event, Attendee, EventAccessRequest, EventInterest } from '../types';
+import { Event, Attendee, EventAccessRequest, EventInterest, EventJoinRequest } from '../types';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/moderation';
 import { goBackOr } from '../lib/navigation';
@@ -24,6 +24,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [accessRequests, setAccessRequests] = useState<EventAccessRequest[]>([]);
   const [requestActionLoadingId, setRequestActionLoadingId] = useState<string | null>(null);
   const [accessRequestView, setAccessRequestView] = useState<'pending' | 'approved' | 'declined'>('pending');
+  const [joinRequests, setJoinRequests] = useState<EventJoinRequest[]>([]);
+  const [joinRequestActionLoadingId, setJoinRequestActionLoadingId] = useState<string | null>(null);
+  const [joinRequestView, setJoinRequestView] = useState<'pending' | 'approved' | 'rejected'>('pending');
   const [interests, setInterests] = useState<EventInterest[]>([]);
   const [hosts, setHosts] = useState<Array<{ user_id: string; display_name: string; email: string }>>([]);
   const [hostEmailToAdd, setHostEmailToAdd] = useState('');
@@ -161,6 +164,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
       }, () => {
         fetchInterests(id!);
       })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'event_join_requests',
+        filter: `event_id=eq.${id}`
+      }, () => {
+        fetchJoinRequests(id!);
+      })
       .subscribe();
 
     return () => {
@@ -218,6 +229,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       setEvent(normalizedEvent);
       fetchAttendees(normalizedEvent.id);
       fetchAccessRequests(normalizedEvent.id);
+      fetchJoinRequests(normalizedEvent.id);
       fetchInterests(normalizedEvent.id);
       fetchHosts(normalizedEvent.id, normalizedEvent.host_user_id || null, normalizedEvent.host_name || null);
     }
@@ -250,6 +262,21 @@ export default function HostDashboard({ user }: { user: User | null }) {
       .order('created_at', { ascending: false });
 
     if (data) setAccessRequests(data as EventAccessRequest[]);
+  };
+
+  const fetchJoinRequests = async (eventId: string) => {
+    const { data, error } = await supabase.rpc('list_event_join_requests_for_host', {
+      p_event_id: eventId,
+      p_status: null,
+    });
+
+    if (error) {
+      console.error('Could not load join requests:', error);
+      setJoinRequests([]);
+      return;
+    }
+
+    if (data) setJoinRequests(data as EventJoinRequest[]);
   };
 
   const fetchInterests = async (eventId: string) => {
@@ -666,6 +693,45 @@ export default function HostDashboard({ user }: { user: User | null }) {
     }
   };
 
+  const handleApproveJoinRequest = async (requestId: string) => {
+    if (!event) return;
+    try {
+      setJoinRequestActionLoadingId(requestId);
+      const { data, error } = await supabase.rpc('approve_event_join_request', {
+        p_request_id: requestId,
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      await Promise.all([
+        fetchJoinRequests(event.id),
+        fetchAttendees(event.id),
+      ]);
+    } catch (error: any) {
+      alert(error.message || 'Could not approve join request');
+    } finally {
+      setJoinRequestActionLoadingId(null);
+    }
+  };
+
+  const handleRejectJoinRequest = async (requestId: string) => {
+    if (!event) return;
+    try {
+      setJoinRequestActionLoadingId(requestId);
+      const { data, error } = await supabase.rpc('reject_event_join_request', {
+        p_request_id: requestId,
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      await fetchJoinRequests(event.id);
+    } catch (error: any) {
+      alert(error.message || 'Could not reject join request');
+    } finally {
+      setJoinRequestActionLoadingId(null);
+    }
+  };
+
   if (loading || !event) {
     return (
       <div className="min-h-screen bg-slate-50 pb-24">
@@ -691,11 +757,15 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
   const confirmed = attendees.filter(a => a.status === 'confirmed');
   const waitlist = attendees.filter(a => a.status === 'waitlist');
+  const pendingApprovalAttendees = attendees.filter(a => a.status === 'pending_approval');
   const visibility = event.visibility || (event.is_public ? 'public' : 'private');
   const namedInterests = interests.filter((interest) => interest.visibility_mode === 'named');
   const pendingRequests = accessRequests.filter((r) => r.status === 'pending');
   const approvedRequests = accessRequests.filter((r) => r.status === 'approved');
   const declinedRequests = accessRequests.filter((r) => r.status === 'declined');
+  const pendingJoinRequests = joinRequests.filter((r) => r.status === 'pending');
+  const approvedJoinRequests = joinRequests.filter((r) => r.status === 'approved');
+  const rejectedJoinRequests = joinRequests.filter((r) => r.status === 'rejected');
   const moderationBanner = getModerationBannerCopy(event);
   const moderationStatusBadge = getModerationStatusBadge(event);
   const visibleRequests =
@@ -704,6 +774,12 @@ export default function HostDashboard({ user }: { user: User | null }) {
       : accessRequestView === 'declined'
         ? declinedRequests
         : pendingRequests;
+  const visibleJoinRequests =
+    joinRequestView === 'approved'
+      ? approvedJoinRequests
+      : joinRequestView === 'rejected'
+        ? rejectedJoinRequests
+        : pendingJoinRequests;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
@@ -737,6 +813,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
           <div className="bg-white p-3 rounded-2xl">
             <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-1">Going</p>
             <p className="text-lg font-bold text-slate-900 tracking-tight">{confirmed.length} <span className="text-slate-300 text-base font-light">/</span> {event.capacity}</p>
+            {pendingApprovalAttendees.length > 0 ? (
+              <p className="text-[10px] text-slate-400 mt-1">{pendingApprovalAttendees.length} pending approval</p>
+            ) : null}
           </div>
           <div className="bg-white p-3 rounded-2xl">
             <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-1">Waitlist</p>
@@ -864,6 +943,102 @@ export default function HostDashboard({ user }: { user: User | null }) {
           )}
         </section>
 
+        {event.require_host_approval_for_join ? (
+          <section className="bg-white rounded-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Join Requests</p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setJoinRequestView('pending')}
+                  className={`text-xs transition-all ${
+                    joinRequestView === 'pending'
+                      ? 'font-bold text-slate-500'
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  {pendingJoinRequests.length} pending
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setJoinRequestView('approved')}
+                  className={`text-xs underline transition-all ${
+                    joinRequestView === 'approved'
+                      ? 'font-bold text-slate-500'
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  Approved ({approvedJoinRequests.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setJoinRequestView('rejected')}
+                  className={`text-xs underline transition-all ${
+                    joinRequestView === 'rejected'
+                      ? 'font-bold text-slate-500'
+                      : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  Rejected ({rejectedJoinRequests.length})
+                </button>
+              </div>
+            </div>
+
+            {visibleJoinRequests.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                {joinRequestView === 'approved'
+                  ? 'No approved join requests.'
+                  : joinRequestView === 'rejected'
+                    ? 'No rejected join requests.'
+                    : 'No pending join requests.'}
+              </p>
+            ) : (
+              <div className="divide-y divide-slate-50">
+                {visibleJoinRequests.slice(0, 10).map((request) => (
+                  <div key={request.id} className="py-4 first:pt-0">
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div>
+                        <p className="font-bold text-slate-800 text-sm">{request.guest_name}</p>
+                        <p className="text-xs text-slate-400">{request.guest_email}</p>
+                        {request.request_note ? (
+                          <p className="text-xs text-slate-500 mt-1">{request.request_note}</p>
+                        ) : null}
+                      </div>
+                      <span className="text-[9px] font-medium uppercase tracking-widest text-slate-400">
+                        {request.status}
+                      </span>
+                    </div>
+                    {request.status === 'pending' ? (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleApproveJoinRequest(request.id)}
+                          disabled={joinRequestActionLoadingId === request.id}
+                          className="flex-1 px-3 py-2 rounded-xl bg-brand-600 text-white text-xs font-bold hover:bg-brand-500 transition-all active:scale-95 disabled:opacity-50"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => handleRejectJoinRequest(request.id)}
+                          disabled={joinRequestActionLoadingId === request.id}
+                          className="px-3 py-2 rounded-xl text-red-400 text-xs font-bold hover:bg-red-50 transition-all active:scale-95 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400">
+                        {request.status === 'approved'
+                          ? 'Approved and added.'
+                          : 'Rejected.'}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
+
         {(event.visibility || (event.is_public ? 'public' : 'private')) === 'semi_public' && (
           <section className="bg-white rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between">
@@ -978,7 +1153,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
               <Plus className="w-3.5 h-3.5" /> Add Person
             </button>
           </div>
-          {confirmed.length === 0 ? (
+          {confirmed.length === 0 && pendingApprovalAttendees.length === 0 ? (
             <div className="px-5 pb-6 pt-2">
               <p className="text-sm text-slate-400 mb-3">No one's joined yet.</p>
               <button
@@ -1007,6 +1182,17 @@ export default function HostDashboard({ user }: { user: User | null }) {
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
+                </div>
+              ))}
+              {pendingApprovalAttendees.map((a) => (
+                <div key={a.id} className="px-5 py-3 flex items-center justify-between bg-slate-50/60">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
+                      <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest">Pending host approval</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{a.guest_email}</p>
+                  </div>
                 </div>
               ))}
             </div>

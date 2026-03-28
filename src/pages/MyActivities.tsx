@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { Calendar as CalendarIcon, ChevronRight, Eye, LogOut, MessageSquare, Plus, Search } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronRight, Eye, LogOut, MessageSquare, Plus, Search, Users } from 'lucide-react';
 import { supabase } from '../supabase';
 import { formatDate, isOnOrAfterTodayInTimeZone } from '../utils';
 import { Event } from '../types';
@@ -21,14 +21,29 @@ interface PendingAccessRequestRow {
   } | null;
 }
 
+interface PendingJoinRequestRow {
+  id: string;
+  event_id: string;
+  guest_name: string;
+  created_at: string;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  events?: {
+    id: string;
+    title: string;
+    host_user_id?: string;
+  } | null;
+}
+
 export default function MyActivities({ user }: { user: User | null }) {
   const [hostedEvents, setHostedEvents] = useState<Event[]>([]);
   const [joinedEvents, setJoinedEvents] = useState<any[]>([]);
   const [pendingAccessRequests, setPendingAccessRequests] = useState<PendingAccessRequestRow[]>([]);
+  const [pendingJoinRequests, setPendingJoinRequests] = useState<PendingJoinRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'hosting' | 'attending'>('hosting');
   const [publicSearchQuery, setPublicSearchQuery] = useState('');
   const [showRequestsPanel, setShowRequestsPanel] = useState(false);
+  const [showJoinRequestsPanel, setShowJoinRequestsPanel] = useState(false);
   const [showPastHosting, setShowPastHosting] = useState(false);
   const [showPastAttending, setShowPastAttending] = useState(false);
   const navigate = useNavigate();
@@ -121,6 +136,28 @@ export default function MyActivities({ user }: { user: User | null }) {
         console.warn('Could not load pending access requests for My Activities:', pendingRequestsError);
       }
 
+      const { data: pendingMembershipRequests, error: pendingMembershipRequestsError } = await supabase
+        .from('event_join_requests')
+        .select(`
+          id,
+          event_id,
+          guest_name,
+          created_at,
+          status,
+          events!inner(
+            id,
+            title,
+            host_user_id
+          )
+        `)
+        .eq('status', 'pending')
+        .in('event_id', hostedEventIds.length > 0 ? hostedEventIds : ['00000000-0000-0000-0000-000000000000'])
+        .order('created_at', { ascending: false });
+
+      if (pendingMembershipRequestsError) {
+        console.warn('Could not load pending join requests for My Activities:', pendingMembershipRequestsError);
+      }
+
       const normalizedJoinedRows = (joinedRows || [])
         .filter((row: any) => row.events);
 
@@ -140,6 +177,14 @@ export default function MyActivities({ user }: { user: User | null }) {
         id: row.id,
         event_id: row.event_id,
         requester_name: row.requester_name,
+        created_at: row.created_at,
+        status: row.status,
+        events: Array.isArray(row.events) ? row.events[0] || null : row.events || null,
+      })));
+      setPendingJoinRequests(((pendingMembershipRequests || []) as any[]).map((row: any) => ({
+        id: row.id,
+        event_id: row.event_id,
+        guest_name: row.guest_name,
         created_at: row.created_at,
         status: row.status,
         events: Array.isArray(row.events) ? row.events[0] || null : row.events || null,
@@ -234,42 +279,91 @@ export default function MyActivities({ user }: { user: User | null }) {
         </div>
 
         {view === 'hosting' && !loading ? (
-          <section className="bg-white rounded-2xl overflow-hidden mb-5">
-            <button
-              type="button"
-              onClick={() => setShowRequestsPanel((prev) => !prev)}
-              className="w-full px-5 py-3 border-b border-slate-50 flex items-center justify-between hover:bg-slate-50 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <Eye className="w-4 h-4 text-slate-400" />
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Requests to View</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-500">{pendingAccessRequests.length} pending</span>
-                <ChevronRight className={`w-4 h-4 text-slate-300 transition-transform ${showRequestsPanel ? 'rotate-90' : ''}`} />
-              </div>
-            </button>
-            {showRequestsPanel ? (
-              pendingAccessRequests.length === 0 ? (
-                <p className="px-5 py-4 text-sm text-slate-400">No pending requests right now.</p>
-              ) : (
-                <div className="divide-y divide-slate-50">
-                  {pendingAccessRequests.slice(0, 3).map((request) => (
-                    <button
-                      key={request.id}
-                      onClick={() => navigate(`/host/events/${request.event_id}`)}
-                      className="w-full text-left px-5 py-3 hover:bg-slate-50 transition-all active:scale-[0.99]"
-                    >
-                      <p className="text-sm font-bold text-slate-900 leading-tight truncate">
-                        {request.requester_name} requested access to {request.events?.title || 'your activity'}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-0.5">{formatDate(request.created_at)}</p>
-                    </button>
-                  ))}
+          <div className="space-y-3 mb-5">
+            <section className="bg-white rounded-2xl overflow-hidden">
+              {(() => {
+                const hasPendingAccess = pendingAccessRequests.length > 0;
+                return (
+              <button
+                type="button"
+                onClick={() => setShowRequestsPanel((prev) => !prev)}
+                className="w-full px-5 py-3 border-b border-slate-50 flex items-center justify-between hover:bg-slate-50 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Eye className={`w-4 h-4 ${hasPendingAccess ? 'text-brand-600' : 'text-slate-400'}`} />
+                  <p className={`text-[10px] font-black uppercase tracking-widest ${hasPendingAccess ? 'text-brand-600' : 'text-slate-400'}`}>Requests to View</p>
                 </div>
-              )
-            ) : null}
-          </section>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-bold ${hasPendingAccess ? 'text-brand-600' : 'text-slate-500'}`}>{pendingAccessRequests.length} pending</span>
+                  <ChevronRight className={`w-4 h-4 ${hasPendingAccess ? 'text-brand-400' : 'text-slate-300'} transition-transform ${showRequestsPanel ? 'rotate-90' : ''}`} />
+                </div>
+              </button>
+                );
+              })()}
+              {showRequestsPanel ? (
+                pendingAccessRequests.length === 0 ? (
+                  <p className="px-5 py-4 text-sm text-slate-400">No pending requests right now.</p>
+                ) : (
+                  <div className="divide-y divide-slate-50">
+                    {pendingAccessRequests.slice(0, 3).map((request) => (
+                      <button
+                        key={request.id}
+                        onClick={() => navigate(`/host/events/${request.event_id}`)}
+                        className="w-full text-left px-5 py-3 hover:bg-slate-50 transition-all active:scale-[0.99]"
+                      >
+                        <p className="text-sm font-bold text-slate-900 leading-tight truncate">
+                          {request.requester_name} requested access to {request.events?.title || 'your activity'}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">{formatDate(request.created_at)}</p>
+                      </button>
+                    ))}
+                  </div>
+                )
+              ) : null}
+            </section>
+
+            <section className="bg-white rounded-2xl overflow-hidden">
+              {(() => {
+                const hasPendingJoin = pendingJoinRequests.length > 0;
+                return (
+              <button
+                type="button"
+                onClick={() => setShowJoinRequestsPanel((prev) => !prev)}
+                className="w-full px-5 py-3 border-b border-slate-50 flex items-center justify-between hover:bg-slate-50 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Users className={`w-4 h-4 ${hasPendingJoin ? 'text-brand-600' : 'text-slate-400'}`} />
+                  <p className={`text-[10px] font-black uppercase tracking-widest ${hasPendingJoin ? 'text-brand-600' : 'text-slate-400'}`}>Requests to Join</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-bold ${hasPendingJoin ? 'text-brand-600' : 'text-slate-500'}`}>{pendingJoinRequests.length} pending</span>
+                  <ChevronRight className={`w-4 h-4 ${hasPendingJoin ? 'text-brand-400' : 'text-slate-300'} transition-transform ${showJoinRequestsPanel ? 'rotate-90' : ''}`} />
+                </div>
+              </button>
+                );
+              })()}
+              {showJoinRequestsPanel ? (
+                pendingJoinRequests.length === 0 ? (
+                  <p className="px-5 py-4 text-sm text-slate-400">No pending join requests right now.</p>
+                ) : (
+                  <div className="divide-y divide-slate-50">
+                    {pendingJoinRequests.slice(0, 3).map((request) => (
+                      <button
+                        key={request.id}
+                        onClick={() => navigate(`/host/events/${request.event_id}`)}
+                        className="w-full text-left px-5 py-3 hover:bg-slate-50 transition-all active:scale-[0.99]"
+                      >
+                        <p className="text-sm font-bold text-slate-900 leading-tight truncate">
+                          {request.guest_name} requested to join {request.events?.title || 'your activity'}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">{formatDate(request.created_at)}</p>
+                      </button>
+                    ))}
+                  </div>
+                )
+              ) : null}
+            </section>
+          </div>
         ) : null}
 
         <div className="flex items-center justify-between mb-5">

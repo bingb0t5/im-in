@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS public.events (
     access_code TEXT DEFAULT gen_random_uuid()::text,
     visibility TEXT CHECK (visibility IN ('public', 'semi_public', 'private')) DEFAULT 'semi_public',
     allow_waitlist BOOLEAN DEFAULT true,
+    require_host_approval_for_join BOOLEAN NOT NULL DEFAULT false,
     is_public BOOLEAN DEFAULT false,
     public_discovery_enabled BOOLEAN NOT NULL DEFAULT false,
     moderation_status TEXT NOT NULL DEFAULT 'not_required' CHECK (moderation_status IN ('not_required', 'pending', 'approved', 'limited', 'review', 'blocked', 'error')),
@@ -45,7 +46,7 @@ CREATE TABLE IF NOT EXISTS public.event_attendees (
     user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
     guest_name TEXT NOT NULL,
     guest_email TEXT NOT NULL,
-    status TEXT CHECK (status IN ('confirmed', 'waitlist', 'cancelled')) NOT NULL,
+    status TEXT CHECK (status IN ('confirmed', 'waitlist', 'pending_approval', 'cancelled')) NOT NULL,
     joined_at TIMESTAMPTZ DEFAULT now(),
     promoted_at TIMESTAMPTZ,
     cancelled_at TIMESTAMPTZ,
@@ -81,6 +82,43 @@ CREATE TABLE IF NOT EXISTS public.event_access_requests (
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS public.event_join_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    attendee_profile_id UUID REFERENCES public.attendee_profiles(id) ON DELETE SET NULL,
+    guest_name TEXT NOT NULL,
+    guest_email TEXT NOT NULL,
+    request_note TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+    reviewed_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS event_join_requests_event_id_created_at_idx
+    ON public.event_join_requests (event_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS event_join_requests_event_id_status_idx
+    ON public.event_join_requests (event_id, status);
+
+CREATE INDEX IF NOT EXISTS event_join_requests_event_id_profile_idx
+    ON public.event_join_requests (event_id, attendee_profile_id);
+
+CREATE INDEX IF NOT EXISTS event_join_requests_event_id_guest_email_lower_idx
+    ON public.event_join_requests (event_id, lower(guest_email));
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_join_requests_pending_profile_uidx
+    ON public.event_join_requests (event_id, attendee_profile_id)
+    WHERE attendee_profile_id IS NOT NULL
+      AND status = 'pending';
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_join_requests_pending_guest_email_uidx
+    ON public.event_join_requests (event_id, lower(guest_email))
+    WHERE attendee_profile_id IS NULL
+      AND status = 'pending';
 
 CREATE TABLE IF NOT EXISTS public.moderator_public_identities (
     user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -148,6 +186,7 @@ ALTER TABLE public.event_attendees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.event_hosts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.event_waitlist_positions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.event_access_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_join_requests ENABLE ROW LEVEL SECURITY;
 
 CREATE OR REPLACE FUNCTION public.is_event_host(
     p_event_id UUID,
@@ -449,6 +488,7 @@ CREATE OR REPLACE FUNCTION public.get_event_for_view(
     access_code TEXT,
     visibility TEXT,
     allow_waitlist BOOLEAN,
+    require_host_approval_for_join BOOLEAN,
     is_public BOOLEAN,
     public_discovery_enabled BOOLEAN,
     moderation_status TEXT,
@@ -531,6 +571,7 @@ BEGIN
         END,
         v_event.visibility,
         v_event.allow_waitlist,
+        coalesce(v_event.require_host_approval_for_join, false),
         v_event.is_public,
         v_event.public_discovery_enabled,
         v_event.moderation_status,
@@ -1081,6 +1122,51 @@ CREATE POLICY "Hosts can update event access requests" ON public.event_access_re
         )
     );
 
+CREATE POLICY "Anyone can create event join requests" ON public.event_join_requests
+    FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Hosts can view event join requests" ON public.event_join_requests
+    FOR SELECT USING (
+        auth.uid() IN (
+            SELECT host_user_id FROM public.events WHERE id = event_id
+        )
+        OR auth.uid() IN (
+            SELECT eh.user_id FROM public.event_hosts eh WHERE eh.event_id = event_id
+        )
+    );
+
+CREATE POLICY "Hosts can update event join requests" ON public.event_join_requests
+    FOR UPDATE USING (
+        auth.uid() IN (
+            SELECT host_user_id FROM public.events WHERE id = event_id
+        )
+        OR auth.uid() IN (
+            SELECT eh.user_id FROM public.event_hosts eh WHERE eh.event_id = event_id
+        )
+    );
+
+CREATE POLICY "Requesters can view own join requests" ON public.event_join_requests
+    FOR SELECT USING (
+        (
+            auth.uid() IS NOT NULL
+            AND user_id IS NOT NULL
+            AND auth.uid() = user_id
+        )
+        OR (
+            auth.uid() IS NOT NULL
+            AND attendee_profile_id IS NOT NULL
+            AND auth.uid() IN (
+                SELECT ap.user_id
+                FROM public.attendee_profiles ap
+                WHERE ap.id = attendee_profile_id
+            )
+        )
+        OR (
+            lower(coalesce(auth.jwt() ->> 'email', '')) <> ''
+            AND lower(guest_email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+        )
+    );
+
 -- 3. Functions & Triggers
 
 -- Function to handle waitlist promotion when someone cancels
@@ -1293,6 +1379,11 @@ $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER event_interests_touch_updated_at
     BEFORE UPDATE ON public.event_interests
+    FOR EACH ROW
+    EXECUTE FUNCTION public.touch_updated_at();
+
+CREATE TRIGGER event_join_requests_touch_updated_at
+    BEFORE UPDATE ON public.event_join_requests
     FOR EACH ROW
     EXECUTE FUNCTION public.touch_updated_at();
 

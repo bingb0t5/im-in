@@ -40,6 +40,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [isEventHostViewer, setIsEventHostViewer] = useState(false);
   const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
   const [successType, setSuccessType] = useState<'self' | 'proxy'>('self');
+  const [proxyPendingApproval, setProxyPendingApproval] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [requestName, setRequestName] = useState('');
   const [requestWhatsapp, setRequestWhatsapp] = useState('');
@@ -47,6 +48,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [requestLoading, setRequestLoading] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestSuccess, setRequestSuccess] = useState(false);
+  const [myJoinRequestStatus, setMyJoinRequestStatus] = useState<'pending' | 'approved' | 'rejected' | 'cancelled' | null>(null);
   const [rsvpToCancel, setRsvpToCancel] = useState<Attendee | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [hasPublicModerationHistory, setHasPublicModerationHistory] = useState(false);
@@ -368,6 +370,37 @@ export default function EventDetail({ user }: { user: User | null }) {
     }
   }, [user, guestProfile, attendees]);
 
+  useEffect(() => {
+    const loadMyJoinRequestState = async () => {
+      if (!event?.id) {
+        setMyJoinRequestStatus(null);
+        return;
+      }
+
+      const email = (user?.email || guestInfo.email || '').trim().toLowerCase();
+      if (!user && !guestProfile?.id && !email) {
+        setMyJoinRequestStatus(null);
+        return;
+      }
+
+      const { data, error } = await supabase.rpc('get_my_join_request_for_event', {
+        p_event_id: event.id,
+        p_guest_email: email || null,
+        p_attendee_profile_id: guestProfile?.id || null,
+      });
+
+      if (error) {
+        setMyJoinRequestStatus(null);
+        return;
+      }
+
+      const status = (data?.status || null) as 'pending' | 'approved' | 'rejected' | 'cancelled' | null;
+      setMyJoinRequestStatus(status);
+    };
+
+    void loadMyJoinRequestState();
+  }, [event?.id, user?.id, user?.email, guestProfile?.id, guestInfo.email]);
+
   const fetchEvent = async () => {
     if (!slug) {
       setEvent(null);
@@ -570,8 +603,8 @@ export default function EventDetail({ user }: { user: User | null }) {
         setGuestProfile(profile);
       }
 
-      // 2. Use server-side RSVP path to avoid fragile RLS/auth.users interactions.
-      const { data, error } = await supabase.rpc('submit_rsvp', {
+      // 2. Use request-aware RSVP path so host-approval activities create pending requests.
+      const { data, error } = await supabase.rpc('request_or_submit_rsvp', {
         p_event_id: event.id,
         p_guest_name: name,
         p_guest_email: email,
@@ -581,6 +614,22 @@ export default function EventDetail({ user }: { user: User | null }) {
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
+      const result = data?.result as string | undefined;
+      if (result === 'request_pending' || result === 'already_pending') {
+        setMyJoinRequestStatus('pending');
+        setShowRsvpModal(false);
+        await clearMyInterest(event.id, currentProfileId || null, email);
+        fetchInterests();
+        return;
+      }
+
+      if (result === 'already_member') {
+        alert('You are already in this activity.');
+        fetchAttendees();
+        return;
+      }
+
+      setMyJoinRequestStatus(null);
       setShowRsvpModal(false);
       setSuccessType('self');
       setShowSuccessModal(true);
@@ -641,12 +690,15 @@ export default function EventDetail({ user }: { user: User | null }) {
         return;
       }
 
-      // 2. Determine status from shared RSVP strategy
-      const decision = decideRsvpStatus(getConfirmedCount(attendees), event.capacity, event.allow_waitlist);
-      if (isRsvpBlocked(decision)) {
-        setProxyError(decision.reason);
-        setRsvpLoading(false);
-        return;
+      const approvalRequiredForEvent = Boolean(event.require_host_approval_for_join);
+      // 2. Determine status from shared RSVP strategy only when direct joins are allowed.
+      if (!approvalRequiredForEvent) {
+        const decision = decideRsvpStatus(getConfirmedCount(attendees), event.capacity, event.allow_waitlist);
+        if (isRsvpBlocked(decision)) {
+          setProxyError(decision.reason);
+          setRsvpLoading(false);
+          return;
+        }
       }
 
       // 3. Use server-side upsert path for proxy RSVP (handles legacy constraints + auth).
@@ -665,6 +717,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       setShowProxyModal(false);
       setProxyName('');
       setSuccessType('proxy');
+      setProxyPendingApproval(data?.result === 'request_pending' || data?.result === 'already_pending');
       setShowSuccessModal(true);
       fetchAttendees();
       fetchInterests();
@@ -801,6 +854,8 @@ export default function EventDetail({ user }: { user: User | null }) {
       ? `${window.location.origin}/events/${event.slug}?access=${event.access_code}`
       : publicEventUrl;
   const { confirmedCount, waitlistCount, isFull, spotsRemaining } = getAttendanceSummary(attendees, event.capacity);
+  const approvalRequired = !!event.require_host_approval_for_join;
+  const joinRequestPending = approvalRequired && myJoinRequestStatus === 'pending' && myRsvps.length === 0;
   const mySelfRsvps = myRsvps.filter((rsvp) => rsvp.added_by_type !== 'proxy');
   const myManagedRsvps = myRsvps.filter((rsvp) => rsvp.added_by_type === 'proxy');
   const myInterest = findMyInterest(interests, {
@@ -1174,6 +1229,11 @@ export default function EventDetail({ user }: { user: User | null }) {
                       Waitlist
                     </span>
                   )}
+                  {attendee.status === 'pending_approval' && (
+                    <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest">
+                      Pending host approval
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -1225,6 +1285,15 @@ export default function EventDetail({ user }: { user: User | null }) {
       {/* Fixed CTA */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-lg border-t border-slate-100 z-20">
         <div className="max-w-xl mx-auto space-y-3">
+          {approvalRequired && myRsvps.length === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+              {myJoinRequestStatus === 'pending'
+                ? 'Join request pending host approval.'
+                : myJoinRequestStatus === 'rejected'
+                  ? 'Your previous join request was declined. You can submit a new request.'
+                  : "This activity requires host approval before you're added."}
+            </div>
+          ) : null}
           {myRsvps.length > 0 ? (
             <>
               <div className="space-y-2 max-h-32 overflow-y-auto">
@@ -1236,6 +1305,11 @@ export default function EventDetail({ user }: { user: User | null }) {
                       {rsvp.status === 'waitlist' && (
                         <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Waitlist</span>
                       )}
+                      {rsvp.status === 'pending_approval' && (
+                        <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest">
+                          Pending host approval
+                        </span>
+                      )}
                     </div>
                     <button 
                       onClick={() => {
@@ -1246,7 +1320,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                       disabled={rsvpLoading}
                       className="text-xs text-slate-400 hover:text-red-400 transition-all active:scale-95"
                     >
-                      Cancel
+                      {rsvp.status === 'pending_approval' ? 'Cancel request' : 'Cancel'}
                     </button>
                   </div>
                 ))}
@@ -1254,10 +1328,18 @@ export default function EventDetail({ user }: { user: User | null }) {
               {!hasSelfRsvp && (
                 <button
                   onClick={() => handleRsvp()}
-                  disabled={rsvpLoading || (isFull && !event.allow_waitlist)}
+                  disabled={rsvpLoading || joinRequestPending || (!approvalRequired && isFull && !event.allow_waitlist)}
                   className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
                 >
-                  {rsvpLoading ? 'Just a sec...' : isFull ? "Join Waitlist" : "I'm in"}
+                  {rsvpLoading
+                    ? 'Just a sec...'
+                    : joinRequestPending
+                      ? 'Request pending'
+                      : approvalRequired
+                        ? 'Request to join'
+                        : isFull
+                          ? 'Join Waitlist'
+                          : "I'm in"}
                 </button>
               )}
               <button
@@ -1282,10 +1364,18 @@ export default function EventDetail({ user }: { user: User | null }) {
             <>
               <button
                 onClick={() => handleRsvp()}
-                disabled={rsvpLoading || (isFull && !event.allow_waitlist)}
+                disabled={rsvpLoading || joinRequestPending || (!approvalRequired && isFull && !event.allow_waitlist)}
                 className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
               >
-                {rsvpLoading ? 'Just a sec...' : isFull ? "Join Waitlist" : "I'm in"}
+                {rsvpLoading
+                  ? 'Just a sec...'
+                  : joinRequestPending
+                    ? 'Request pending'
+                    : approvalRequired
+                      ? 'Request to join'
+                      : isFull
+                        ? 'Join Waitlist'
+                        : "I'm in"}
               </button>
               <button
                 onClick={() => handleToggleThinking()}
@@ -1392,10 +1482,16 @@ export default function EventDetail({ user }: { user: User | null }) {
                 )}
                 <button
                   type="submit"
-                  disabled={rsvpLoading}
+                  disabled={rsvpLoading || joinRequestPending}
                   className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-lg py-4 rounded-2xl shadow-lg shadow-brand-600/10 mt-2 transition-all active:scale-95"
                 >
-                  {rsvpLoading ? "Joining..." : "I'm in"}
+                  {rsvpLoading
+                    ? 'Joining...'
+                    : joinRequestPending
+                      ? 'Request pending'
+                      : approvalRequired
+                        ? 'Request to join'
+                        : "I'm in"}
                 </button>
               </form>
             </motion.div>
@@ -1464,11 +1560,15 @@ export default function EventDetail({ user }: { user: User | null }) {
                 <CheckCircle2 className="w-10 h-10 text-brand-600" />
               </div>
               <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-2">
-                {successType === 'proxy' ? "They're in!" : "You're in!"}
+                {successType === 'proxy'
+                  ? (proxyPendingApproval ? 'Request sent!' : "They're in!")
+                  : "You're in!"}
               </h2>
               <p className="text-slate-500 font-medium mb-8 text-sm leading-relaxed">
                 {successType === 'proxy'
-                  ? "We've added them to the list. You can manage this activity in your bookings."
+                  ? (proxyPendingApproval
+                    ? 'They now appear in the list as pending host approval.'
+                    : "We've added them to the list. You can manage this activity in your bookings.")
                   : "We've added you to the list. You can manage all your activities in one place."}
               </p>
               

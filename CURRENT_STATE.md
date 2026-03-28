@@ -45,6 +45,7 @@ The weakest / least finished areas are:
 - host dashboard
 - access requests for semi-public activities
 - attendee list and waitlist
+- optional host-approval join flow before membership is granted
 - proxy RSVP / "add another person"
 - "thinking about it"
 - lightweight AI moderation for broader public discovery on public activities and semi-public public previews
@@ -74,6 +75,7 @@ The weakest / least finished areas are:
 - direct Supabase client access from the SPA
 - RLS-sensitive flows routed through RPCs for RSVP/cancel/proxy/interest where needed
 - route-aware private link building for semi-public activities
+- dedicated join-request queue (`event_join_requests`) plus host approve/reject RPCs for approval-required activities
 - filtered realtime on the host dashboard
 - Supabase Edge Function moderation with content-hash reuse and stored discovery state
 - separate reviewer archive state for the moderation queue via `events.moderation_archived_at`

@@ -176,6 +176,7 @@ Features:
 - share/copy links
 - WhatsApp share actions
 - access request review
+- join request review (when host approval is enabled)
 - host/co-host management
 - duplicate activity
 - delete activity
@@ -412,7 +413,9 @@ Lets a person join an activity.
 - page: `EventDetail.tsx`
 - supports signed-in RSVP
 - supports guest RSVP
-- uses the `submit_rsvp(...)` RPC for the main flow
+- uses a request-aware RSVP path:
+  - direct join via `submit_rsvp(...)` when host approval is off
+  - pending join request via `request_or_submit_rsvp(...)` when host approval is on
 
 ### Identity handling
 
@@ -425,6 +428,19 @@ The app may match the person through:
 ### Notes
 
 - this is a high-risk flow because identity and waitlist behavior overlap here
+
+## 7.1 Host-Approval Join Requests
+
+### What it does
+
+Lets a host require approval before a person is added as an attendee.
+
+### How it works
+
+- per-activity setting on create/edit: `require_host_approval_for_join`
+- when enabled, attendee-side join attempts create rows in `event_join_requests` with `pending` status
+- hosts review in `HostDashboard.tsx` and can approve/reject
+- approval creates the attendee row (`confirmed` or `waitlist` based on capacity and `allow_waitlist`)
 
 ## 8. Waitlist
 

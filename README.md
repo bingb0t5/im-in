@@ -68,6 +68,7 @@ Main product areas:
 - signed-in RSVP
 - guest RSVP
 - waitlist placement when full
+- optional host approval before membership is granted
 - cancellation with promotion
 - proxy RSVP / "add another person"
 - host-added attendees
@@ -79,6 +80,7 @@ Main product areas:
 - duplicate activities
 - manage attendees and waitlist
 - approve/decline/request more info on semi-public access requests
+- review and approve/reject join requests when host approval is enabled
 - share public and private links
 - add co-hosts
 - see neutral discovery-status messaging when broader public visibility is limited
@@ -91,6 +93,7 @@ Main product areas:
 - browse public activities on `/calendar`
 - open `/events/:slug`
 - RSVP directly as a signed-in user or guest
+- if host approval is enabled, submit a join request and wait for host review
 - if full, join the waitlist when allowed
 - optionally add another person
 - optionally mark "thinking about it"
@@ -300,6 +303,11 @@ Home-page feedback behavior:
 The frontend relies on these important RPCs in `supabase_reconcile_live_schema.sql`:
 
 - `submit_rsvp(...)`
+- `request_or_submit_rsvp(...)`
+- `get_my_join_request_for_event(...)`
+- `list_event_join_requests_for_host(...)`
+- `approve_event_join_request(...)`
+- `reject_event_join_request(...)`
 - `cancel_attendee_with_promotion(...)`
 - `add_proxy_attendee(...)`
 - `toggle_event_interest(...)`
@@ -311,6 +319,7 @@ The app also relies on these core tables:
 - `event_hosts`
 - `event_interests`
 - `event_access_requests`
+- `event_join_requests`
 - `attendee_profiles`
 - `attendee_sessions`
 - `feedback_submissions`
