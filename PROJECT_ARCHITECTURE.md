@@ -144,12 +144,15 @@ The route table lives in `src/App.tsx`.
 ### `CreateEvent.tsx`
 
 - create and edit form
+- 3-step UI with visibility first, then details, then joining settings
 - delayed-auth create flow
 - local draft persistence
 - timezone-aware scheduling
 - duration-based scheduling instead of direct end-time authoring
 - per-activity host-approval setting for membership requests
+- field-level public/private badges to explain what is shown publicly
 - signed-in host-name hydration and normalization
+- host name is treated as public for public and semi-public activities
 - co-host access check for edit mode
 
 ### `EventDetail.tsx`

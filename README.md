@@ -41,6 +41,7 @@ Main product areas:
 - a signed-in dashboard through `/my-activities`
 - activity detail pages with RSVP, proxy RSVP, cancellation, sharing, and host contact actions
 - a create/edit flow with delayed authentication
+- a 3-step create/edit flow with visibility first
 - a host dashboard for attendee, host, and access-request management
 - a guest bookings/recovery flow for users operating without a full signed-in account experience
 
@@ -51,6 +52,7 @@ Main product areas:
 - `public`: publicly discoverable, full public-facing details shown
 - `semi_public`: appears in public browse with limited details; host shares the private access link manually
 - `private`: unlisted / link-only
+- host names are always shown on public and semi-public activity surfaces
 - `public` activities can be gated by lightweight platform moderation and host trust before broader browse visibility is enabled
 - `semi_public` public-preview content also goes through moderation and can appear in the public transparency log, while its private-link-only content stays outside platform moderation review
 - `private` activities stay outside platform moderation review and do not appear in the public moderation transparency log
@@ -107,6 +109,13 @@ Main product areas:
 - manage attendees, requests, hosts, sharing, and duplication
 - edit through `/host/events/:id/edit`
 - review pending join requests where pending attendees are already visible in `Going`
+
+### Create flow
+
+- Step 1: choose visibility
+- Step 2: add activity details
+- Step 3: set joining rules and host info
+- field-level `Public` / `Private` badges explain what is shown publicly and what stays behind the private link or after joining
 
 ### Delayed-auth create flow
 

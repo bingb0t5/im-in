@@ -41,7 +41,7 @@ The weakest / least finished areas are:
 - public search and browse
 - public / semi-public / private visibility modes
 - delayed-auth create flow
-- create and edit activity forms
+- create and edit activity forms with a multi-step visibility-first flow
 - host dashboard
 - access requests for semi-public activities
 - attendee list and waitlist
@@ -77,6 +77,7 @@ The weakest / least finished areas are:
 - route-aware private link building for semi-public activities
 - dedicated join-request queue (`event_join_requests`) plus host approve/reject RPCs for approval-required activities
 - approval-required joins now create visible `event_attendees` rows in `pending_approval` state so pending people show in `Going`
+- public and semi-public activities now always expose host names from the create/edit flow
 - filtered realtime on the host dashboard
 - Supabase Edge Function moderation with content-hash reuse and stored discovery state
 - separate reviewer archive state for the moderation queue via `events.moderation_archived_at`

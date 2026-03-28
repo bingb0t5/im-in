@@ -2,6 +2,16 @@
 
 ## 2026-03-28
 
+### Create activity flow refresh
+
+- refactored `Create Activity` into a 3-step flow with visibility as the first required decision
+- replaced the old visibility dropdown with full-width public / semi-public / private selection options
+- regrouped the form into clearer activity-details and joining-settings steps with lighter, more compact UI
+- added field-level public/private badges to clarify what is shown publicly versus only after joining or via a private link
+- removed the `Show my name on the public listing` toggle and now always show host names on public and semi-public activities
+- marked `Host name` as a public field in the form and keep private activities as the only mode where host visibility stays private
+- fixed a mobile step-transition bug where moving into Step 3 could immediately trigger save without a fresh tap
+
 ### Host approval join flow refinements
 
 - changed approval-required joins so requesters are now added to the `Going` list immediately with a `Pending host approval` state instead of staying invisible until review
