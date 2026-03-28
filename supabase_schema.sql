@@ -212,6 +212,115 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
+-- Shared helper used by multiple updated_at triggers later in the schema.
+CREATE OR REPLACE FUNCTION public.touch_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- -------------------------------------------------------------------
+-- Feedback intake + Trello prompt pipeline
+-- -------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.feedback_submissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    submission_type TEXT NOT NULL CHECK (submission_type IN ('bug', 'feature', 'feedback')),
+    title TEXT NOT NULL,
+    details TEXT NOT NULL,
+    reporter_name TEXT,
+    reporter_email TEXT,
+    auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    page_url TEXT,
+    status TEXT NOT NULL DEFAULT 'pending_review'
+        CHECK (status IN ('pending_review', 'queued_to_trello', 'blocked_abuse', 'approved', 'rejected', 'archived')),
+    abuse_risk_level TEXT,
+    abuse_confidence NUMERIC,
+    abuse_reasons TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    abuse_blocked BOOLEAN NOT NULL DEFAULT false,
+    codex_prompt_draft TEXT,
+    codex_prompt_generated_at TIMESTAMPTZ,
+    trello_card_id TEXT,
+    trello_card_url TEXT,
+    trello_list_id TEXT,
+    trello_sync_status TEXT NOT NULL DEFAULT 'not_sent'
+        CHECK (trello_sync_status IN ('not_sent', 'queued', 'synced', 'skipped', 'failed')),
+    screenshot_storage_path TEXT,
+    public_sanitized_summary TEXT,
+    raw_source TEXT NOT NULL DEFAULT 'home_modal',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS feedback_submissions_created_at_idx
+    ON public.feedback_submissions (created_at DESC);
+CREATE INDEX IF NOT EXISTS feedback_submissions_status_idx
+    ON public.feedback_submissions (status);
+CREATE INDEX IF NOT EXISTS feedback_submissions_trello_card_id_idx
+    ON public.feedback_submissions (trello_card_id);
+
+ALTER TABLE public.feedback_submissions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.feedback_submissions FROM anon, authenticated;
+
+CREATE TRIGGER feedback_submissions_touch_updated_at
+    BEFORE UPDATE ON public.feedback_submissions
+    FOR EACH ROW
+    EXECUTE FUNCTION public.touch_updated_at();
+
+CREATE TABLE IF NOT EXISTS public.trello_prompt_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    feedback_submission_id UUID REFERENCES public.feedback_submissions(id) ON DELETE SET NULL,
+    trello_card_id TEXT NOT NULL,
+    trello_action_id TEXT,
+    trigger_list_id TEXT NOT NULL,
+    trigger_snapshot TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'processed', 'skipped', 'failed')),
+    error_message TEXT,
+    generated_prompt TEXT,
+    card_name_snapshot TEXT,
+    processed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS trello_prompt_jobs_action_uidx
+    ON public.trello_prompt_jobs (trello_action_id)
+    WHERE trello_action_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS trello_prompt_jobs_card_snapshot_uidx
+    ON public.trello_prompt_jobs (trello_card_id, trigger_snapshot);
+CREATE INDEX IF NOT EXISTS trello_prompt_jobs_status_idx
+    ON public.trello_prompt_jobs (status, created_at DESC);
+
+ALTER TABLE public.trello_prompt_jobs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.trello_prompt_jobs FROM anon, authenticated;
+
+CREATE TRIGGER trello_prompt_jobs_touch_updated_at
+    BEFORE UPDATE ON public.trello_prompt_jobs
+    FOR EACH ROW
+    EXECUTE FUNCTION public.touch_updated_at();
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'storage') THEN
+        INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+        VALUES (
+            'feedback-screenshots',
+            'feedback-screenshots',
+            false,
+            5242880,
+            ARRAY['image/png', 'image/jpeg', 'image/webp']::TEXT[]
+        )
+        ON CONFLICT (id) DO UPDATE
+        SET
+            public = false,
+            file_size_limit = EXCLUDED.file_size_limit,
+            allowed_mime_types = EXCLUDED.allowed_mime_types;
+    END IF;
+END $$;
+
 REVOKE ALL ON FUNCTION public.get_or_create_public_moderator_handle(UUID) FROM anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.list_public_moderation_log(

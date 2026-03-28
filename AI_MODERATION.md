@@ -315,6 +315,10 @@ Frontend optional env:
 - richer reviewer/admin tooling beyond the current hidden queue
 - backfill tooling for older activities
 - richer trust scoring
-- user reports
+- deeper automation from Trello labels/lists into external coding-agent workflows (currently prompt generation is list-triggered but remains inside Trello + Supabase flow)
 - appeal / review workflows
 - batching or async queue infrastructure for higher volume
+
+## Related but separate pipeline
+
+User feedback / bug / feature intake now exists as a separate flow (`submit-feedback` + `trello-prompt-sync`) and is intentionally not mixed into activity visibility moderation.

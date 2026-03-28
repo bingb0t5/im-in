@@ -1,0 +1,396 @@
+import { createClient } from 'npm:@supabase/supabase-js@2';
+
+type TrelloCard = {
+  id: string;
+  name: string;
+  desc: string;
+  url: string;
+  idList: string;
+  dateLastActivity?: string;
+};
+
+type PromptResult = {
+  summary: string;
+  codex_prompt: string;
+};
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-trello-webhook',
+};
+
+const PROMPT_SCHEMA = {
+  name: 'codex_prompt_generation',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      summary: { type: 'string' },
+      codex_prompt: { type: 'string' },
+    },
+    required: ['summary', 'codex_prompt'],
+  },
+} as const;
+
+function json(data: unknown, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...corsHeaders,
+      ...(init.headers || {}),
+    },
+  });
+}
+
+function normalizeText(value?: string | null) {
+  return (value || '').replace(/\s+/g, ' ').trim();
+}
+
+function parseEmailAllowlist(raw?: string | null) {
+  return (raw || '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function upsertPromptSection(existingDescription: string, promptBody: string) {
+  const markerStart = '## Codex Prompt Draft (AI)';
+  const markerEnd = '## End Codex Prompt Draft';
+  const section = `${markerStart}\n${promptBody}\n${markerEnd}`;
+  const pattern = new RegExp(`${markerStart}[\\s\\S]*?${markerEnd}`, 'm');
+  if (pattern.test(existingDescription)) {
+    return existingDescription.replace(pattern, section);
+  }
+  return `${existingDescription.trim()}\n\n${section}`.trim();
+}
+
+async function trelloRequest<T>({
+  method = 'GET',
+  path,
+  key,
+  token,
+  body,
+}: {
+  method?: 'GET' | 'PUT' | 'POST';
+  path: string;
+  key: string;
+  token: string;
+  body?: URLSearchParams;
+}): Promise<T> {
+  const url = `https://api.trello.com/1${path}${path.includes('?') ? '&' : '?'}key=${encodeURIComponent(
+    key,
+  )}&token=${encodeURIComponent(token)}`;
+  const response = await fetch(url, {
+    method,
+    headers: body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : undefined,
+    body: body?.toString(),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Trello request failed (${method} ${path}): ${response.status} ${text}`);
+  }
+  return (await response.json()) as T;
+}
+
+async function getOptionalUser(supabaseUrl: string, supabaseAnonKey: string, authorizationHeader: string | null) {
+  if (!authorizationHeader?.trim()) return null;
+  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authorizationHeader } },
+  });
+  const { data } = await userClient.auth.getUser();
+  return data.user ?? null;
+}
+
+async function generateCodexPrompt({
+  apiKey,
+  model,
+  card,
+}: {
+  apiKey: string;
+  model: string;
+  card: TrelloCard;
+}): Promise<PromptResult> {
+  const systemPrompt = `
+You write implementation-ready prompts for Cursor/Codex from Trello cards.
+Produce a practical engineering prompt focused on this specific codebase task.
+Always include an approval gate:
+"Do not implement immediately. First review the codebase and propose a plan. Wait for approval before making changes."
+Keep output concise, clear, and actionable.
+Return strict JSON only.
+`.trim();
+
+  const userPayload = {
+    cardName: card.name,
+    cardDescription: card.desc || '',
+    cardUrl: card.url,
+  };
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.2,
+      response_format: {
+        type: 'json_schema',
+        json_schema: PROMPT_SCHEMA,
+      },
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: JSON.stringify(userPayload) },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Prompt generation failed: ${response.status} ${text}`);
+  }
+
+  const completion = await response.json();
+  const content = completion?.choices?.[0]?.message?.content;
+  const parsed = JSON.parse(content || '{}') as Partial<PromptResult>;
+
+  return {
+    summary: normalizeText(parsed.summary) || `Prompt generated for "${card.name}"`,
+    codex_prompt:
+      normalizeText(parsed.codex_prompt) ||
+      `Do not implement immediately. First review the codebase and propose a plan. Wait for approval before making changes.\n\nTask: ${card.name}\n\nContext:\n${card.desc || '(No card description provided)'}`,
+  };
+}
+
+async function processCard({
+  adminClient,
+  card,
+  triggerListId,
+  snapshot,
+  actionId,
+  trelloKey,
+  trelloToken,
+  openAiKey,
+  openAiModel,
+}: {
+  adminClient: ReturnType<typeof createClient>;
+  card: TrelloCard;
+  triggerListId: string;
+  snapshot: string;
+  actionId: string | null;
+  trelloKey: string;
+  trelloToken: string;
+  openAiKey: string;
+  openAiModel: string;
+}) {
+  if (card.idList !== triggerListId) {
+    return { processed: false, reason: 'not_in_trigger_list' };
+  }
+
+  const { data: insertedJob, error: insertJobError } = await adminClient
+    .from('trello_prompt_jobs')
+    .insert({
+      trello_card_id: card.id,
+      trello_action_id: actionId,
+      trigger_list_id: triggerListId,
+      trigger_snapshot: snapshot,
+      status: 'pending',
+      card_name_snapshot: card.name,
+    })
+    .select('id')
+    .single();
+
+  if (insertJobError) {
+    if (insertJobError.code === '23505') {
+      return { processed: false, reason: 'already_processed' };
+    }
+    throw new Error(insertJobError.message || 'Could not create trello prompt job.');
+  }
+
+  const jobId = insertedJob?.id;
+  if (!jobId) {
+    throw new Error('Could not allocate trello prompt job.');
+  }
+
+  try {
+    const promptResult = await generateCodexPrompt({
+      apiKey: openAiKey,
+      model: openAiModel,
+      card,
+    });
+
+    const stampedPrompt = [
+      `Generated: ${new Date().toISOString()}`,
+      '',
+      promptResult.summary,
+      '',
+      promptResult.codex_prompt,
+    ].join('\n');
+
+    const nextDescription = upsertPromptSection(card.desc || '', stampedPrompt);
+    const updateBody = new URLSearchParams({ desc: nextDescription });
+    await trelloRequest({
+      method: 'PUT',
+      path: `/cards/${encodeURIComponent(card.id)}`,
+      key: trelloKey,
+      token: trelloToken,
+      body: updateBody,
+    });
+
+    await adminClient
+      .from('trello_prompt_jobs')
+      .update({
+        status: 'processed',
+        generated_prompt: promptResult.codex_prompt,
+        processed_at: new Date().toISOString(),
+      })
+      .eq('id', jobId);
+
+    await adminClient
+      .from('feedback_submissions')
+      .update({
+        codex_prompt_draft: promptResult.codex_prompt,
+        codex_prompt_generated_at: new Date().toISOString(),
+      })
+      .eq('trello_card_id', card.id);
+
+    return { processed: true, reason: 'prompt_written' };
+  } catch (error) {
+    await adminClient
+      .from('trello_prompt_jobs')
+      .update({
+        status: 'failed',
+        error_message: error instanceof Error ? error.message : 'Prompt generation failure.',
+      })
+      .eq('id', jobId);
+
+    throw error;
+  }
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    return new Response('ok', { headers: corsHeaders, status: 200 });
+  }
+
+  if (req.method !== 'POST') {
+    return json({ error: 'Method not allowed' }, { status: 405 });
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const trelloKey = Deno.env.get('TRELLO_API_KEY');
+    const trelloToken = Deno.env.get('TRELLO_API_TOKEN');
+    const triggerListId = Deno.env.get('TRELLO_PROMPT_TRIGGER_LIST_ID');
+    const openAiKey = Deno.env.get('OPENAI_API_KEY');
+    const openAiModel = Deno.env.get('OPENAI_PROMPT_MODEL') || Deno.env.get('OPENAI_MODERATION_MODEL') || 'gpt-5.4-nano';
+
+    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
+      throw new Error('Supabase credentials are not configured for trello-prompt-sync.');
+    }
+    if (!trelloKey || !trelloToken || !triggerListId) {
+      throw new Error('Trello credentials are not configured for trello-prompt-sync.');
+    }
+    if (!openAiKey) {
+      throw new Error('OPENAI_API_KEY is required for trello-prompt-sync.');
+    }
+
+    const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+    const body = await req.json().catch(() => ({}));
+
+    // Manual sync mode: for trusted admins, process all cards currently in trigger list.
+    if (body?.syncFromTriggerList === true) {
+      const user = await getOptionalUser(supabaseUrl, supabaseAnonKey, req.headers.get('Authorization'));
+      const allowlist = parseEmailAllowlist(
+        Deno.env.get('FEEDBACK_ADMIN_EMAILS') || Deno.env.get('MODERATION_ADMIN_EMAILS'),
+      );
+      const email = normalizeText(user?.email).toLowerCase();
+      if (!email || !allowlist.includes(email)) {
+        return json({ error: 'Not authorized to run manual Trello sync.' }, { status: 403 });
+      }
+
+      const cards = await trelloRequest<TrelloCard[]>({
+        method: 'GET',
+        path: `/lists/${encodeURIComponent(triggerListId)}/cards?fields=name,desc,idList,url,dateLastActivity`,
+        key: trelloKey,
+        token: trelloToken,
+      });
+
+      let processedCount = 0;
+      let skippedCount = 0;
+      for (const card of cards) {
+        const snapshot = `manual-${card.dateLastActivity || 'unknown'}`;
+        const result = await processCard({
+          adminClient,
+          card,
+          triggerListId,
+          snapshot,
+          actionId: null,
+          trelloKey,
+          trelloToken,
+          openAiKey,
+          openAiModel,
+        });
+        if (result.processed) processedCount += 1;
+        else skippedCount += 1;
+      }
+
+      return json({
+        ok: true,
+        mode: 'manual_sync',
+        processedCount,
+        skippedCount,
+      });
+    }
+
+    // Trello webhook mode: process only list move events into the configured trigger list.
+    const action = body?.action;
+    const actionType = action?.type;
+    const listAfterId = action?.data?.listAfter?.id;
+    const cardId = action?.data?.card?.id;
+    const actionId = normalizeText(action?.id) || null;
+
+    if (actionType !== 'updateCard' || !cardId || listAfterId !== triggerListId) {
+      return json({ ok: true, ignored: true, reason: 'not_prompt_trigger_event' });
+    }
+
+    const card = await trelloRequest<TrelloCard>({
+      method: 'GET',
+      path: `/cards/${encodeURIComponent(cardId)}?fields=name,desc,idList,url,dateLastActivity`,
+      key: trelloKey,
+      token: trelloToken,
+    });
+
+    const snapshot = actionId || `webhook-${card.dateLastActivity || Date.now().toString()}`;
+    const result = await processCard({
+      adminClient,
+      card,
+      triggerListId,
+      snapshot,
+      actionId,
+      trelloKey,
+      trelloToken,
+      openAiKey,
+      openAiModel,
+    });
+
+    return json({
+      ok: true,
+      mode: 'webhook',
+      processed: result.processed,
+      reason: result.reason,
+      cardId,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unexpected trello-prompt-sync failure.';
+    return json({ error: message }, { status: 500 });
+  }
+});

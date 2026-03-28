@@ -11,6 +11,14 @@
 - changed `My Activities` and `Activities I'm In` so they only show today-and-future activities by default
 - moved yesterday-and-older activities behind a compact `Past activities` toggle on both dashboard views
 
+### Feedback to Trello pipeline
+
+- added a public `Send feedback` modal on the home page for bug reports, feature requests, and general feedback
+- added optional screenshot upload support for feedback submissions (stored privately)
+- added `submit-feedback` Edge Function to run lightweight abuse filtering and create sanitized Trello intake cards
+- added `trello-prompt-sync` Edge Function so Codex prompt generation is triggered by moving cards into a dedicated Trello list
+- added SQL support for `feedback_submissions` and `trello_prompt_jobs` with private-by-default access boundaries
+
 ### Moderation transparency UX
 
 - made public moderation log entries clickable so they can open the current public-facing activity page in a modal

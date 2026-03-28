@@ -51,6 +51,29 @@ export interface PublicModerationLogEntry {
   created_at: string;
 }
 
+export type FeedbackSubmissionType = 'bug' | 'feature' | 'feedback';
+
+export interface FeedbackSubmissionPayload {
+  submissionType: FeedbackSubmissionType;
+  title: string;
+  details: string;
+  reporterName?: string;
+  reporterEmail?: string;
+  pageUrl?: string;
+  screenshotDataUrl?: string;
+  source?: string;
+}
+
+export interface FeedbackSubmissionResult {
+  ok: boolean;
+  submissionId: string;
+  blockedByAbuse: boolean;
+  queuedToTrello: boolean;
+  screenshotStored: boolean;
+  trelloCardId?: string | null;
+  trelloCardUrl?: string | null;
+}
+
 export interface EventAccessRequest {
   id: string;
   event_id: string;

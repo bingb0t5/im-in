@@ -86,6 +86,176 @@ BEGIN
     END IF;
 END $$;
 
+-- Shared helper used by multiple updated_at triggers later in the file.
+CREATE OR REPLACE FUNCTION public.touch_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- -------------------------------------------------------------------
+-- 6) Feedback intake + Trello prompt pipeline
+-- -------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.feedback_submissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    submission_type TEXT NOT NULL CHECK (submission_type IN ('bug', 'feature', 'feedback')),
+    title TEXT NOT NULL,
+    details TEXT NOT NULL,
+    reporter_name TEXT,
+    reporter_email TEXT,
+    auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    page_url TEXT,
+    status TEXT NOT NULL DEFAULT 'pending_review'
+        CHECK (status IN ('pending_review', 'queued_to_trello', 'blocked_abuse', 'approved', 'rejected', 'archived')),
+    abuse_risk_level TEXT,
+    abuse_confidence NUMERIC,
+    abuse_reasons TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    abuse_blocked BOOLEAN NOT NULL DEFAULT false,
+    codex_prompt_draft TEXT,
+    codex_prompt_generated_at TIMESTAMPTZ,
+    trello_card_id TEXT,
+    trello_card_url TEXT,
+    trello_list_id TEXT,
+    trello_sync_status TEXT NOT NULL DEFAULT 'not_sent'
+        CHECK (trello_sync_status IN ('not_sent', 'queued', 'synced', 'skipped', 'failed')),
+    screenshot_storage_path TEXT,
+    public_sanitized_summary TEXT,
+    raw_source TEXT NOT NULL DEFAULT 'home_modal',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.feedback_submissions
+    ADD COLUMN IF NOT EXISTS submission_type TEXT,
+    ADD COLUMN IF NOT EXISTS title TEXT,
+    ADD COLUMN IF NOT EXISTS details TEXT,
+    ADD COLUMN IF NOT EXISTS reporter_name TEXT,
+    ADD COLUMN IF NOT EXISTS reporter_email TEXT,
+    ADD COLUMN IF NOT EXISTS auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS page_url TEXT,
+    ADD COLUMN IF NOT EXISTS status TEXT,
+    ADD COLUMN IF NOT EXISTS abuse_risk_level TEXT,
+    ADD COLUMN IF NOT EXISTS abuse_confidence NUMERIC,
+    ADD COLUMN IF NOT EXISTS abuse_reasons TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    ADD COLUMN IF NOT EXISTS abuse_blocked BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS codex_prompt_draft TEXT,
+    ADD COLUMN IF NOT EXISTS codex_prompt_generated_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS trello_card_id TEXT,
+    ADD COLUMN IF NOT EXISTS trello_card_url TEXT,
+    ADD COLUMN IF NOT EXISTS trello_list_id TEXT,
+    ADD COLUMN IF NOT EXISTS trello_sync_status TEXT,
+    ADD COLUMN IF NOT EXISTS screenshot_storage_path TEXT,
+    ADD COLUMN IF NOT EXISTS public_sanitized_summary TEXT,
+    ADD COLUMN IF NOT EXISTS raw_source TEXT,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+CREATE INDEX IF NOT EXISTS feedback_submissions_created_at_idx
+    ON public.feedback_submissions (created_at DESC);
+CREATE INDEX IF NOT EXISTS feedback_submissions_status_idx
+    ON public.feedback_submissions (status);
+CREATE INDEX IF NOT EXISTS feedback_submissions_trello_card_id_idx
+    ON public.feedback_submissions (trello_card_id);
+
+ALTER TABLE public.feedback_submissions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.feedback_submissions FROM anon, authenticated;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'feedback_submissions_touch_updated_at'
+          AND tgrelid = 'public.feedback_submissions'::regclass
+          AND NOT tgisinternal
+    ) THEN
+        CREATE TRIGGER feedback_submissions_touch_updated_at
+            BEFORE UPDATE ON public.feedback_submissions
+            FOR EACH ROW
+            EXECUTE FUNCTION public.touch_updated_at();
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS public.trello_prompt_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    feedback_submission_id UUID REFERENCES public.feedback_submissions(id) ON DELETE SET NULL,
+    trello_card_id TEXT NOT NULL,
+    trello_action_id TEXT,
+    trigger_list_id TEXT NOT NULL,
+    trigger_snapshot TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'processed', 'skipped', 'failed')),
+    error_message TEXT,
+    generated_prompt TEXT,
+    card_name_snapshot TEXT,
+    processed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.trello_prompt_jobs
+    ADD COLUMN IF NOT EXISTS feedback_submission_id UUID REFERENCES public.feedback_submissions(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS trello_card_id TEXT,
+    ADD COLUMN IF NOT EXISTS trello_action_id TEXT,
+    ADD COLUMN IF NOT EXISTS trigger_list_id TEXT,
+    ADD COLUMN IF NOT EXISTS trigger_snapshot TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS status TEXT,
+    ADD COLUMN IF NOT EXISTS error_message TEXT,
+    ADD COLUMN IF NOT EXISTS generated_prompt TEXT,
+    ADD COLUMN IF NOT EXISTS card_name_snapshot TEXT,
+    ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+CREATE UNIQUE INDEX IF NOT EXISTS trello_prompt_jobs_action_uidx
+    ON public.trello_prompt_jobs (trello_action_id)
+    WHERE trello_action_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS trello_prompt_jobs_card_snapshot_uidx
+    ON public.trello_prompt_jobs (trello_card_id, trigger_snapshot);
+CREATE INDEX IF NOT EXISTS trello_prompt_jobs_status_idx
+    ON public.trello_prompt_jobs (status, created_at DESC);
+
+ALTER TABLE public.trello_prompt_jobs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.trello_prompt_jobs FROM anon, authenticated;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'trello_prompt_jobs_touch_updated_at'
+          AND tgrelid = 'public.trello_prompt_jobs'::regclass
+          AND NOT tgisinternal
+    ) THEN
+        CREATE TRIGGER trello_prompt_jobs_touch_updated_at
+            BEFORE UPDATE ON public.trello_prompt_jobs
+            FOR EACH ROW
+            EXECUTE FUNCTION public.touch_updated_at();
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'storage') THEN
+        INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+        VALUES (
+            'feedback-screenshots',
+            'feedback-screenshots',
+            false,
+            5242880,
+            ARRAY['image/png', 'image/jpeg', 'image/webp']::TEXT[]
+        )
+        ON CONFLICT (id) DO UPDATE
+        SET
+            public = false,
+            file_size_limit = EXCLUDED.file_size_limit,
+            allowed_mime_types = EXCLUDED.allowed_mime_types;
+    END IF;
+END $$;
+
 -- -------------------------------------------------------------------
 -- 2b) Attendee provenance fields ("added by ...")
 -- -------------------------------------------------------------------

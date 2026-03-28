@@ -76,6 +76,7 @@ Features:
   - `My Activities` for signed-in users, or `Activities I'm In` for guest-session recovery
 - "Why this exists" modal
 - "Help build it" modal
+- "Send feedback" modal (bug / feature / feedback) with optional screenshot upload
 - roadmap and email links
 
 ### Signed-in dashboard
@@ -180,6 +181,32 @@ Important caveat:
 - the guest recovery story is only partially implemented as a product flow
 
 ## Feature Reference
+
+## 0. Feedback Intake And Trello Pipeline
+
+### What it does
+
+Lets any visitor submit bug reports, feature requests, or general feedback from the public home page, then routes those submissions into a Trello-driven review flow.
+
+### How it works
+
+- home page `Send feedback` modal sends data to `submit-feedback` Edge Function
+- payload supports:
+  - type (`bug`, `feature`, `feedback`)
+  - title
+  - details
+  - optional name/email
+  - optional screenshot
+- function runs a lightweight abuse-only AI check
+- non-blocked submissions create a sanitized card in Trello intake list
+- Codex prompt generation is intentionally deferred
+- when any Trello card is moved into the configured prompt-trigger list, `trello-prompt-sync` generates a Codex prompt and writes it into the card description
+
+### Privacy notes
+
+- raw submission text and optional screenshot are stored in Supabase, not posted in full to the public Trello board
+- Trello intake cards are sanitized/minimized by design
+- prompt-generation runs are tracked in `trello_prompt_jobs` to avoid duplicate generation on repeated moves
 
 ## 1. Activity Creation
 

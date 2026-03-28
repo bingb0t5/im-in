@@ -1,2 +1,8 @@
 [functions.moderate-activity]
 verify_jwt = false
+
+[functions.submit-feedback]
+verify_jwt = false
+
+[functions.trello-prompt-sync]
+verify_jwt = false
