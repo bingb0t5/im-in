@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## 2026-03-28
+
+### Host approval join flow refinements
+
+- changed approval-required joins so requesters are now added to the `Going` list immediately with a `Pending host approval` state instead of staying invisible until review
+- updated attendee self-management UI so pending rows show `Cancel request` instead of generic `Cancel`
+- updated proxy RSVP (`Add someone else`) so it now respects `require_host_approval_for_join` and creates pending join requests rather than bypassing host approval
+- updated host approval/rejection handling so proxy pending rows are promoted or cancelled in sync with join-request decisions
+- hardened `event_attendees` status-constraint migration logic to reliably replace legacy checks and allow `pending_approval` safely across drifted live schemas
+
 ## 2026-03-27
 
 ### Home and navigation
@@ -11,6 +21,13 @@
 - changed `My Activities` and `Activities I'm In` so they only show today-and-future activities by default
 - moved yesterday-and-older activities behind a compact `Past activities` toggle on both dashboard views
 - simplified the home-page explainer links down to two modals by folding `How this works` into `Why this exists`
+
+### Host approval join flow
+
+- added per-activity host control to require approval before someone is added as a member (`require_host_approval_for_join`)
+- added `event_join_requests` data model plus host-safe review RPCs (`request_or_submit_rsvp`, `list_event_join_requests_for_host`, `approve_event_join_request`, `reject_event_join_request`)
+- updated attendee join UX so approval-required activities create pending join requests with clear request-state messaging
+- added host-side join-request review controls in the host dashboard (approve/reject queues)
 
 ### Feedback to Trello pipeline
 

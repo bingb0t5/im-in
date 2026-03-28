@@ -176,6 +176,7 @@ Features:
 - share/copy links
 - WhatsApp share actions
 - access request review
+- join request review (when host approval is enabled)
 - host/co-host management
 - duplicate activity
 - delete activity
@@ -412,7 +413,9 @@ Lets a person join an activity.
 - page: `EventDetail.tsx`
 - supports signed-in RSVP
 - supports guest RSVP
-- uses the `submit_rsvp(...)` RPC for the main flow
+- uses a request-aware RSVP path:
+  - direct join via `submit_rsvp(...)` when host approval is off
+  - pending join request via `request_or_submit_rsvp(...)` when host approval is on
 
 ### Identity handling
 
@@ -425,6 +428,21 @@ The app may match the person through:
 ### Notes
 
 - this is a high-risk flow because identity and waitlist behavior overlap here
+
+## 7.1 Host-Approval Join Requests
+
+### What it does
+
+Lets a host require approval before a person is added as an attendee.
+
+### How it works
+
+- per-activity setting on create/edit: `require_host_approval_for_join`
+- when enabled, attendee-side join attempts create rows in `event_join_requests` with `pending` status
+- the attendee is also shown in `Going` immediately with `event_attendees.status = pending_approval`
+- hosts review in `HostDashboard.tsx` and can approve/reject
+- approval promotes the pending attendee to `confirmed` or `waitlist` based on capacity and `allow_waitlist`
+- rejection/cancel marks the pending attendee row as `cancelled`
 
 ## 8. Waitlist
 
@@ -477,6 +495,7 @@ Lets a person add someone else to the activity without making that second person
 
 - supports adding another person after joining
 - supports host-added and proxy-added labeling in attendee lists
+- when host approval is enabled, proxy add creates a pending join request and `pending_approval` attendee instead of bypassing approval
 - proxy-added rows track provenance through:
   - `added_by_type`
   - `added_by_attendee_profile_id`

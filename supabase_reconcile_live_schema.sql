@@ -86,6 +86,38 @@ BEGIN
     END IF;
 END $$;
 
+DO $$
+DECLARE
+    status_constraint RECORD;
+BEGIN
+    -- First remove the canonical constraint by name if present.
+    IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'public.event_attendees'::regclass
+          AND conname = 'event_attendees_status_check'
+    ) THEN
+        ALTER TABLE public.event_attendees
+            DROP CONSTRAINT event_attendees_status_check;
+    END IF;
+
+    -- Remove any legacy status check constraints (expression may be IN(...) or ANY(...)).
+    FOR status_constraint IN
+        SELECT c.conname
+        FROM pg_constraint c
+        WHERE c.conrelid = 'public.event_attendees'::regclass
+          AND c.contype = 'c'
+          AND c.conname <> 'event_attendees_status_check'
+          AND pg_get_constraintdef(c.oid) ILIKE '%status%'
+    LOOP
+        EXECUTE format('ALTER TABLE public.event_attendees DROP CONSTRAINT %I', status_constraint.conname);
+    END LOOP;
+
+    ALTER TABLE public.event_attendees
+        ADD CONSTRAINT event_attendees_status_check
+        CHECK (status IN ('confirmed', 'waitlist', 'pending_approval', 'cancelled'));
+END $$;
+
 -- Shared helper used by multiple updated_at triggers later in the file.
 CREATE OR REPLACE FUNCTION public.touch_updated_at()
 RETURNS TRIGGER AS $$
@@ -174,6 +206,22 @@ BEGIN
     ) THEN
         CREATE TRIGGER feedback_submissions_touch_updated_at
             BEFORE UPDATE ON public.feedback_submissions
+            FOR EACH ROW
+            EXECUTE FUNCTION public.touch_updated_at();
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF to_regclass('public.event_join_requests') IS NOT NULL AND NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'event_join_requests_touch_updated_at'
+          AND tgrelid = to_regclass('public.event_join_requests')
+          AND NOT tgisinternal
+    ) THEN
+        CREATE TRIGGER event_join_requests_touch_updated_at
+            BEFORE UPDATE ON public.event_join_requests
             FOR EACH ROW
             EXECUTE FUNCTION public.touch_updated_at();
     END IF;
@@ -342,6 +390,9 @@ ALTER TABLE public.events
 
 ALTER TABLE public.events
     ADD COLUMN IF NOT EXISTS moderation_override TEXT;
+
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS require_host_approval_for_join BOOLEAN DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS public.moderator_public_identities (
     user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -520,6 +571,16 @@ ALTER TABLE public.events
 ALTER TABLE public.events
     ALTER COLUMN duration_minutes SET NOT NULL;
 
+UPDATE public.events
+SET require_host_approval_for_join = false
+WHERE require_host_approval_for_join IS NULL;
+
+ALTER TABLE public.events
+    ALTER COLUMN require_host_approval_for_join SET DEFAULT false;
+
+ALTER TABLE public.events
+    ALTER COLUMN require_host_approval_for_join SET NOT NULL;
+
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -566,6 +627,126 @@ CREATE INDEX IF NOT EXISTS event_access_requests_event_id_created_at_idx
 CREATE INDEX IF NOT EXISTS event_access_requests_event_id_status_idx
     ON public.event_access_requests (event_id, status);
 
+-- -------------------------------------------------------------------
+-- 2d.1) Join request queue for host-approved membership
+-- -------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.event_join_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    attendee_profile_id UUID REFERENCES public.attendee_profiles(id) ON DELETE SET NULL,
+    guest_name TEXT NOT NULL,
+    guest_email TEXT NOT NULL,
+    request_note TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+    reviewed_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS event_join_requests_event_id_created_at_idx
+    ON public.event_join_requests (event_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS event_join_requests_event_id_status_idx
+    ON public.event_join_requests (event_id, status);
+
+CREATE INDEX IF NOT EXISTS event_join_requests_event_id_profile_idx
+    ON public.event_join_requests (event_id, attendee_profile_id);
+
+CREATE INDEX IF NOT EXISTS event_join_requests_event_id_guest_email_lower_idx
+    ON public.event_join_requests (event_id, lower(guest_email));
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM (
+            SELECT event_id, attendee_profile_id, count(*) AS c
+            FROM public.event_join_requests
+            WHERE attendee_profile_id IS NOT NULL
+              AND status = 'pending'
+            GROUP BY event_id, attendee_profile_id
+            HAVING count(*) > 1
+        ) d
+    ) THEN
+        CREATE UNIQUE INDEX IF NOT EXISTS event_join_requests_pending_profile_uidx
+            ON public.event_join_requests (event_id, attendee_profile_id)
+            WHERE attendee_profile_id IS NOT NULL
+              AND status = 'pending';
+    ELSE
+        RAISE NOTICE 'Skipped unique pending-profile join-request index: duplicate rows exist.';
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM (
+            SELECT event_id, lower(guest_email), count(*) AS c
+            FROM public.event_join_requests
+            WHERE attendee_profile_id IS NULL
+              AND status = 'pending'
+            GROUP BY event_id, lower(guest_email)
+            HAVING count(*) > 1
+        ) d
+    ) THEN
+        CREATE UNIQUE INDEX IF NOT EXISTS event_join_requests_pending_guest_email_uidx
+            ON public.event_join_requests (event_id, lower(guest_email))
+            WHERE attendee_profile_id IS NULL
+              AND status = 'pending';
+    ELSE
+        RAISE NOTICE 'Skipped unique pending-email join-request index: duplicate rows exist.';
+    END IF;
+END $$;
+
+-- Backfill attendee rows for existing pending join requests so they appear in "Going" with pending approval state.
+WITH pending_requests AS (
+    SELECT DISTINCT ON (jr.event_id, coalesce(jr.attendee_profile_id::text, lower(jr.guest_email)))
+        jr.event_id,
+        jr.user_id,
+        jr.attendee_profile_id,
+        jr.guest_name,
+        lower(jr.guest_email) AS guest_email,
+        jr.created_at
+    FROM public.event_join_requests jr
+    WHERE jr.status = 'pending'
+    ORDER BY jr.event_id, coalesce(jr.attendee_profile_id::text, lower(jr.guest_email)), jr.created_at DESC
+)
+INSERT INTO public.event_attendees (
+    event_id,
+    user_id,
+    attendee_profile_id,
+    guest_name,
+    guest_email,
+    status,
+    joined_at,
+    added_by_type
+)
+SELECT
+    pr.event_id,
+    pr.user_id,
+    pr.attendee_profile_id,
+    pr.guest_name,
+    pr.guest_email,
+    'pending_approval',
+    pr.created_at,
+    'self'
+FROM pending_requests pr
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM public.event_attendees ea
+    WHERE ea.event_id = pr.event_id
+      AND ea.status <> 'cancelled'
+      AND (
+        (pr.attendee_profile_id IS NOT NULL AND ea.attendee_profile_id = pr.attendee_profile_id)
+        OR lower(ea.guest_email) = pr.guest_email
+      )
+)
+ON CONFLICT DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS public.event_hosts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
@@ -581,6 +762,7 @@ CREATE INDEX IF NOT EXISTS event_hosts_user_id_idx
     ON public.event_hosts (user_id);
 
 ALTER TABLE public.event_access_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_join_requests ENABLE ROW LEVEL SECURITY;
 
 DO $$
 BEGIN
@@ -594,6 +776,107 @@ BEGIN
             ON public.event_access_requests
             FOR INSERT
             WITH CHECK (true);
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'event_join_requests'
+          AND policyname = 'Anyone can create event join requests'
+    ) THEN
+        CREATE POLICY "Anyone can create event join requests"
+            ON public.event_join_requests
+            FOR INSERT
+            WITH CHECK (true);
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'event_join_requests'
+          AND policyname = 'Hosts can view event join requests'
+    ) THEN
+        CREATE POLICY "Hosts can view event join requests"
+            ON public.event_join_requests
+            FOR SELECT
+            USING (
+                auth.uid() IN (
+                    SELECT e.host_user_id
+                    FROM public.events e
+                    WHERE e.id = event_id
+                )
+                OR auth.uid() IN (
+                    SELECT eh.user_id
+                    FROM public.event_hosts eh
+                    WHERE eh.event_id = event_id
+                )
+            );
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'event_join_requests'
+          AND policyname = 'Hosts can update event join requests'
+    ) THEN
+        CREATE POLICY "Hosts can update event join requests"
+            ON public.event_join_requests
+            FOR UPDATE
+            USING (
+                auth.uid() IN (
+                    SELECT e.host_user_id
+                    FROM public.events e
+                    WHERE e.id = event_id
+                )
+                OR auth.uid() IN (
+                    SELECT eh.user_id
+                    FROM public.event_hosts eh
+                    WHERE eh.event_id = event_id
+                )
+            );
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'event_join_requests'
+          AND policyname = 'Requesters can view own join requests'
+    ) THEN
+        CREATE POLICY "Requesters can view own join requests"
+            ON public.event_join_requests
+            FOR SELECT
+            USING (
+                (
+                    auth.uid() IS NOT NULL
+                    AND user_id IS NOT NULL
+                    AND auth.uid() = user_id
+                )
+                OR (
+                    auth.uid() IS NOT NULL
+                    AND attendee_profile_id IS NOT NULL
+                    AND auth.uid() IN (
+                        SELECT ap.user_id
+                        FROM public.attendee_profiles ap
+                        WHERE ap.id = attendee_profile_id
+                    )
+                )
+                OR (
+                    lower(coalesce(auth.jwt() ->> 'email', '')) <> ''
+                    AND lower(guest_email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+                )
+            );
     END IF;
 END $$;
 
@@ -989,6 +1272,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
 
 GRANT EXECUTE ON FUNCTION public.can_read_event_row(UUID) TO anon, authenticated;
 
+DROP FUNCTION IF EXISTS public.get_event_for_view(TEXT, TEXT);
+
 CREATE OR REPLACE FUNCTION public.get_event_for_view(
     p_slug TEXT,
     p_access_code TEXT DEFAULT NULL
@@ -1013,6 +1298,7 @@ CREATE OR REPLACE FUNCTION public.get_event_for_view(
     access_code TEXT,
     visibility TEXT,
     allow_waitlist BOOLEAN,
+    require_host_approval_for_join BOOLEAN,
     is_public BOOLEAN,
     public_discovery_enabled BOOLEAN,
     moderation_status TEXT,
@@ -1095,6 +1381,7 @@ BEGIN
         END,
         v_event.visibility,
         v_event.allow_waitlist,
+        coalesce(v_event.require_host_approval_for_join, false),
         v_event.is_public,
         v_event.public_discovery_enabled,
         v_event.moderation_status,
@@ -1835,6 +2122,19 @@ BEGIN
         cancelled_at = now()
     WHERE id = p_attendee_id;
 
+    IF v_status = 'pending_approval' THEN
+        UPDATE public.event_join_requests jr
+        SET status = 'cancelled',
+            reviewed_by_user_id = COALESCE(jr.reviewed_by_user_id, v_actor_uid),
+            reviewed_at = COALESCE(jr.reviewed_at, now())
+        WHERE jr.event_id = v_event_id
+          AND jr.status = 'pending'
+          AND (
+            (v_attendee_profile_id IS NOT NULL AND jr.attendee_profile_id = v_attendee_profile_id)
+            OR lower(jr.guest_email) = v_guest_email
+          );
+    END IF;
+
     -- Promote next waitlist person when a confirmed attendee cancels
     IF v_status = 'confirmed' THEN
         SELECT ea.id
@@ -1918,7 +2218,9 @@ BEGIN
       ea.joined_at DESC
     LIMIT 1;
 
-    IF v_existing_id IS NOT NULL AND v_existing_status <> 'cancelled' THEN
+    IF v_existing_id IS NOT NULL
+       AND v_existing_status <> 'cancelled'
+       AND v_existing_status <> 'pending_approval' THEN
         RETURN json_build_object('error', 'You have already said you''re in!');
     END IF;
 
@@ -2063,6 +2365,487 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 GRANT EXECUTE ON FUNCTION public.submit_rsvp(UUID, TEXT, TEXT, UUID) TO anon, authenticated;
 
+CREATE OR REPLACE FUNCTION public.request_or_submit_rsvp(
+    p_event_id UUID,
+    p_guest_name TEXT,
+    p_guest_email TEXT,
+    p_attendee_profile_id UUID DEFAULT NULL
+) RETURNS JSON AS $$
+DECLARE
+    v_require_approval BOOLEAN := false;
+    v_event_status TEXT;
+    v_guest_name TEXT;
+    v_guest_email TEXT;
+    v_existing_attendee_id UUID;
+    v_existing_attendee_status TEXT;
+    v_existing_request_id UUID;
+    v_existing_request_status TEXT;
+    v_request_id UUID;
+    v_submit_result JSON;
+BEGIN
+    v_guest_name := trim(coalesce(p_guest_name, ''));
+    v_guest_email := lower(trim(coalesce(p_guest_email, '')));
+
+    IF p_event_id IS NULL OR v_guest_name = '' OR v_guest_email = '' THEN
+        RETURN json_build_object('error', 'Missing RSVP details');
+    END IF;
+
+    SELECT
+        coalesce(e.require_host_approval_for_join, false),
+        e.status
+    INTO v_require_approval, v_event_status
+    FROM public.events e
+    WHERE e.id = p_event_id;
+
+    IF v_event_status IS NULL OR v_event_status <> 'scheduled' THEN
+        RETURN json_build_object('error', 'Event not found');
+    END IF;
+
+    SELECT ea.id, ea.status
+    INTO v_existing_attendee_id, v_existing_attendee_status
+    FROM public.event_attendees ea
+    WHERE ea.event_id = p_event_id
+      AND coalesce(ea.added_by_type, 'self') <> 'proxy'
+      AND (
+        lower(ea.guest_email) = v_guest_email
+        OR (p_attendee_profile_id IS NOT NULL AND ea.attendee_profile_id = p_attendee_profile_id)
+      )
+    ORDER BY
+      CASE WHEN ea.status = 'cancelled' THEN 1 ELSE 0 END,
+      ea.joined_at DESC
+    LIMIT 1;
+
+    IF v_existing_attendee_status = 'pending_approval' THEN
+        RETURN json_build_object(
+            'success', true,
+            'result', 'already_pending',
+            'attendee_id', v_existing_attendee_id
+        );
+    END IF;
+
+    IF v_existing_attendee_status IS NOT NULL AND v_existing_attendee_status <> 'cancelled' THEN
+        RETURN json_build_object(
+            'error', 'You have already said you''re in!',
+            'result', 'already_member'
+        );
+    END IF;
+
+    IF NOT v_require_approval THEN
+        v_submit_result := public.submit_rsvp(
+            p_event_id,
+            v_guest_name,
+            v_guest_email,
+            p_attendee_profile_id
+        );
+
+        IF coalesce(v_submit_result ->> 'error', '') <> '' THEN
+            RETURN v_submit_result;
+        END IF;
+
+        RETURN json_build_object(
+            'success', true,
+            'status', v_submit_result ->> 'status',
+            'attendee_id', v_submit_result ->> 'attendee_id',
+            'result',
+            CASE WHEN coalesce(v_submit_result ->> 'status', '') = 'waitlist'
+                THEN 'joined_waitlist'
+                ELSE 'joined_confirmed'
+            END
+        );
+    END IF;
+
+    SELECT jr.id, jr.status
+    INTO v_existing_request_id, v_existing_request_status
+    FROM public.event_join_requests jr
+    WHERE jr.event_id = p_event_id
+      AND (
+        (p_attendee_profile_id IS NOT NULL AND jr.attendee_profile_id = p_attendee_profile_id)
+        OR lower(jr.guest_email) = v_guest_email
+      )
+    ORDER BY jr.created_at DESC
+    LIMIT 1;
+
+    IF v_existing_request_id IS NOT NULL AND v_existing_request_status = 'pending' THEN
+        IF v_existing_attendee_id IS NULL THEN
+            INSERT INTO public.event_attendees (
+                event_id,
+                user_id,
+                attendee_profile_id,
+                guest_name,
+                guest_email,
+                status,
+                added_by_type
+            )
+            VALUES (
+                p_event_id,
+                auth.uid(),
+                p_attendee_profile_id,
+                v_guest_name,
+                v_guest_email,
+                'pending_approval',
+                'self'
+            )
+            RETURNING id INTO v_existing_attendee_id;
+        ELSE
+            UPDATE public.event_attendees
+            SET status = 'pending_approval',
+                guest_name = v_guest_name,
+                guest_email = v_guest_email,
+                attendee_profile_id = COALESCE(p_attendee_profile_id, attendee_profile_id),
+                user_id = COALESCE(auth.uid(), user_id),
+                joined_at = COALESCE(joined_at, now()),
+                cancelled_at = NULL
+            WHERE id = v_existing_attendee_id;
+        END IF;
+
+        RETURN json_build_object(
+            'success', true,
+            'result', 'already_pending',
+            'request_id', v_existing_request_id,
+            'attendee_id', v_existing_attendee_id
+        );
+    END IF;
+
+    IF v_existing_attendee_id IS NULL THEN
+        INSERT INTO public.event_attendees (
+            event_id,
+            user_id,
+            attendee_profile_id,
+            guest_name,
+            guest_email,
+            status,
+            added_by_type
+        )
+        VALUES (
+            p_event_id,
+            auth.uid(),
+            p_attendee_profile_id,
+            v_guest_name,
+            v_guest_email,
+            'pending_approval',
+            'self'
+        )
+        RETURNING id INTO v_existing_attendee_id;
+    ELSE
+        UPDATE public.event_attendees
+        SET status = 'pending_approval',
+            guest_name = v_guest_name,
+            guest_email = v_guest_email,
+            attendee_profile_id = COALESCE(p_attendee_profile_id, attendee_profile_id),
+            user_id = COALESCE(auth.uid(), user_id),
+            joined_at = COALESCE(joined_at, now()),
+            cancelled_at = NULL
+        WHERE id = v_existing_attendee_id;
+    END IF;
+
+    INSERT INTO public.event_join_requests (
+        event_id,
+        user_id,
+        attendee_profile_id,
+        guest_name,
+        guest_email,
+        status
+    )
+    VALUES (
+        p_event_id,
+        auth.uid(),
+        p_attendee_profile_id,
+        v_guest_name,
+        v_guest_email,
+        'pending'
+    )
+    RETURNING id INTO v_request_id;
+
+    RETURN json_build_object(
+        'success', true,
+        'result', 'request_pending',
+        'request_id', v_request_id,
+        'attendee_id', v_existing_attendee_id
+    );
+EXCEPTION
+    WHEN unique_violation THEN
+        SELECT jr.id
+        INTO v_existing_request_id
+        FROM public.event_join_requests jr
+        WHERE jr.event_id = p_event_id
+          AND jr.status = 'pending'
+          AND (
+            (p_attendee_profile_id IS NOT NULL AND jr.attendee_profile_id = p_attendee_profile_id)
+            OR lower(jr.guest_email) = v_guest_email
+          )
+        ORDER BY jr.created_at DESC
+        LIMIT 1;
+
+        SELECT ea.id
+        INTO v_existing_attendee_id
+        FROM public.event_attendees ea
+        WHERE ea.event_id = p_event_id
+          AND ea.status = 'pending_approval'
+          AND (
+            (p_attendee_profile_id IS NOT NULL AND ea.attendee_profile_id = p_attendee_profile_id)
+            OR lower(ea.guest_email) = v_guest_email
+          )
+        ORDER BY ea.joined_at DESC
+        LIMIT 1;
+
+        RETURN json_build_object(
+            'success', true,
+            'result', 'already_pending',
+            'request_id', v_existing_request_id,
+            'attendee_id', v_existing_attendee_id
+        );
+    WHEN OTHERS THEN
+        RETURN json_build_object('error', SQLERRM);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.request_or_submit_rsvp(UUID, TEXT, TEXT, UUID) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_my_join_request_for_event(
+    p_event_id UUID,
+    p_guest_email TEXT DEFAULT NULL,
+    p_attendee_profile_id UUID DEFAULT NULL
+) RETURNS JSON AS $$
+DECLARE
+    v_guest_email TEXT := lower(trim(coalesce(p_guest_email, '')));
+    v_row public.event_join_requests%ROWTYPE;
+BEGIN
+    IF p_event_id IS NULL THEN
+        RETURN json_build_object('error', 'Missing event');
+    END IF;
+
+    SELECT jr.*
+    INTO v_row
+    FROM public.event_join_requests jr
+    WHERE jr.event_id = p_event_id
+      AND (
+        (auth.uid() IS NOT NULL AND jr.user_id = auth.uid())
+        OR (p_attendee_profile_id IS NOT NULL AND jr.attendee_profile_id = p_attendee_profile_id)
+        OR (v_guest_email <> '' AND lower(jr.guest_email) = v_guest_email)
+      )
+    ORDER BY jr.created_at DESC
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+        RETURN json_build_object('status', null);
+    END IF;
+
+    RETURN json_build_object(
+        'id', v_row.id,
+        'status', v_row.status,
+        'reviewed_at', v_row.reviewed_at,
+        'created_at', v_row.created_at
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.get_my_join_request_for_event(UUID, TEXT, UUID) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.list_event_join_requests_for_host(
+    p_event_id UUID,
+    p_status TEXT DEFAULT NULL
+) RETURNS SETOF public.event_join_requests AS $$
+BEGIN
+    IF p_event_id IS NULL THEN
+        RETURN;
+    END IF;
+
+    IF auth.uid() IS NULL OR NOT public.is_event_host(p_event_id, auth.uid()) THEN
+        RAISE EXCEPTION 'Not authorized to review join requests';
+    END IF;
+
+    RETURN QUERY
+    SELECT jr.*
+    FROM public.event_join_requests jr
+    WHERE jr.event_id = p_event_id
+      AND (p_status IS NULL OR jr.status = p_status)
+    ORDER BY jr.created_at DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.list_event_join_requests_for_host(UUID, TEXT) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.approve_event_join_request(
+    p_request_id UUID
+) RETURNS JSON AS $$
+DECLARE
+    v_request public.event_join_requests%ROWTYPE;
+    v_submit_result JSON;
+    v_proxy_pending_attendee_id UUID;
+    v_allow_waitlist BOOLEAN;
+    v_capacity INTEGER;
+    v_confirmed_count INTEGER;
+    v_proxy_status TEXT;
+BEGIN
+    IF p_request_id IS NULL THEN
+        RETURN json_build_object('error', 'Missing request');
+    END IF;
+
+    SELECT *
+    INTO v_request
+    FROM public.event_join_requests
+    WHERE id = p_request_id;
+
+    IF NOT FOUND THEN
+        RETURN json_build_object('error', 'Join request not found');
+    END IF;
+
+    IF auth.uid() IS NULL OR NOT public.is_event_host(v_request.event_id, auth.uid()) THEN
+        RETURN json_build_object('error', 'Not authorized to review this request');
+    END IF;
+
+    IF v_request.status <> 'pending' THEN
+        RETURN json_build_object('error', 'Join request is no longer pending');
+    END IF;
+
+    SELECT ea.id
+    INTO v_proxy_pending_attendee_id
+    FROM public.event_attendees ea
+    WHERE ea.event_id = v_request.event_id
+      AND ea.status = 'pending_approval'
+      AND coalesce(ea.added_by_type, 'self') = 'proxy'
+      AND lower(ea.guest_email) = lower(v_request.guest_email)
+      AND lower(ea.guest_name) = lower(v_request.guest_name)
+    ORDER BY ea.joined_at DESC
+    LIMIT 1;
+
+    IF v_proxy_pending_attendee_id IS NOT NULL THEN
+        SELECT e.allow_waitlist, e.capacity
+        INTO v_allow_waitlist, v_capacity
+        FROM public.events e
+        WHERE e.id = v_request.event_id
+          AND e.status = 'scheduled';
+
+        IF v_capacity IS NULL THEN
+            RETURN json_build_object('error', 'Event not found');
+        END IF;
+
+        SELECT count(*) INTO v_confirmed_count
+        FROM public.event_attendees ea
+        WHERE ea.event_id = v_request.event_id
+          AND ea.status = 'confirmed';
+
+        IF v_confirmed_count < v_capacity THEN
+            v_proxy_status := 'confirmed';
+        ELSIF v_allow_waitlist THEN
+            v_proxy_status := 'waitlist';
+        ELSE
+            RETURN json_build_object('error', 'Event is full and waitlist is disabled');
+        END IF;
+
+        UPDATE public.event_attendees
+        SET status = v_proxy_status,
+            promoted_at = CASE WHEN v_proxy_status = 'confirmed' THEN now() ELSE promoted_at END
+        WHERE id = v_proxy_pending_attendee_id;
+
+        UPDATE public.event_join_requests
+        SET
+            status = 'approved',
+            reviewed_by_user_id = auth.uid(),
+            reviewed_at = now()
+        WHERE id = p_request_id;
+
+        RETURN json_build_object(
+            'success', true,
+            'status', v_proxy_status
+        );
+    END IF;
+
+    v_submit_result := public.submit_rsvp(
+        v_request.event_id,
+        v_request.guest_name,
+        v_request.guest_email,
+        v_request.attendee_profile_id
+    );
+
+    IF coalesce(v_submit_result ->> 'error', '') <> '' THEN
+        IF coalesce(v_submit_result ->> 'error', '') = 'You have already said you''re in!' THEN
+            UPDATE public.event_join_requests
+            SET
+                status = 'approved',
+                reviewed_by_user_id = auth.uid(),
+                reviewed_at = now()
+            WHERE id = p_request_id;
+
+            RETURN json_build_object(
+                'success', true,
+                'status', 'already_member'
+            );
+        END IF;
+
+        RETURN v_submit_result;
+    END IF;
+
+    UPDATE public.event_join_requests
+    SET
+        status = 'approved',
+        reviewed_by_user_id = auth.uid(),
+        reviewed_at = now()
+    WHERE id = p_request_id;
+
+    RETURN json_build_object(
+        'success', true,
+        'status', coalesce(v_submit_result ->> 'status', 'confirmed')
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.approve_event_join_request(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.reject_event_join_request(
+    p_request_id UUID
+) RETURNS JSON AS $$
+DECLARE
+    v_event_id UUID;
+    v_status TEXT;
+    v_guest_name TEXT;
+    v_guest_email TEXT;
+    v_attendee_profile_id UUID;
+BEGIN
+    IF p_request_id IS NULL THEN
+        RETURN json_build_object('error', 'Missing request');
+    END IF;
+
+    SELECT event_id, status, guest_name, guest_email, attendee_profile_id
+    INTO v_event_id, v_status, v_guest_name, v_guest_email, v_attendee_profile_id
+    FROM public.event_join_requests
+    WHERE id = p_request_id;
+
+    IF v_event_id IS NULL THEN
+        RETURN json_build_object('error', 'Join request not found');
+    END IF;
+
+    IF auth.uid() IS NULL OR NOT public.is_event_host(v_event_id, auth.uid()) THEN
+        RETURN json_build_object('error', 'Not authorized to review this request');
+    END IF;
+
+    IF v_status <> 'pending' THEN
+        RETURN json_build_object('error', 'Join request is no longer pending');
+    END IF;
+
+    UPDATE public.event_join_requests
+    SET
+        status = 'rejected',
+        reviewed_by_user_id = auth.uid(),
+        reviewed_at = now()
+    WHERE id = p_request_id;
+
+    UPDATE public.event_attendees ea
+    SET status = 'cancelled',
+        cancelled_at = now()
+    WHERE ea.event_id = v_event_id
+      AND ea.status = 'pending_approval'
+      AND (
+        (v_attendee_profile_id IS NOT NULL AND ea.attendee_profile_id = v_attendee_profile_id)
+        OR lower(ea.guest_email) = lower(coalesce(v_guest_email, ''))
+      );
+
+    RETURN json_build_object('success', true);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.reject_event_join_request(UUID) TO authenticated;
+
 -- -------------------------------------------------------------------
 -- 7) Reliable proxy-add RPC (avoids fragile direct INSERT policy paths)
 -- -------------------------------------------------------------------
@@ -2080,12 +2863,14 @@ DECLARE
     v_actor_email TEXT;
     v_profile_user_id UUID;
     v_host_user_id UUID;
+    v_require_approval BOOLEAN;
     v_allow_waitlist BOOLEAN;
     v_capacity INTEGER;
     v_confirmed_count INTEGER;
     v_status TEXT;
     v_existing_cancelled_id UUID;
     v_attendee_id UUID;
+    v_existing_request_id UUID;
     v_session_profile_id UUID;
     v_guest_email TEXT;
 BEGIN
@@ -2097,8 +2882,8 @@ BEGIN
     v_actor_email := lower(coalesce(auth.jwt() ->> 'email', ''));
 
     -- Load event and profile ownership
-    SELECT e.host_user_id, e.allow_waitlist, e.capacity
-    INTO v_host_user_id, v_allow_waitlist, v_capacity
+    SELECT e.host_user_id, coalesce(e.require_host_approval_for_join, false), e.allow_waitlist, e.capacity
+    INTO v_host_user_id, v_require_approval, v_allow_waitlist, v_capacity
     FROM public.events e
     WHERE e.id = p_event_id;
 
@@ -2135,18 +2920,33 @@ BEGIN
         RETURN json_build_object('error', 'Not authorized to add someone for this RSVP');
     END IF;
 
-    -- Capacity decision
-    SELECT count(*) INTO v_confirmed_count
-    FROM public.event_attendees ea
-    WHERE ea.event_id = p_event_id
-      AND ea.status = 'confirmed';
+    v_guest_email := lower(trim(coalesce(p_owner_email, '')));
+    IF v_guest_email = '' THEN
+        v_guest_email := concat(
+            'proxy+',
+            substr(p_attendee_profile_id::text, 1, 8),
+            '-',
+            substr(md5(clock_timestamp()::text || random()::text), 1, 10),
+            '@proxy.im-in.local'
+        );
+    END IF;
 
-    IF v_confirmed_count < v_capacity THEN
-        v_status := 'confirmed';
-    ELSIF v_allow_waitlist THEN
-        v_status := 'waitlist';
+    -- Capacity decision
+    IF v_require_approval THEN
+        v_status := 'pending_approval';
     ELSE
-        RETURN json_build_object('error', 'Event is full and waitlist is disabled');
+        SELECT count(*) INTO v_confirmed_count
+        FROM public.event_attendees ea
+        WHERE ea.event_id = p_event_id
+          AND ea.status = 'confirmed';
+
+        IF v_confirmed_count < v_capacity THEN
+            v_status := 'confirmed';
+        ELSIF v_allow_waitlist THEN
+            v_status := 'waitlist';
+        ELSE
+            RETURN json_build_object('error', 'Event is full and waitlist is disabled');
+        END IF;
     END IF;
 
     -- Try revive cancelled row by profile+name (case-insensitive)
@@ -2169,23 +2969,13 @@ BEGIN
             added_by_type = 'proxy',
             added_by_attendee_profile_id = p_attendee_profile_id,
             guest_name = trim(p_proxy_name),
+            guest_email = v_guest_email,
             joined_at = now(),
             promoted_at = null,
             cancelled_at = null
         WHERE id = v_existing_cancelled_id
         RETURNING id INTO v_attendee_id;
     ELSE
-        v_guest_email := lower(trim(coalesce(p_owner_email, '')));
-        IF v_guest_email = '' THEN
-            v_guest_email := concat(
-                'proxy+',
-                substr(p_attendee_profile_id::text, 1, 8),
-                '-',
-                substr(md5(clock_timestamp()::text || random()::text), 1, 10),
-                '@proxy.im-in.local'
-            );
-        END IF;
-
         BEGIN
             INSERT INTO public.event_attendees (
                 event_id,
@@ -2240,6 +3030,45 @@ BEGIN
                 )
                 RETURNING id INTO v_attendee_id;
         END;
+    END IF;
+
+    IF v_require_approval THEN
+        SELECT jr.id
+        INTO v_existing_request_id
+        FROM public.event_join_requests jr
+        WHERE jr.event_id = p_event_id
+          AND jr.status = 'pending'
+          AND lower(jr.guest_email) = v_guest_email
+        ORDER BY jr.created_at DESC
+        LIMIT 1;
+
+        IF v_existing_request_id IS NULL THEN
+            INSERT INTO public.event_join_requests (
+                event_id,
+                user_id,
+                attendee_profile_id,
+                guest_name,
+                guest_email,
+                status
+            )
+            VALUES (
+                p_event_id,
+                p_user_id,
+                NULL,
+                trim(p_proxy_name),
+                v_guest_email,
+                'pending'
+            )
+            RETURNING id INTO v_existing_request_id;
+        END IF;
+
+        RETURN json_build_object(
+            'success', true,
+            'status', 'pending_approval',
+            'result', 'request_pending',
+            'request_id', v_existing_request_id,
+            'attendee_id', v_attendee_id
+        );
     END IF;
 
     RETURN json_build_object(
