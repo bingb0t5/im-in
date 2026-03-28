@@ -117,6 +117,8 @@ The route table lives in `src/App.tsx`.
 - landing page
 - primary CTAs: create activity, browse public activities, activities I'm in
 - "Why this exists" and "Help build it" modal content
+- public feedback modal for bug reports, feature requests, and general feedback
+- optional screenshot upload in the feedback modal
 - stays the public home page even for signed-in users
 - signed-in users get a CTA into `/my-activities` instead of replacing the page with a dashboard
 
@@ -231,6 +233,7 @@ Important files:
 - `navigation.ts`: `goBackOr(...)`
 - `events.ts`: event-path building and count hydration
 - `functions.ts`: authenticated Supabase Edge Function invocation helper
+- `feedback.ts`: feedback type options and file-to-data-url helper for screenshot upload
 - `moderation.ts`: shared moderation types, hash logic, and UI messaging helpers
 - `attendees.ts`: attendee ownership and summary helpers
 - `bookings.ts`: booking grouping
@@ -282,6 +285,8 @@ Guest attendees use:
 
 - `attendee_profiles`
 - `attendee_sessions`
+- `feedback_submissions`
+- `trello_prompt_jobs`
 - local storage token persistence
 
 This guest session is then used by:
@@ -397,6 +402,7 @@ So contributors should think of:
 ### Common page-level queries
 
 - `Home.tsx`: public landing, community messaging, public CTAs
+- `Home.tsx`: public feedback modal submits to `submit-feedback`
 - `MyActivities.tsx`: hosted events, joined events, interests, pending access requests
 - `Calendar.tsx`: future public/discoverable events, hidden upcoming count, and joined private-access map
 - `CreateEvent.tsx`: create/edit event reads and writes
@@ -421,6 +427,12 @@ So contributors should think of:
 - `list_event_interests_for_view(...)`
 - `get_guest_bookings(...)`
 - `get_guest_interests(...)`
+
+### Edge functions the app actively depends on
+
+- `moderate-activity`: activity moderation for public discovery
+- `submit-feedback`: public feedback intake, abuse filtering, and Trello intake card creation
+- `trello-prompt-sync`: Trello webhook/manual-sync endpoint for list-triggered Codex prompt generation written back to card descriptions
 
 ### RLS helper functions used in SQL
 
@@ -499,10 +511,26 @@ Required:
 Recommended:
 
 - `VITE_APP_URL`
+- `VITE_MODERATION_ADMIN_EMAILS`
 
 Legacy optional:
 
 - `APP_URL`
+
+Edge runtime additions used by the feedback pipeline:
+
+- `TRELLO_API_KEY`
+- `TRELLO_API_TOKEN`
+- `TRELLO_INTAKE_LIST_ID`
+- `TRELLO_PROMPT_TRIGGER_LIST_ID`
+- `FEEDBACK_SCREENSHOT_BUCKET` (defaults to `feedback-screenshots`)
+- `FEEDBACK_ADMIN_EMAILS` (falls back to `MODERATION_ADMIN_EMAILS`)
+- `OPENAI_FEEDBACK_MODEL`
+- `OPENAI_PROMPT_MODEL`
+
+Runtime note:
+
+- `SUPABASE_SERVICE_ROLE_KEY` is expected by the functions, but is provided by Supabase automatically rather than being manually created as a project secret
 
 ### Build/runtime assumptions
 

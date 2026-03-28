@@ -182,16 +182,31 @@ Recommended:
 Edge function runtime:
 
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` is provided automatically by Supabase Edge Functions and should not be manually set with `supabase secrets set`
 - `OPENAI_API_KEY`
 
 Optional edge function runtime:
 
 - `OPENAI_MODERATION_MODEL`
   - defaults to `gpt-5.4-nano`
+- `OPENAI_FEEDBACK_MODEL`
+  - model for abuse-only filtering in the feedback intake function
+- `OPENAI_PROMPT_MODEL`
+  - model for Trello-triggered Codex prompt drafting
 - `OPENAI_API_BASE_URL`
   - for OpenAI-compatible endpoints if needed
 - `MODERATION_ADMIN_EMAILS`
   - comma-separated allowlist for server-authorized manual moderation overrides
+- `FEEDBACK_ADMIN_EMAILS`
+  - optional allowlist for manual `trello-prompt-sync` runs; falls back to `MODERATION_ADMIN_EMAILS` when unset
+- `TRELLO_API_KEY`
+- `TRELLO_API_TOKEN`
+- `TRELLO_INTAKE_LIST_ID`
+  - Trello list that receives sanitized cards from in-app feedback submissions
+- `TRELLO_PROMPT_TRIGGER_LIST_ID`
+  - moving any card into this list triggers Codex prompt generation
+- `FEEDBACK_SCREENSHOT_BUCKET`
+  - defaults to `feedback-screenshots`
 
 Legacy optional:
 
@@ -260,6 +275,15 @@ Important route behavior:
 - `/bookings` is guest-session driven, not the main authenticated dashboard
 - unknown routes redirect to `/`
 
+Home-page feedback behavior:
+
+- the public home page has a `Send feedback` modal available to signed-out and signed-in users
+- feedback supports `bug`, `feature`, and `feedback` types, plus optional screenshot upload
+- submissions run a lightweight abuse filter first, then create a sanitized Trello card in the configured intake list
+- Codex prompt generation is intentionally separate and only runs when a Trello card is moved to the configured prompt-trigger list
+- the recommended production setup is a Trello board webhook pointed at `trello-prompt-sync`
+- a manual admin fallback still exists via `{"syncFromTriggerList": true}` when webhook setup is unavailable
+
 ## Database / RPC Expectations
 
 The frontend relies on these important RPCs in `supabase_reconcile_live_schema.sql`:
@@ -278,6 +302,8 @@ The app also relies on these core tables:
 - `event_access_requests`
 - `attendee_profiles`
 - `attendee_sessions`
+- `feedback_submissions`
+- `trello_prompt_jobs`
 
 ## Deployment Notes
 
@@ -307,6 +333,14 @@ Deep links that need rewrite support:
 - `/calendar`
 - `/bookings`
 - `/recover`
+
+### Trello webhook note
+
+For automatic Codex prompt generation, create a Trello webhook on the board and point it at:
+
+- `https://<your-project-ref>.functions.supabase.co/trello-prompt-sync`
+
+The function filters board events internally and only reacts when a card is moved into `TRELLO_PROMPT_TRIGGER_LIST_ID`.
 
 ## Important Limitations And Risks
 
@@ -347,6 +381,7 @@ The product is positioned as an open, community-built project. The landing page 
 - `SCHEMA_OR_DATA_MODEL.md`: data model and identity/schema assumptions
 - `AI_MODERATION.md`: moderation triggers, stored fields, prompt, and cost-control strategy
 - `AI_MODERATION.md`: public-facing moderation boundaries, transparency log, prompt, and privacy rules
+- `FEEDBACK_PIPELINE.md`: feedback intake, abuse filtering, Trello sync, and Trello-triggered Codex prompt generation
 - `CHANGELOG.md`: human-readable summary of notable product and technical changes
 - `AI_DEV_RULES.md`: implementation safety guidance
 - `AUTH_UNIFICATION_PLAN.md`: future-facing auth unification plan

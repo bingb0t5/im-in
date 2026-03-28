@@ -50,6 +50,9 @@ The weakest / least finished areas are:
 - lightweight AI moderation for broader public discovery on public activities and semi-public public previews
 - hidden moderation admin queue with review, archived, and spam buckets for allowlisted admins, scoped to public-facing activity moderation
 - public moderation transparency page for public-facing moderation history
+- public feedback/report modal on home page with optional screenshot upload
+- feedback ingestion pipeline with abuse filtering, sanitized Trello intake cards, and Trello list-triggered Codex prompt drafting
+- Trello board webhook path for automatic prompt generation when cards enter the configured trigger list
 - Google Calendar link
 - `.ics` download
 - co-host support
@@ -70,6 +73,8 @@ The weakest / least finished areas are:
 - Supabase Edge Function moderation with content-hash reuse and stored discovery state
 - separate reviewer archive state for the moderation queue via `events.moderation_archived_at`
 - public moderation audit records stored separately from activity rows
+- separate feedback-domain tables for feedback submissions and Trello prompt-generation jobs
+- webhook-compatible Trello prompt generation with manual admin fallback support
 
 ## Partial Or Awkward
 
@@ -150,6 +155,11 @@ These things are either planned, partial, or explicitly not complete:
 - automated tests
 - a clean contributor process backed by migrations/CI
 - a richer moderation operations console
+
+Note:
+
+- feedback reporting exists now, but deeper workflow automation from Trello to external coding agents is still future work
+- prompt generation is currently written back into Trello card descriptions, not pushed directly into Cursor/Codex
 
 ## Important Review Findings
 

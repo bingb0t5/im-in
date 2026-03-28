@@ -112,6 +112,69 @@ Important behavioral meaning:
 - lets the public see that moderation actions are traceable to a stable moderator identity
 - avoids exposing full personal names in the transparency log
 
+### `feedback_submissions`
+
+This table stores public feedback intake records (bug reports, feature requests, and general feedback).
+
+Important fields:
+
+- `id`
+- `submission_type`
+- `title`
+- `details`
+- `reporter_name`
+- `reporter_email`
+- `auth_user_id`
+- `page_url`
+- `status`
+- `abuse_risk_level`
+- `abuse_confidence`
+- `abuse_reasons`
+- `abuse_blocked`
+- `codex_prompt_draft`
+- `codex_prompt_generated_at`
+- `trello_card_id`
+- `trello_card_url`
+- `trello_list_id`
+- `trello_sync_status`
+- `screenshot_storage_path`
+- `public_sanitized_summary`
+- `raw_source`
+- `created_at`
+- `updated_at`
+
+Important behavioral meaning:
+
+- stores full internal feedback details and moderation metadata
+- Trello-facing content should be sanitized/minimized before public board posting
+- optional screenshots are referenced through storage paths and should remain private
+
+### `trello_prompt_jobs`
+
+This table stores idempotent job records for Trello list-triggered Codex prompt generation.
+
+Important fields:
+
+- `id`
+- `feedback_submission_id`
+- `trello_card_id`
+- `trello_action_id`
+- `trigger_list_id`
+- `trigger_snapshot`
+- `status`
+- `error_message`
+- `generated_prompt`
+- `card_name_snapshot`
+- `processed_at`
+- `created_at`
+- `updated_at`
+
+Important behavioral meaning:
+
+- `trello_action_id` and `trigger_snapshot` are used to avoid duplicate prompt generation
+- keeps a persistent audit trail of prompt-generation attempts and failures
+- allows prompts to be generated for cards created inside Trello as well as cards originating from in-app feedback
+
 ### `event_attendees`
 
 This is the main RSVP table.
@@ -254,6 +317,8 @@ High-level relationships:
 - one `attendee_profiles` row can link to many `event_attendees`
 - one `attendee_profiles` row can link to many `event_interests`
 - one `attendee_profiles` row can have many `attendee_sessions`
+- one `feedback_submissions` row can link to many `trello_prompt_jobs`
+- one `feedback_submissions` row can optionally map to one `auth.users` row via `auth_user_id`
 - one `auth.users` row can map to:
   - `events.host_user_id`
   - `event_hosts.user_id`
@@ -315,7 +380,8 @@ This is why attendee matching and name resolution are more complex than a typica
 - public preview uses limited details
 - full detail access depends on `access_code` or host/co-host context
 - access requests live in `event_access_requests`
-- not eligible for platform moderation review or the public moderation transparency log
+- public-preview fields are eligible for platform moderation and public moderation transparency logging
+- private-link-only fields remain outside platform moderation and outside the public moderation transparency log
 
 ### `private`
 
