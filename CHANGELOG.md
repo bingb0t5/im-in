@@ -10,6 +10,7 @@
 - added a `Moderation transparency` link on the public activities page at `/calendar`
 - changed `My Activities` and `Activities I'm In` so they only show today-and-future activities by default
 - moved yesterday-and-older activities behind a compact `Past activities` toggle on both dashboard views
+- simplified the home-page explainer links down to two modals by folding `How this works` into `Why this exists`
 
 ### Feedback to Trello pipeline
 
@@ -22,6 +23,10 @@
 - documented the manual admin sync fallback and clarified that `SUPABASE_SERVICE_ROLE_KEY` is runtime-provided by Supabase rather than manually set as a secret
 - added hidden `/admin` hub page to link current and future `/admin/*` tools from one place
 - added hidden `/admin/feedback` page plus `feedback-admin` function to review blocked/failed/internal feedback items and retry or archive them
+- added a `Passed` bucket in `/admin/feedback` for items successfully sent to Trello
+- added permanent delete support for feedback items, including related prompt-job cleanup and screenshot cleanup
+- made destructive feedback deletion require typing `DELETE` in the admin UI
+- updated the feedback success state so submitters can immediately open the public dev board from the confirmation message
 
 ### Moderation transparency UX
 

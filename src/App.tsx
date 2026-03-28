@@ -77,7 +77,7 @@ export default function App() {
           </div>
           <h1 className="text-3xl font-black text-slate-900 mb-4 tracking-tight">Setup Required</h1>
           <p className="text-slate-500 mb-8 leading-relaxed font-medium">
-            I'm In needs Supabase to store your activities. Please add your Supabase URL and Anon Key to the environment variables.
+            <span className="italic">I&apos;m In</span> needs Supabase to store your activities. Please add your Supabase URL and Anon Key to the environment variables.
           </p>
           <div className="bg-slate-50 p-6 rounded-2xl text-left text-xs font-mono text-slate-400 break-all mb-10 border border-slate-100">
             {configError}

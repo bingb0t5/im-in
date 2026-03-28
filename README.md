@@ -287,10 +287,13 @@ Home-page feedback behavior:
 - the public home page has a `Send feedback` modal available to signed-out and signed-in users
 - feedback supports `bug`, `feature`, and `feedback` types, plus optional screenshot upload
 - submissions run a lightweight abuse filter first, then create a sanitized Trello card in the configured intake list
+- the success state now also links people to the public dev board so they can see what is being worked on
 - Codex prompt generation is intentionally separate and only runs when a Trello card is moved to the configured prompt-trigger list
 - the recommended production setup is a Trello board webhook pointed at `trello-prompt-sync`
 - a manual admin fallback still exists via `{"syncFromTriggerList": true}` when webhook setup is unavailable
 - internal review for blocked/failed/not-sent feedback now lives at `/admin/feedback`
+- `/admin/feedback` now includes `Review`, `Passed`, `Blocked`, `Failed`, `Archived`, and `All` buckets
+- feedback records can be permanently deleted from `/admin/feedback`, with typed `DELETE` confirmation in the UI
 
 ## Database / RPC Expectations
 
@@ -379,6 +382,7 @@ The product is positioned as an open, community-built project. The landing page 
 
 - roadmap: [Trello board](https://trello.com/b/kauEWnAe/im-in-dev-board)
 - contact: `hello@joinimin.com`
+- explainer modals: `Why this exists` and `Help build it`
 
 ## Documentation Map
 
