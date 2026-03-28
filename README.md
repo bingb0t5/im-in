@@ -182,6 +182,7 @@ Recommended:
 Edge function runtime:
 
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` is provided automatically by Supabase Edge Functions and should not be manually set with `supabase secrets set`
 - `OPENAI_API_KEY`
 
 Optional edge function runtime:
@@ -280,6 +281,8 @@ Home-page feedback behavior:
 - feedback supports `bug`, `feature`, and `feedback` types, plus optional screenshot upload
 - submissions run a lightweight abuse filter first, then create a sanitized Trello card in the configured intake list
 - Codex prompt generation is intentionally separate and only runs when a Trello card is moved to the configured prompt-trigger list
+- the recommended production setup is a Trello board webhook pointed at `trello-prompt-sync`
+- a manual admin fallback still exists via `{"syncFromTriggerList": true}` when webhook setup is unavailable
 
 ## Database / RPC Expectations
 
@@ -330,6 +333,14 @@ Deep links that need rewrite support:
 - `/calendar`
 - `/bookings`
 - `/recover`
+
+### Trello webhook note
+
+For automatic Codex prompt generation, create a Trello webhook on the board and point it at:
+
+- `https://<your-project-ref>.functions.supabase.co/trello-prompt-sync`
+
+The function filters board events internally and only reacts when a card is moved into `TRELLO_PROMPT_TRIGGER_LIST_ID`.
 
 ## Important Limitations And Risks
 

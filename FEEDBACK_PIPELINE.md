@@ -59,7 +59,7 @@ Stores:
 
 ## Required secrets (Edge functions)
 
-- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` (provided automatically by Supabase Edge Functions; do not manually set it with `supabase secrets set`)
 - `OPENAI_API_KEY`
 - `TRELLO_API_KEY`
 - `TRELLO_API_TOKEN`
@@ -88,6 +88,29 @@ Optional:
 - supports admin-triggered manual sync mode (`syncFromTriggerList: true`)
 - generates Codex prompts only when card is in trigger list
 - writes prompt section into card description
+
+## Webhook setup
+
+Recommended production setup:
+
+- create a Trello webhook on the whole board
+- set `callbackURL` to `https://<your-project-ref>.functions.supabase.co/trello-prompt-sync`
+- keep `TRELLO_PROMPT_TRIGGER_LIST_ID` set to the specific list that should trigger prompt generation
+
+Why board-level webhook:
+
+- Trello sends all card-change events for the board
+- the function filters internally and only reacts when the destination list matches `TRELLO_PROMPT_TRIGGER_LIST_ID`
+
+## Recommended model split
+
+- `OPENAI_FEEDBACK_MODEL=gpt-5.4-nano`
+- `OPENAI_PROMPT_MODEL=gpt-5.4`
+
+Reasoning:
+
+- abuse filtering is narrow, repetitive, and cost-sensitive
+- prompt generation is low-volume and higher-value, so stronger reasoning quality is worth the extra cost
 
 ## Manual run example
 

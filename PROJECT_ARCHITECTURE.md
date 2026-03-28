@@ -118,6 +118,7 @@ The route table lives in `src/App.tsx`.
 - primary CTAs: create activity, browse public activities, activities I'm in
 - "Why this exists" and "Help build it" modal content
 - public feedback modal for bug reports, feature requests, and general feedback
+- optional screenshot upload in the feedback modal
 - stays the public home page even for signed-in users
 - signed-in users get a CTA into `/my-activities` instead of replacing the page with a dashboard
 
@@ -431,7 +432,7 @@ So contributors should think of:
 
 - `moderate-activity`: activity moderation for public discovery
 - `submit-feedback`: public feedback intake, abuse filtering, and Trello intake card creation
-- `trello-prompt-sync`: Trello list-triggered Codex prompt generation written back to card descriptions
+- `trello-prompt-sync`: Trello webhook/manual-sync endpoint for list-triggered Codex prompt generation written back to card descriptions
 
 ### RLS helper functions used in SQL
 
@@ -526,6 +527,10 @@ Edge runtime additions used by the feedback pipeline:
 - `FEEDBACK_ADMIN_EMAILS` (falls back to `MODERATION_ADMIN_EMAILS`)
 - `OPENAI_FEEDBACK_MODEL`
 - `OPENAI_PROMPT_MODEL`
+
+Runtime note:
+
+- `SUPABASE_SERVICE_ROLE_KEY` is expected by the functions, but is provided by Supabase automatically rather than being manually created as a project secret
 
 ### Build/runtime assumptions
 

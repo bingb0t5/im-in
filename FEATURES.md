@@ -201,12 +201,15 @@ Lets any visitor submit bug reports, feature requests, or general feedback from 
 - non-blocked submissions create a sanitized card in Trello intake list
 - Codex prompt generation is intentionally deferred
 - when any Trello card is moved into the configured prompt-trigger list, `trello-prompt-sync` generates a Codex prompt and writes it into the card description
+- recommended production setup uses a Trello board webhook so the list move triggers automatically
+- manual admin-triggered sync remains available as a fallback
 
 ### Privacy notes
 
 - raw submission text and optional screenshot are stored in Supabase, not posted in full to the public Trello board
 - Trello intake cards are sanitized/minimized by design
 - prompt-generation runs are tracked in `trello_prompt_jobs` to avoid duplicate generation on repeated moves
+- prompt generation can apply to cards created manually in Trello as well as cards originating from the app
 
 ## 1. Activity Creation
 

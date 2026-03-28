@@ -52,6 +52,7 @@ The weakest / least finished areas are:
 - public moderation transparency page for public-facing moderation history
 - public feedback/report modal on home page with optional screenshot upload
 - feedback ingestion pipeline with abuse filtering, sanitized Trello intake cards, and Trello list-triggered Codex prompt drafting
+- Trello board webhook path for automatic prompt generation when cards enter the configured trigger list
 - Google Calendar link
 - `.ics` download
 - co-host support
@@ -73,6 +74,7 @@ The weakest / least finished areas are:
 - separate reviewer archive state for the moderation queue via `events.moderation_archived_at`
 - public moderation audit records stored separately from activity rows
 - separate feedback-domain tables for feedback submissions and Trello prompt-generation jobs
+- webhook-compatible Trello prompt generation with manual admin fallback support
 
 ## Partial Or Awkward
 
@@ -157,6 +159,7 @@ These things are either planned, partial, or explicitly not complete:
 Note:
 
 - feedback reporting exists now, but deeper workflow automation from Trello to external coding agents is still future work
+- prompt generation is currently written back into Trello card descriptions, not pushed directly into Cursor/Codex
 
 ## Important Review Findings
 

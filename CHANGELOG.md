@@ -18,6 +18,8 @@
 - added `submit-feedback` Edge Function to run lightweight abuse filtering and create sanitized Trello intake cards
 - added `trello-prompt-sync` Edge Function so Codex prompt generation is triggered by moving cards into a dedicated Trello list
 - added SQL support for `feedback_submissions` and `trello_prompt_jobs` with private-by-default access boundaries
+- documented and verified the Trello board webhook path for automatic prompt generation when cards enter the configured trigger list
+- documented the manual admin sync fallback and clarified that `SUPABASE_SERVICE_ROLE_KEY` is runtime-provided by Supabase rather than manually set as a secret
 
 ### Moderation transparency UX
 
