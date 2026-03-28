@@ -1,7 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { Link } from 'react-router-dom';
-import { Calendar as CalendarIcon, ChevronRight, Users, X, Heart, Info, ThumbsUp, MessageSquare } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronRight, X, Heart, Info, ThumbsUp, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { guestService } from '../services/guestService';
 import { invokePublicFunction } from '../lib/functions';
@@ -16,10 +16,11 @@ const emptyFeedbackForm = {
   reporterEmail: '',
 };
 
+const DEV_BOARD_URL = 'https://trello.com/b/kauEWnAe/im-in-dev-board';
+
 export default function Home({ user }: { user: User | null }) {
   const [showWhyModal, setShowWhyModal] = useState(false);
   const [showBuildModal, setShowBuildModal] = useState(false);
-  const [showHowItWorksModal, setShowHowItWorksModal] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [hasGuestSession, setHasGuestSession] = useState(false);
   const [feedbackForm, setFeedbackForm] = useState(emptyFeedbackForm);
@@ -136,22 +137,22 @@ export default function Home({ user }: { user: User | null }) {
   const activitiesLabel = user ? 'My Activities' : "Activities I'm In";
 
   return (
-      <div className="min-h-[100svh] flex flex-col items-center justify-between px-6 pt-5 pb-4 bg-slate-50 text-center md:min-h-screen md:justify-center md:py-6">
+      <div className="min-h-[100svh] flex flex-col items-center justify-between px-6 pt-4 pb-3 bg-slate-50 text-center md:min-h-screen md:justify-center md:py-6">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="max-w-md w-full flex-1 flex flex-col justify-center items-center"
         >
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-brand-600 rounded-3xl mb-5 shadow-xl shadow-brand-600/10">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-brand-600 rounded-3xl mb-4 shadow-xl shadow-brand-600/10">
             <CalendarIcon className="w-10 h-10 text-white" />
           </div>
           <h1 className="text-4xl font-black tracking-tight text-slate-900 mb-1.5">I'm In</h1>
-          <p className="text-lg text-slate-500 mb-6 font-medium">
+          <p className="text-lg text-slate-500 mb-5 font-medium">
             See what's on. Say I'm in.
           </p>
           
-          <div className="w-full space-y-5">
-            <div className="space-y-3.5">
+          <div className="w-full space-y-4">
+            <div className="space-y-3">
               <Link 
                 to="/create-event" 
                 className="block w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all flex items-center justify-center gap-2 active:scale-95"
@@ -175,6 +176,16 @@ export default function Home({ user }: { user: User | null }) {
                 {activitiesLabel}
                 <ThumbsUp className="w-5 h-5" />
               </Link>
+
+              <button
+                onClick={() => setShowFeedbackModal(true)}
+                className="block w-full bg-white hover:bg-slate-50 text-slate-900 rounded-2xl border border-slate-100 shadow-sm transition-all active:scale-[0.98] px-5 py-4"
+              >
+                <span className="block text-base font-black">Send feedback</span>
+                <span className="block mt-1 text-xs font-medium text-slate-500 leading-relaxed">
+                  <span className="font-semibold italic text-slate-700">I&apos;m In</span> is currently in beta. We&apos;d love your feedback.
+                </span>
+              </button>
               
               <div className="flex items-center justify-center gap-x-5 gap-y-2 flex-wrap">
                 <button 
@@ -191,20 +202,6 @@ export default function Home({ user }: { user: User | null }) {
                   <Heart className="w-3.5 h-3.5" />
                   Help build it
                 </button>
-                <button 
-                  onClick={() => setShowHowItWorksModal(true)}
-                  className="text-slate-400 hover:text-slate-600 text-xs font-bold uppercase tracking-widest transition-colors flex items-center gap-1.5"
-                >
-                  <Users className="w-3.5 h-3.5" />
-                  How this works
-                </button>
-                <button
-                  onClick={() => setShowFeedbackModal(true)}
-                  className="text-slate-400 hover:text-slate-600 text-xs font-bold uppercase tracking-widest transition-colors flex items-center gap-1.5"
-                >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  Send feedback
-                </button>
                 <Link
                   to="/moderation"
                   className="text-slate-400 hover:text-slate-600 text-xs font-bold uppercase tracking-widest transition-colors"
@@ -214,7 +211,7 @@ export default function Home({ user }: { user: User | null }) {
               </div>
             </div>
 
-            <div className="pt-2">
+            <div className="pt-1">
               <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest leading-relaxed">
                 Built for real communities.<br />Kept simple on purpose.
               </p>
@@ -222,7 +219,7 @@ export default function Home({ user }: { user: User | null }) {
           </div>
         </motion.div>
         
-        <footer className="mt-4 text-slate-300 text-[9px] font-bold tracking-[0.18em] flex items-center gap-2 uppercase">
+        <footer className="mt-3 text-slate-300 text-[9px] font-bold tracking-[0.18em] flex items-center gap-2 uppercase">
           A community project, started by Lalo
         </footer>
 
@@ -329,8 +326,17 @@ export default function Home({ user }: { user: User | null }) {
                     <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-600">{feedbackError}</div>
                   ) : null}
                   {feedbackSuccess ? (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
-                      {feedbackSuccess}
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-medium text-emerald-700 space-y-2">
+                      <p>{feedbackSuccess}</p>
+                      <a
+                        href={DEV_BOARD_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-emerald-800 underline underline-offset-2"
+                      >
+                        View the dev board
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </a>
                     </div>
                   ) : null}
 
@@ -365,17 +371,17 @@ export default function Home({ user }: { user: User | null }) {
                 className="relative w-full max-w-sm bg-white rounded-[2rem] p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
               >
                 <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-black text-slate-900 tracking-tight">Why I'm In exists</h2>
+                  <h2 className="text-xl font-black text-slate-900 tracking-tight">Why <span className="italic">I&apos;m In</span> exists</h2>
                   <button onClick={() => setShowWhyModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
                     <X className="w-6 h-6 text-slate-300" />
                   </button>
                 </div>
                 
                 <div className="space-y-4 text-slate-600 text-sm font-medium leading-relaxed">
-                  <p>I’m In is a simple way to organise real-life plans, activities, and events without replacing the WhatsApp groups people already use.</p>
-                  <p>You still share and chat in your groups. I’m In just makes it easier to see what&apos;s on, manage who&apos;s coming, and keep things organised.</p>
+                  <p><span className="italic">I&apos;m In</span> is a simple way to organise real-life plans, activities, and events without replacing the WhatsApp groups people already use.</p>
+                  <p>You still share and chat in your groups. <span className="italic">I&apos;m In</span> just makes it easier to see what&apos;s on, manage who&apos;s coming, and keep things organised.</p>
                   <p>It works alongside the groups and communities people already use, not inside a new one. In places like Hoi An, there are often overlapping groups with similar people and activities, but not always much visibility between them.</p>
-                  <p>I’m In is meant to make things easier to share, discover, and join across those groups while still keeping things grounded in the communities people are already part of.</p>
+                  <p><span className="italic">I&apos;m In</span> is meant to make things easier to share, discover, and join across those groups while still keeping things grounded in the communities people are already part of.</p>
                   <p className="text-slate-900 font-semibold">Build a longer table, not a higher fence.</p>
                   <p>Keep it useful. Keep it open. Keep it simple.</p>
 
@@ -392,28 +398,52 @@ export default function Home({ user }: { user: User | null }) {
                   </div>
 
                   <div className="pt-4 space-y-3">
-                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Built in the open</h3>
-                    <p>You can see what&apos;s being worked on, what&apos;s coming next, and suggest ideas as it evolves.</p>
-                    <p>The code is public. Contributions are welcome.</p>
-                    <p>Ideas are welcome. We keep things simple on purpose.</p>
+                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">How it works</h3>
+                    <div className="space-y-1.5">
+                      <p className="text-slate-900 font-semibold">It&apos;s open</p>
+                      <p>The code is public. People can see how it works and suggest improvements.</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-slate-900 font-semibold">It&apos;s shaped by the community</p>
+                      <p>Ideas, feedback, and real-world use help guide what gets built next.</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-slate-900 font-semibold">It stays simple on purpose</p>
+                      <p>Not every idea will be added. Keeping it easy to use matters more than adding everything.</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-slate-900 font-semibold">Hosts run their own activities</p>
+                      <p>Activities should be created by the person actually organising or hosting them, so it&apos;s clear who&apos;s running things.</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-slate-900 font-semibold">It&apos;s maintained by people giving their time</p>
+                      <p>Lalo helps build and maintain it, alongside others who choose to get involved.</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-slate-900 font-semibold">It should become more community-guided over time</p>
+                      <p>As more people use it and contribute, the aim is for direction to be shaped more by the community itself.</p>
+                    </div>
                   </div>
                 </div>
 
                 <div className="mt-8 space-y-3">
                   <a
-                    href="mailto:hello@joinimin.com"
-                    className="block w-full text-center bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
-                  >
-                    Suggest an idea
-                  </a>
-                  <a
-                    href="https://trello.com/b/kauEWnAe/im-in-dev-board"
+                    href={DEV_BOARD_URL}
                     target="_blank"
                     rel="noreferrer"
-                    className="block w-full text-center bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl transition-all active:scale-95"
+                    className="block w-full text-center bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
                   >
                     See what&apos;s being worked on
                   </a>
+                  <button
+                    onClick={() => {
+                      setShowWhyModal(false);
+                      setShowFeedbackModal(true);
+                    }}
+                    className="block w-full text-center bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl transition-all active:scale-95"
+                  >
+                    Send feedback
+                  </button>
                 </div>
               </motion.div>
             </div>
@@ -438,17 +468,23 @@ export default function Home({ user }: { user: User | null }) {
                 className="relative w-full max-w-sm bg-white rounded-[2rem] p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
               >
                 <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-black text-slate-900 tracking-tight">Help build I'm In</h2>
+                  <h2 className="text-xl font-black text-slate-900 tracking-tight">Help build <span className="italic">I&apos;m In</span></h2>
                   <button onClick={() => setShowBuildModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
                     <X className="w-6 h-6 text-slate-300" />
                   </button>
                 </div>
                 
                 <div className="space-y-4 text-slate-600 text-sm font-medium leading-relaxed">
-                  <p>I’m In is still early, and evolving as people use it.</p>
+                  <p><span className="italic">I&apos;m In</span> is still early, and evolving as people use it.</p>
                   <p>The aim is simple: make organising things easier for real-world communities.</p>
                   <p>It&apos;s being shaped by the people who organise and join activities, not just built in isolation.</p>
                   <p>Lalo helped start the project and contributes time to it, alongside others who want to help.</p>
+                  <div className="pt-2 space-y-3">
+                    <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Built in the open</h3>
+                    <p>You can see what&apos;s being worked on, what&apos;s coming next, and suggest ideas as it evolves.</p>
+                    <p>The code is public. Contributions are welcome.</p>
+                    <p>Ideas are welcome. We keep things simple on purpose.</p>
+                  </div>
                   <p>If you want to help, there are lots of ways to get involved:</p>
                   
                   <div className="pt-4">
@@ -474,92 +510,19 @@ export default function Home({ user }: { user: User | null }) {
                 <div className="mt-8 space-y-3">
                   <button
                     onClick={() => {
-                      window.location.href = `mailto:hello@joinimin.com?subject=Helping build I'm In`;
+                      window.location.href = `mailto:hello@joinimin.com?subject=Helping build I%27m In`;
                     }}
                     className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
                   >
                     Get involved
                   </button>
                   <a
-                    href="https://trello.com/b/kauEWnAe/im-in-dev-board"
+                    href={DEV_BOARD_URL}
                     target="_blank"
                     rel="noreferrer"
                     className="block w-full text-center bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl transition-all active:scale-95"
                   >
                     See what&apos;s being worked on
-                  </a>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-
-        {/* How this works Modal */}
-        <AnimatePresence>
-          {showHowItWorksModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-6 text-left overflow-y-auto overscroll-contain">
-              <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setShowHowItWorksModal(false)}
-                className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-              />
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="relative w-full max-w-sm bg-white rounded-[2rem] p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
-              >
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-black text-slate-900 tracking-tight">How this works</h2>
-                  <button onClick={() => setShowHowItWorksModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
-                    <X className="w-6 h-6 text-slate-300" />
-                  </button>
-                </div>
-
-                <div className="space-y-4 text-slate-600 text-sm font-medium leading-relaxed">
-                  <p>I’m In is built to be simple, useful, and shaped by the people who use it.</p>
-                  <div className="space-y-1.5">
-                    <p className="text-slate-900 font-semibold">It&apos;s open</p>
-                    <p>The code is public. People can see how it works and suggest improvements.</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-slate-900 font-semibold">It&apos;s shaped by the community</p>
-                    <p>Ideas, feedback, and real-world use help guide what gets built next.</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-slate-900 font-semibold">It stays simple on purpose</p>
-                    <p>Not every idea will be added. Keeping it easy to use matters more than adding everything.</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-slate-900 font-semibold">Hosts run their own activities</p>
-                    <p>Activities should be created by the person actually organising or hosting them, so it&apos;s clear who&apos;s running things.</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-slate-900 font-semibold">It&apos;s maintained by people giving their time</p>
-                    <p>Lalo helps build and maintain it, alongside others who choose to get involved.</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <p className="text-slate-900 font-semibold">It should become more community-guided over time</p>
-                    <p>As more people use it and contribute, the aim is for direction to be shaped more by the community itself.</p>
-                  </div>
-                </div>
-
-                <div className="mt-8 space-y-3">
-                  <a
-                    href="https://trello.com/b/kauEWnAe/im-in-dev-board"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block w-full text-center bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
-                  >
-                    See what&apos;s being worked on
-                  </a>
-                  <a
-                    href="mailto:hello@joinimin.com"
-                    className="block w-full text-center bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl transition-all active:scale-95"
-                  >
-                    Suggest an idea
                   </a>
                 </div>
               </motion.div>

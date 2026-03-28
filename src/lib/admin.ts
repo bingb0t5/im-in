@@ -13,3 +13,36 @@ export function isEmailInAllowlist(email: string | null | undefined, rawAllowlis
 export function isModerationAdminEmail(email: string | null | undefined) {
   return isEmailInAllowlist(email, import.meta.env.VITE_MODERATION_ADMIN_EMAILS);
 }
+
+export function isFeedbackAdminEmail(email: string | null | undefined) {
+  return (
+    isEmailInAllowlist(email, import.meta.env.VITE_FEEDBACK_ADMIN_EMAILS)
+    || isModerationAdminEmail(email)
+  );
+}
+
+export function isAnyAdminEmail(email: string | null | undefined) {
+  return isModerationAdminEmail(email) || isFeedbackAdminEmail(email);
+}
+
+export function hasFrontendAdminAllowlist() {
+  return (
+    parseEmailAllowlist(import.meta.env.VITE_MODERATION_ADMIN_EMAILS).length > 0
+    || parseEmailAllowlist(import.meta.env.VITE_FEEDBACK_ADMIN_EMAILS).length > 0
+  );
+}
+
+export function canAccessModerationAdminFrontend(email: string | null | undefined) {
+  if (!hasFrontendAdminAllowlist()) return true;
+  return isModerationAdminEmail(email);
+}
+
+export function canAccessFeedbackAdminFrontend(email: string | null | undefined) {
+  if (!hasFrontendAdminAllowlist()) return true;
+  return isFeedbackAdminEmail(email);
+}
+
+export function canAccessAnyAdminFrontend(email: string | null | undefined) {
+  if (!hasFrontendAdminAllowlist()) return true;
+  return isAnyAdminEmail(email);
+}

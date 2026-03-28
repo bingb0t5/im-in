@@ -77,7 +77,25 @@ Features:
 - "Why this exists" modal
 - "Help build it" modal
 - "Send feedback" modal (bug / feature / feedback) with optional screenshot upload
+- feedback success state includes a link to the public dev board
 - roadmap and email links
+
+### Admin tooling
+
+Implemented in:
+
+- `src/pages/AdminHome.tsx`
+- `src/pages/AdminModeration.tsx`
+- `src/pages/AdminFeedback.tsx`
+
+Features:
+
+- hidden `/admin` landing page for internal tooling
+- moderation review page
+- feedback review page for review, passed, blocked, failed, archived, and all items
+- retry sending eligible feedback to the Trello board
+- archive / restore internal feedback items
+- permanent delete for feedback items with typed `DELETE` confirmation
 
 ### Signed-in dashboard
 
@@ -210,6 +228,8 @@ Lets any visitor submit bug reports, feature requests, or general feedback from 
 - Trello intake cards are sanitized/minimized by design
 - prompt-generation runs are tracked in `trello_prompt_jobs` to avoid duplicate generation on repeated moves
 - prompt generation can apply to cards created manually in Trello as well as cards originating from the app
+- internal review of non-board items happens through `/admin/feedback`
+- successful board submissions can still be reviewed later under the `Passed` bucket
 
 ## 1. Activity Creation
 
@@ -686,6 +706,7 @@ The app currently includes:
 
 - "Why this exists" messaging
 - "Help build it" messaging
+- the earlier separate "How this works" content is now folded into "Why this exists"
 - roadmap link
 - contact email
 

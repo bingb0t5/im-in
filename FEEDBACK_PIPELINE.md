@@ -8,13 +8,14 @@ This document describes the feedback/reporting pipeline that sends user submissi
 
 1. User opens `Send feedback` modal on `/`.
 2. User submits a bug report, feature request, or general feedback.
-3. `submit-feedback` Edge Function:
+3. Frontend success state confirms the submission and offers a link to the public dev board.
+4. `submit-feedback` Edge Function:
    - validates payload
    - runs lightweight abuse filtering
    - stores raw submission in `feedback_submissions`
    - uploads optional screenshot to private storage bucket
    - creates a sanitized Trello card in intake list (when not blocked)
-4. Later, when a Trello card is moved into the prompt-trigger list:
+5. Later, when a Trello card is moved into the prompt-trigger list:
    - `trello-prompt-sync` generates a Codex-ready prompt
    - writes prompt into Trello card description
    - logs run metadata in `trello_prompt_jobs`
@@ -57,6 +58,27 @@ Stores:
 - screenshot bucket is private (`feedback-screenshots`)
 - abuse-blocked submissions are not sent to Trello
 
+## Internal review path
+
+Items that do not make it to the public Trello board still remain internal:
+
+- abuse-blocked items stay in `feedback_submissions` with `status = blocked_abuse`
+- failed Trello sync items stay in `feedback_submissions` with `trello_sync_status = failed`
+- unsent review items stay internal until explicitly retried
+
+These are reviewed through:
+
+- `/admin/feedback`
+
+That page can:
+
+- inspect full private details
+- open private screenshots via signed URLs
+- retry sending an item to the Trello intake list
+- archive/restore internal items
+- review items by bucket, including `Passed` for already-synced Trello submissions
+- permanently delete items with typed `DELETE` confirmation in the UI
+
 ## Required secrets (Edge functions)
 
 - `SUPABASE_SERVICE_ROLE_KEY` (provided automatically by Supabase Edge Functions; do not manually set it with `supabase secrets set`)
@@ -88,6 +110,14 @@ Optional:
 - supports admin-triggered manual sync mode (`syncFromTriggerList: true`)
 - generates Codex prompts only when card is in trigger list
 - writes prompt section into card description
+
+### `feedback-admin`
+
+- hidden admin endpoint for listing internal feedback items
+- returns signed screenshot URLs for review
+- supports retrying Trello sync
+- supports archive/restore of internal feedback rows
+- supports permanent deletion of feedback rows, related prompt-job rows, and stored screenshots
 
 ## Webhook setup
 

@@ -49,10 +49,15 @@ The weakest / least finished areas are:
 - "thinking about it"
 - lightweight AI moderation for broader public discovery on public activities and semi-public public previews
 - hidden moderation admin queue with review, archived, and spam buckets for allowlisted admins, scoped to public-facing activity moderation
+- hidden admin hub at `/admin` that links to the current internal admin tools
 - public moderation transparency page for public-facing moderation history
+- home-page explainer content simplified into two modals: `Why this exists` and `Help build it`
 - public feedback/report modal on home page with optional screenshot upload
 - feedback ingestion pipeline with abuse filtering, sanitized Trello intake cards, and Trello list-triggered Codex prompt drafting
 - Trello board webhook path for automatic prompt generation when cards enter the configured trigger list
+- hidden `/admin/feedback` page for blocked abuse items, failed Trello syncs, unsent submissions, retry-to-board actions, and archive/restore
+- hidden `/admin/feedback` page now also includes a passed-to-Trello bucket and permanent delete actions with typed confirmation
+- feedback submission success now includes a direct link to the public dev board
 - Google Calendar link
 - `.ics` download
 - co-host support
@@ -75,6 +80,8 @@ The weakest / least finished areas are:
 - public moderation audit records stored separately from activity rows
 - separate feedback-domain tables for feedback submissions and Trello prompt-generation jobs
 - webhook-compatible Trello prompt generation with manual admin fallback support
+- feedback screenshots reviewed privately through signed URLs in admin tooling
+- feedback-item deletion removes the internal row, related prompt-job rows, and stored screenshot object
 
 ## Partial Or Awkward
 
@@ -160,6 +167,7 @@ Note:
 
 - feedback reporting exists now, but deeper workflow automation from Trello to external coding agents is still future work
 - prompt generation is currently written back into Trello card descriptions, not pushed directly into Cursor/Codex
+- internal feedback review exists now, but it is still a lightweight hidden tool rather than a full operations console
 
 ## Important Review Findings
 

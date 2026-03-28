@@ -52,6 +52,14 @@ export interface PublicModerationLogEntry {
 }
 
 export type FeedbackSubmissionType = 'bug' | 'feature' | 'feedback';
+export type FeedbackSubmissionStatus =
+  | 'pending_review'
+  | 'queued_to_trello'
+  | 'blocked_abuse'
+  | 'approved'
+  | 'rejected'
+  | 'archived';
+export type FeedbackTrelloSyncStatus = 'not_sent' | 'queued' | 'synced' | 'skipped' | 'failed';
 
 export interface FeedbackSubmissionPayload {
   submissionType: FeedbackSubmissionType;
@@ -72,6 +80,34 @@ export interface FeedbackSubmissionResult {
   screenshotStored: boolean;
   trelloCardId?: string | null;
   trelloCardUrl?: string | null;
+}
+
+export interface FeedbackAdminItem {
+  id: string;
+  submission_type: FeedbackSubmissionType;
+  title: string;
+  details: string;
+  reporter_name?: string | null;
+  reporter_email?: string | null;
+  auth_user_id?: string | null;
+  page_url?: string | null;
+  status: FeedbackSubmissionStatus;
+  abuse_risk_level?: 'low' | 'medium' | 'high' | null;
+  abuse_confidence?: number | null;
+  abuse_reasons: string[];
+  abuse_blocked: boolean;
+  codex_prompt_draft?: string | null;
+  codex_prompt_generated_at?: string | null;
+  trello_card_id?: string | null;
+  trello_card_url?: string | null;
+  trello_list_id?: string | null;
+  trello_sync_status: FeedbackTrelloSyncStatus;
+  screenshot_storage_path?: string | null;
+  screenshot_signed_url?: string | null;
+  public_sanitized_summary?: string | null;
+  raw_source?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface EventAccessRequest {

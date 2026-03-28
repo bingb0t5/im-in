@@ -224,15 +224,19 @@ export default function HostDashboard({ user }: { user: User | null }) {
   };
 
   const fetchAttendees = async (eventId: string) => {
-    const { data } = await supabase
-      .from('event_attendees')
-      .select('*')
-      .eq('event_id', eventId)
-      .neq('status', 'cancelled')
-      .order('joined_at', { ascending: true });
+    const { data, error } = await supabase.rpc('list_event_attendees_for_view', {
+      p_event_id: eventId,
+    });
+
+    if (error) {
+      console.error('Host attendee fetch failed:', error);
+      setAttendees([]);
+      setLoading(false);
+      return;
+    }
 
     if (data) {
-      setAttendees(data);
+      setAttendees(data as Attendee[]);
       await hydrateAdderNames(data as Attendee[]);
     }
     setLoading(false);
@@ -249,11 +253,15 @@ export default function HostDashboard({ user }: { user: User | null }) {
   };
 
   const fetchInterests = async (eventId: string) => {
-    const { data } = await supabase
-      .from('event_interests')
-      .select('*')
-      .eq('event_id', eventId)
-      .order('created_at', { ascending: false });
+    const { data, error } = await supabase.rpc('list_event_interests_for_view', {
+      p_event_id: eventId,
+    });
+
+    if (error) {
+      console.error('Host interest fetch failed:', error);
+      setInterests([]);
+      return;
+    }
 
     if (data) setInterests(data as EventInterest[]);
   };

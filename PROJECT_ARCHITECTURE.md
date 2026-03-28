@@ -93,7 +93,9 @@ The route table lives in `src/App.tsx`.
 | `/host/events/:id` | `src/pages/HostDashboard.tsx` | Host/co-host management page |
 | `/calendar` | `src/pages/Calendar.tsx` | Public browse/search page |
 | `/moderation` | `src/pages/ModerationTransparency.tsx` | Public-facing moderation transparency log for public activity moderation and semi-public preview moderation |
+| `/admin` | `src/pages/AdminHome.tsx` | Hidden landing page for admin tools |
 | `/admin/moderation` | `src/pages/AdminModeration.tsx` | Hidden allowlist-gated moderation queue and override tooling |
+| `/admin/feedback` | `src/pages/AdminFeedback.tsx` | Hidden allowlist-gated internal feedback review tooling |
 | `/bookings` | `src/pages/Bookings.tsx` | Guest-session bookings page |
 | `/recover` | `src/pages/Recovery.tsx` | Token-based guest-session restore |
 | `*` | redirect | Redirects to `/` |
@@ -105,7 +107,9 @@ The route table lives in `src/App.tsx`.
 - `/host/events/:id` and `/host/events/:id/edit` are auth-gated in `App.tsx`
 - `/create-event` is not route-gated because the delayed-auth create flow is intentional
 - `/moderation` is public and only surfaces public-facing moderation records
+- `/admin` should be the single entry point for hidden admin tools
 - `/admin/moderation` requires both a signed-in user and an allowlisted admin email
+- `/admin/feedback` requires both a signed-in user and an allowlisted admin email
 - `/bookings` is not the general signed-in attendee dashboard; it is guest-session driven
 - `/login` redirects authenticated users to `/create-event`, not `/`
 - unknown routes redirect to `/`
@@ -116,9 +120,10 @@ The route table lives in `src/App.tsx`.
 
 - landing page
 - primary CTAs: create activity, browse public activities, activities I'm in
-- "Why this exists" and "Help build it" modal content
+- "Why this exists" and "Help build it" modal content, with the earlier separate "How this works" copy merged into `Why this exists`
 - public feedback modal for bug reports, feature requests, and general feedback
 - optional screenshot upload in the feedback modal
+- feedback success state can link users directly to the public dev board
 - stays the public home page even for signed-in users
 - signed-in users get a CTA into `/my-activities` instead of replacing the page with a dashboard
 
@@ -205,6 +210,20 @@ The route table lives in `src/App.tsx`.
 - guest-session booking history
 - merges bookings and interests
 - not driven by Supabase auth user state
+
+### `AdminHome.tsx`
+
+- hidden admin landing page
+- links to the current `/admin/*` tools available to the signed-in admin
+- should be kept up to date whenever a new admin page is added
+
+### `AdminFeedback.tsx`
+
+- hidden internal feedback-review page
+- lists review, passed, blocked, failed, archived, and all feedback buckets
+- supports retrying Trello sync and archiving/restoring submissions
+- supports permanent deletion with typed `DELETE` confirmation in the UI
+- displays private screenshot previews through signed URLs returned by the admin function
 
 ### `Recovery.tsx`
 
@@ -403,6 +422,8 @@ So contributors should think of:
 
 - `Home.tsx`: public landing, community messaging, public CTAs
 - `Home.tsx`: public feedback modal submits to `submit-feedback`
+- `AdminHome.tsx`: admin-tool entry point
+- `AdminFeedback.tsx`: internal feedback queue and retry/archive actions
 - `MyActivities.tsx`: hosted events, joined events, interests, pending access requests
 - `Calendar.tsx`: future public/discoverable events, hidden upcoming count, and joined private-access map
 - `CreateEvent.tsx`: create/edit event reads and writes
@@ -433,6 +454,8 @@ So contributors should think of:
 - `moderate-activity`: activity moderation for public discovery
 - `submit-feedback`: public feedback intake, abuse filtering, and Trello intake card creation
 - `trello-prompt-sync`: Trello webhook/manual-sync endpoint for list-triggered Codex prompt generation written back to card descriptions
+- `feedback-admin`: hidden admin listing/retry/archive endpoint for internal feedback review
+- `feedback-admin`: hidden admin listing/retry/archive/delete endpoint for internal feedback review
 
 ### RLS helper functions used in SQL
 
@@ -512,6 +535,7 @@ Recommended:
 
 - `VITE_APP_URL`
 - `VITE_MODERATION_ADMIN_EMAILS`
+- `VITE_FEEDBACK_ADMIN_EMAILS`
 
 Legacy optional:
 

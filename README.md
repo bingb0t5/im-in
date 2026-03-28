@@ -178,6 +178,9 @@ Recommended:
 - `VITE_MODERATION_ADMIN_EMAILS`
   - comma-separated allowlist for the hidden moderation page at `/admin/moderation`
   - only affects whether the page is shown/usable in the frontend
+- `VITE_FEEDBACK_ADMIN_EMAILS`
+  - optional comma-separated allowlist for `/admin` and `/admin/feedback`
+  - can be omitted if you want to rely on the moderation frontend allowlist instead
 
 Edge function runtime:
 
@@ -261,7 +264,9 @@ Important app routes:
 - `/host/events/:id`
 - `/calendar`
 - `/moderation`
+- `/admin`
 - `/admin/moderation`
+- `/admin/feedback`
 - `/bookings`
 - `/recover`
 
@@ -271,7 +276,9 @@ Important route behavior:
 - `/my-activities` is the signed-in dashboard for hosting and attending
 - `/host/events/:id` and `/host/events/:id/edit` require a signed-in user
 - `/moderation` is public-facing and only shows moderation history for public content
+- `/admin` is the hidden landing page for admin tools
 - `/admin/moderation` is a hidden allowlist-gated admin page layered on top of normal auth
+- `/admin/feedback` is a hidden allowlist-gated admin page for internal feedback review
 - `/bookings` is guest-session driven, not the main authenticated dashboard
 - unknown routes redirect to `/`
 
@@ -280,9 +287,13 @@ Home-page feedback behavior:
 - the public home page has a `Send feedback` modal available to signed-out and signed-in users
 - feedback supports `bug`, `feature`, and `feedback` types, plus optional screenshot upload
 - submissions run a lightweight abuse filter first, then create a sanitized Trello card in the configured intake list
+- the success state now also links people to the public dev board so they can see what is being worked on
 - Codex prompt generation is intentionally separate and only runs when a Trello card is moved to the configured prompt-trigger list
 - the recommended production setup is a Trello board webhook pointed at `trello-prompt-sync`
 - a manual admin fallback still exists via `{"syncFromTriggerList": true}` when webhook setup is unavailable
+- internal review for blocked/failed/not-sent feedback now lives at `/admin/feedback`
+- `/admin/feedback` now includes `Review`, `Passed`, `Blocked`, `Failed`, `Archived`, and `All` buckets
+- feedback records can be permanently deleted from `/admin/feedback`, with typed `DELETE` confirmation in the UI
 
 ## Database / RPC Expectations
 
@@ -371,6 +382,7 @@ The product is positioned as an open, community-built project. The landing page 
 
 - roadmap: [Trello board](https://trello.com/b/kauEWnAe/im-in-dev-board)
 - contact: `hello@joinimin.com`
+- explainer modals: `Why this exists` and `Help build it`
 
 ## Documentation Map
 
@@ -387,3 +399,7 @@ The product is positioned as an open, community-built project. The landing page 
 - `AUTH_UNIFICATION_PLAN.md`: future-facing auth unification plan
 - `SCHEMA_ALIGNMENT.md`: schema drift notes
 - `RELEASE_CHECKLIST.md`: release smoke-check list
+
+Admin rule:
+
+- any new hidden `/admin/*` feature should also be linked from `/admin` so there is one discoverable entry point for internal tooling
