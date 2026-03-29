@@ -425,11 +425,19 @@ The function filters board events internally and only reacts when a card is move
 
 ## Contributing
 
-Please read `CONTRIBUTING.md` before submitting pull requests.
+See CONTRIBUTING.md
 
 ## Governance
 
-See `GOVERNANCE.md` for how decisions are made and how the project is structured.
+See GOVERNANCE.md
+
+## Privacy
+
+See PRIVACY.md
+
+## Terms of Use
+
+See TERMS.md
 
 ## Community / Open Build
 
