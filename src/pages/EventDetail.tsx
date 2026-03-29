@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { buildGoogleCalendarEventUrl, buildIcsEventContent, formatDate, formatDay, formatDurationMinutes, generateSlug } from '../utils';
 import { Event, Attendee, EventInterest } from '../types';
 import { guestService, AttendeeProfile, getAccountNameFromUser } from '../services/guestService';
-import { findMyRsvps, getAttendanceSummary } from '../lib/attendees';
+import { getAttendanceSummary, getMyRsvpBuckets } from '../lib/attendees';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { findMyInterest, getNamedThinkingInterests, getThinkingCount } from '../lib/interests';
 import { goBackOr } from '../lib/navigation';
@@ -358,17 +358,17 @@ export default function EventDetail({ user }: { user: User | null }) {
 
   useEffect(() => {
     if (attendees.length > 0) {
-      setMyRsvps(
-        findMyRsvps(attendees, {
-          userId: user?.id,
-          userEmail: user?.email,
-          guestProfileId: guestProfile?.id,
-        }),
-      );
+      const currentProfileId = guestProfile?.id || signedInProfileId || undefined;
+      const { selfRsvps, managedProxyRsvps } = getMyRsvpBuckets(attendees, {
+        userId: user?.id,
+        userEmail: user?.email,
+        profileId: currentProfileId,
+      });
+      setMyRsvps([...selfRsvps, ...managedProxyRsvps]);
     } else {
       setMyRsvps([]);
     }
-  }, [user, guestProfile, attendees]);
+  }, [user, guestProfile, signedInProfileId, attendees]);
 
   useEffect(() => {
     const loadMyJoinRequestState = async () => {

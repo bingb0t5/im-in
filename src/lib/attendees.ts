@@ -3,40 +3,56 @@ import { Attendee } from '../types';
 interface FindMyRsvpsInput {
   userId?: string;
   userEmail?: string;
-  guestProfileId?: string;
+  profileId?: string;
+}
+
+function isActive(attendee: Attendee) {
+  return attendee.status !== 'cancelled';
+}
+
+export function getMyRsvpBuckets(attendees: Attendee[], input: FindMyRsvpsInput) {
+  const { userId, userEmail, profileId } = input;
+  const selfRsvps: Attendee[] = [];
+
+  const addIfMissing = (bucket: Attendee[], attendee: Attendee) => {
+    if (!bucket.some((item) => item.id === attendee.id)) {
+      bucket.push(attendee);
+    }
+  };
+
+  attendees.forEach((attendee) => {
+    if (!isActive(attendee)) return;
+    if (attendee.added_by_type === 'proxy') return;
+
+    if (userId && attendee.user_id === userId) {
+      addIfMissing(selfRsvps, attendee);
+      return;
+    }
+
+    if (userEmail && attendee.guest_email?.toLowerCase() === userEmail.toLowerCase()) {
+      addIfMissing(selfRsvps, attendee);
+      return;
+    }
+
+    if (profileId && attendee.attendee_profile_id === profileId) {
+      addIfMissing(selfRsvps, attendee);
+    }
+  });
+
+  const managedProxyRsvps = attendees.filter(
+    (attendee) =>
+      isActive(attendee) &&
+      attendee.added_by_type === 'proxy' &&
+      !!profileId &&
+      attendee.added_by_attendee_profile_id === profileId,
+  );
+
+  return { selfRsvps, managedProxyRsvps };
 }
 
 export function findMyRsvps(attendees: Attendee[], input: FindMyRsvpsInput): Attendee[] {
-  const { userId, userEmail, guestProfileId } = input;
-  let found: Attendee[] = [];
-
-  if (userId) {
-    const byUserId = attendees.filter((a) => a.user_id === userId && a.status !== 'cancelled');
-    found = [...byUserId];
-  }
-
-  if (userEmail) {
-    const email = userEmail.toLowerCase();
-    const byEmail = attendees.filter(
-      (a) =>
-        a.guest_email?.toLowerCase() === email &&
-        a.status !== 'cancelled' &&
-        !found.some((f) => f.id === a.id),
-    );
-    found = [...found, ...byEmail];
-  }
-
-  if (guestProfileId) {
-    const byProfileId = attendees.filter(
-      (a) =>
-        a.attendee_profile_id === guestProfileId &&
-        a.status !== 'cancelled' &&
-        !found.some((f) => f.id === a.id),
-    );
-    found = [...found, ...byProfileId];
-  }
-
-  return found;
+  const { selfRsvps, managedProxyRsvps } = getMyRsvpBuckets(attendees, input);
+  return [...selfRsvps, ...managedProxyRsvps];
 }
 
 export function getAttendanceSummary(attendees: Attendee[], capacity: number) {

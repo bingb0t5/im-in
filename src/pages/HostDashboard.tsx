@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { Users, Share2, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Clock, Edit2, Plus, X, AlertCircle, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
@@ -8,12 +8,13 @@ import { formatDate, formatDurationMinutes, generateSlug } from '../utils';
 import { Event, Attendee, EventAccessRequest, EventInterest, EventJoinRequest } from '../types';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/moderation';
-import { goBackOr } from '../lib/navigation';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
 
 export default function HostDashboard({ user }: { user: User | null }) {
+  const CREATE_EVENT_SUCCESS_KEY = 'im_in_recently_created_event_id';
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [event, setEvent] = useState<Event | null>(null);
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +33,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [hostEmailToAdd, setHostEmailToAdd] = useState('');
   const [hostActionLoading, setHostActionLoading] = useState(false);
   const [showHostsPanel, setShowHostsPanel] = useState(false);
+  const [showCreateSuccessModal, setShowCreateSuccessModal] = useState(false);
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
     show: boolean;
@@ -178,6 +180,42 @@ export default function HostDashboard({ user }: { user: User | null }) {
       supabase.removeChannel(channel);
     };
   }, [id, user]);
+
+  useEffect(() => {
+    const routeState = location.state as { justCreated?: boolean } | null;
+    const justCreatedEventId = sessionStorage.getItem(CREATE_EVENT_SUCCESS_KEY);
+    const shouldOpenSuccessModal = routeState?.justCreated || (!!id && justCreatedEventId === id);
+    if (!shouldOpenSuccessModal) return;
+
+    setShowCreateSuccessModal(true);
+  }, [id, location.state]);
+
+  const clearCreateSuccessState = () => {
+    sessionStorage.removeItem(CREATE_EVENT_SUCCESS_KEY);
+
+    const currentHistoryState = window.history.state as
+      | { usr?: Record<string, unknown>; key?: string; idx?: number }
+      | null;
+
+    if (!currentHistoryState) return;
+
+    const nextUserState = { ...(currentHistoryState.usr || {}) };
+    delete nextUserState.justCreated;
+
+    window.history.replaceState(
+      {
+        ...currentHistoryState,
+        usr: nextUserState,
+      },
+      '',
+      window.location.href,
+    );
+  };
+
+  const dismissCreateSuccessModal = () => {
+    clearCreateSuccessState();
+    setShowCreateSuccessModal(false);
+  };
 
   const fetchEvent = async () => {
     const { data, error } = await supabase
@@ -751,6 +789,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
             {[1,2,3].map(i => <div key={i} className="h-16 bg-slate-100 rounded-2xl animate-pulse" />)}
           </div>
         </main>
+
       </div>
     );
   }
@@ -784,21 +823,23 @@ export default function HostDashboard({ user }: { user: User | null }) {
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-20">
-        <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
-          <button onClick={() => goBackOr(navigate, '/')} className="p-2 hover:bg-slate-100 rounded-xl transition-all active:scale-95">
-            <ArrowLeft className="w-5 h-5 text-slate-600" />
-          </button>
-          <div className="flex flex-col items-center">
-            <h1 className="text-base font-bold text-slate-900 tracking-tight">Manage Activity</h1>
-            <span className="text-[10px] font-medium text-slate-400 truncate max-w-[160px]">{event.title}</span>
+        <div className="max-w-2xl mx-auto px-4 py-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <button onClick={() => navigate('/my-activities')} className="p-2 hover:bg-slate-100 rounded-xl transition-all active:scale-95">
+              <ArrowLeft className="w-5 h-5 text-slate-600" />
+            </button>
+            <div className="flex flex-col items-center min-w-0">
+              <h1 className="text-base font-bold text-slate-900 tracking-tight">Manage Activity</h1>
+              <span className="text-[10px] font-medium text-slate-400 truncate max-w-[160px]">{event.title}</span>
+            </div>
+            <button
+              onClick={() => navigate(`/host/events/${event.id}/edit`)}
+              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all active:scale-95"
+              title="Edit Activity"
+            >
+              <Edit2 className="w-5 h-5" />
+            </button>
           </div>
-          <button 
-            onClick={() => navigate(`/host/events/${event.id}/edit`)}
-            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all active:scale-95"
-            title="Edit Activity"
-          >
-            <Edit2 className="w-5 h-5" />
-          </button>
         </div>
       </header>
 
@@ -1394,6 +1435,79 @@ export default function HostDashboard({ user }: { user: User | null }) {
             </motion.div>
           </div>
         )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showCreateSuccessModal ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-y-auto overscroll-contain">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
+            >
+              <button
+                type="button"
+                onClick={dismissCreateSuccessModal}
+                className="absolute top-4 right-4 p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all"
+                aria-label="Close success modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="w-16 h-16 bg-brand-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
+                <CheckCircle2 className="w-8 h-8 text-brand-600" />
+              </div>
+
+              <div className="text-center mb-6">
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight">Activity created</h2>
+                <p className="text-sm text-slate-500 mt-2 leading-relaxed">
+                  {event.title} is ready. Share the private link now or head back to the app.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearCreateSuccessState();
+                    void shareWhatsApp();
+                  }}
+                  className="w-full bg-brand-600 hover:bg-brand-700 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-95"
+                >
+                  <MessageCircle className="w-5 h-5 shrink-0 text-white" />
+                  <span className="text-center leading-tight">Share Private Link on WhatsApp</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearCreateSuccessState();
+                    navigate('/my-activities');
+                  }}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-800 font-black py-4 rounded-2xl transition-all active:scale-95"
+                >
+                  Return to My Activities
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearCreateSuccessState();
+                    navigate('/');
+                  }}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold py-4 rounded-2xl transition-all active:scale-95"
+                >
+                  Return Home
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        ) : null}
       </AnimatePresence>
 
     </div>

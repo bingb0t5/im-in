@@ -23,6 +23,7 @@ import { guestService, getAccountNameFromUser } from '../services/guestService';
 
 const CREATE_EVENT_DRAFT_KEY = 'im_in_create_event_draft';
 const CREATE_EVENT_PENDING_AUTH_KEY = 'im_in_create_event_pending_auth';
+const CREATE_EVENT_SUCCESS_KEY = 'im_in_recently_created_event_id';
 const DETECTED_EVENT_TIMEZONE = (() => {
   const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return EVENT_TIMEZONE_OPTIONS.some((option) => option.value === browserTimezone)
@@ -490,7 +491,13 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
         await runModerationForEvent(result.data.id, resolvedVisibility);
 
-        navigate(`/host/events/${result.data.id}`);
+        if (!isEditing) {
+          sessionStorage.setItem(CREATE_EVENT_SUCCESS_KEY, result.data.id);
+        }
+
+        navigate(`/host/events/${result.data.id}`, {
+          state: isEditing ? undefined : { justCreated: true },
+        });
       }
     } catch (err: any) {
       console.error('Error saving activity:', err);
