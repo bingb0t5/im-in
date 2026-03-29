@@ -273,6 +273,7 @@ Lets a host create a new activity with scheduling, visibility, capacity, and hos
 - for signed-in users, host name is auto-hydrated and treated as account-backed
 - host name is always shown for `public` and `semi_public` activities
 - field-level `Public` / `Private` badges are used in the form to make visibility clearer
+- step navigation now uses in-flow back behavior so draft values persist when moving between steps
 
 ## 2. Activity Editing
 
@@ -652,12 +653,16 @@ Lets hosts and attendees share the right activity link for the situation.
 ### Google Calendar
 
 - available after self-RSVP
+- also available to hosts even when they are not personally attending
 - uses URL-based Google Calendar template generation
+- if a Google Maps share link exists, the calendar location field uses that URL
 
 ### `.ics` export
 
 - available after self-RSVP
+- also available to hosts even when they are not personally attending
 - generated client-side through helper logic in `utils.ts`
+- if a Google Maps share link exists, the `.ics` location field uses that URL and exact location text moves into the description
 
 ### Limitation
 

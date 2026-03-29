@@ -191,6 +191,12 @@ There is now a small hidden admin review page, but it is intentionally lightweig
 
 The current MVP uses `events.moderation_override` plus a separate `events.moderation_archived_at` field for reviewer queue housekeeping.
 
+The admin queue now stays aligned to the public-facing moderation surface:
+
+- expanded items show the public-facing listing details moderators are actually reviewing
+- queue links open the public activity page rather than the host dashboard
+- recent moderation log entries are visible inline so reviewers can see earlier actions and explanations
+
 Supported values:
 
 - `force_visible`
@@ -237,6 +243,8 @@ The app still allows people to create activities.
 Your job is to recommend how far the listing should spread in public discovery.
 
 Return strict JSON only.
+Prefer 1-3 reason codes.
+Use "other" only as a last resort when no more specific reason code fits.
 ```
 
 User payload shape:
@@ -303,6 +311,7 @@ Frontend optional env:
 - public calendar can show a subtle count of other upcoming hidden activities in the next 7 days, excluding spam-marked items
 - neutral host-facing messaging on the host dashboard
 - hidden moderation admin page at `/admin/moderation` for allowlisted emails
+- moderation admin queue shows public-facing listing details and recent moderation-log history inline
 - manual override actions routed through the existing moderation edge function
 - manual archive / return-to-review queue handling via `moderation_archived_at`
 - public moderation transparency page at `/moderation`
@@ -318,6 +327,19 @@ Frontend optional env:
 - deeper automation from Trello labels/lists into external coding-agent workflows (currently prompt generation is list-triggered but remains inside Trello + Supabase flow)
 - appeal / review workflows
 - batching or async queue infrastructure for higher volume
+
+## Interpreting `other`
+
+`other` is a catch-all reason code.
+
+It generally means:
+
+- the model detected some concern with broader public discovery
+- but it did not confidently match that concern to one of the named buckets such as `low_detail`, `possible_scam`, or `mass_posting_signals`
+
+Operational rule:
+
+- if a more specific reason code exists, `other` should not be kept alongside it
 
 ## Related but separate pipeline
 

@@ -78,6 +78,8 @@ The weakest / least finished areas are:
 - dedicated join-request queue (`event_join_requests`) plus host approve/reject RPCs for approval-required activities
 - approval-required joins now create visible `event_attendees` rows in `pending_approval` state so pending people show in `Going`
 - public and semi-public activities now always expose host names from the create/edit flow
+- hosts can now use calendar export actions even when they are not personally attending
+- calendar exports now use Google Maps share URLs as the calendar location when available
 - filtered realtime on the host dashboard
 - Supabase Edge Function moderation with content-hash reuse and stored discovery state
 - separate reviewer archive state for the moderation queue via `events.moderation_archived_at`
