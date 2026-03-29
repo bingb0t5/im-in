@@ -12,3 +12,12 @@ verify_jwt = false
 
 [functions.resolve-google-maps-link]
 verify_jwt = false
+
+[functions.whatsapp-enqueue-join]
+verify_jwt = false
+
+[functions.whatsapp-enqueue-send]
+verify_jwt = false
+
+[functions.whatsapp-helper-admin]
+verify_jwt = false

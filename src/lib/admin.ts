@@ -21,14 +21,23 @@ export function isFeedbackAdminEmail(email: string | null | undefined) {
   );
 }
 
+export function isWhatsAppAdminEmail(email: string | null | undefined) {
+  return (
+    isEmailInAllowlist(email, import.meta.env.VITE_WHATSAPP_ADMIN_EMAILS)
+    || isFeedbackAdminEmail(email)
+    || isModerationAdminEmail(email)
+  );
+}
+
 export function isAnyAdminEmail(email: string | null | undefined) {
-  return isModerationAdminEmail(email) || isFeedbackAdminEmail(email);
+  return isModerationAdminEmail(email) || isFeedbackAdminEmail(email) || isWhatsAppAdminEmail(email);
 }
 
 export function hasFrontendAdminAllowlist() {
   return (
     parseEmailAllowlist(import.meta.env.VITE_MODERATION_ADMIN_EMAILS).length > 0
     || parseEmailAllowlist(import.meta.env.VITE_FEEDBACK_ADMIN_EMAILS).length > 0
+    || parseEmailAllowlist(import.meta.env.VITE_WHATSAPP_ADMIN_EMAILS).length > 0
   );
 }
 
@@ -40,6 +49,11 @@ export function canAccessModerationAdminFrontend(email: string | null | undefine
 export function canAccessFeedbackAdminFrontend(email: string | null | undefined) {
   if (!hasFrontendAdminAllowlist()) return true;
   return isFeedbackAdminEmail(email);
+}
+
+export function canAccessWhatsAppAdminFrontend(email: string | null | undefined) {
+  if (!hasFrontendAdminAllowlist()) return true;
+  return isWhatsAppAdminEmail(email);
 }
 
 export function canAccessAnyAdminFrontend(email: string | null | undefined) {

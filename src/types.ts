@@ -171,3 +171,86 @@ export interface WaitlistPosition {
   position: number;
   created_at: string;
 }
+
+export type WhatsAppHelperState = 'online' | 'connecting' | 'offline' | 'degraded';
+export type EventWhatsAppGroupJoinStatus = 'pending_join' | 'joined' | 'inactive' | 'failed';
+export type WhatsAppJoinJobStatus = 'queued' | 'processing' | 'joined' | 'failed' | 'cancelled';
+export type WhatsAppSendJobStatus = 'queued' | 'processing' | 'sent' | 'failed' | 'cancelled';
+export type WhatsAppSendJobType = 'send_test' | 'send_disclosure' | 'send_manual_post' | 'send_capacity_update';
+
+export interface WhatsAppHelperAccount {
+  id: string;
+  label: string;
+  status: WhatsAppHelperState;
+  session_required: boolean;
+  last_health_state?: WhatsAppHelperState | null;
+  last_health_reason?: string | null;
+  last_health_checked_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EventWhatsAppGroup {
+  id: string;
+  event_id: string;
+  helper_account_id: string;
+  invite_url: string;
+  group_name_exact?: string | null;
+  join_status: EventWhatsAppGroupJoinStatus;
+  last_joined_at?: string | null;
+  last_error_code?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WhatsAppJoinJob {
+  id: string;
+  helper_account_id: string;
+  event_whatsapp_group_id: string;
+  invite_url: string;
+  status: WhatsAppJoinJobStatus;
+  attempt_count: number;
+  group_name_exact?: string | null;
+  last_error_code?: string | null;
+  last_error_message?: string | null;
+  processed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WhatsAppSendJob {
+  id: string;
+  helper_account_id: string;
+  event_whatsapp_group_id: string;
+  job_type: WhatsAppSendJobType;
+  payload_json: Record<string, unknown>;
+  status: WhatsAppSendJobStatus;
+  attempt_count: number;
+  last_error_code?: string | null;
+  last_error_message?: string | null;
+  processed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WhatsAppEnqueueJoinResponse {
+  ok: boolean;
+  eventWhatsAppGroupId: string;
+  joinJobId: string;
+  helperAccountId: string;
+}
+
+export interface WhatsAppEnqueueSendResponse {
+  ok: boolean;
+  sendJobId: string;
+  eventWhatsAppGroupId: string;
+  groupNameExact: string;
+}
+
+export interface WhatsAppHelperAdminResponse {
+  ok: boolean;
+  helperAccount: WhatsAppHelperAccount;
+  groups: EventWhatsAppGroup[];
+  joinJobs: WhatsAppJoinJob[];
+  sendJobs: WhatsAppSendJob[];
+}

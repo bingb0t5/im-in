@@ -21,6 +21,7 @@ import MyActivities from './pages/MyActivities';
 import AdminHome from './pages/AdminHome';
 import AdminModeration from './pages/AdminModeration';
 import AdminFeedback from './pages/AdminFeedback';
+import AdminWhatsApp from './pages/AdminWhatsApp';
 import ModerationTransparency from './pages/ModerationTransparency';
 import { guestService } from './services/guestService';
 
@@ -121,6 +122,7 @@ export default function App() {
           <Route path="/admin" element={user ? <AdminHome user={user} /> : <Navigate to="/login" />} />
           <Route path="/admin/moderation" element={user ? <AdminModeration user={user} /> : <Navigate to="/login" />} />
           <Route path="/admin/feedback" element={user ? <AdminFeedback user={user} /> : <Navigate to="/login" />} />
+          <Route path="/admin/whatsapp" element={user ? <AdminWhatsApp user={user} /> : <Navigate to="/login" />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </div>

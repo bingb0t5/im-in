@@ -1,7 +1,12 @@
 import { Link, Navigate } from 'react-router-dom';
 import { User } from '@supabase/supabase-js';
-import { ArrowLeft, MessageSquare, Shield } from 'lucide-react';
-import { canAccessAnyAdminFrontend, canAccessFeedbackAdminFrontend, canAccessModerationAdminFrontend } from '../lib/admin';
+import { ArrowLeft, MessageSquare, Shield, Smartphone } from 'lucide-react';
+import {
+  canAccessAnyAdminFrontend,
+  canAccessFeedbackAdminFrontend,
+  canAccessModerationAdminFrontend,
+  canAccessWhatsAppAdminFrontend,
+} from '../lib/admin';
 
 export default function AdminHome({ user }: { user: User | null }) {
   if (!user) {
@@ -10,6 +15,7 @@ export default function AdminHome({ user }: { user: User | null }) {
 
   const canModerate = canAccessModerationAdminFrontend(user.email);
   const canReviewFeedback = canAccessFeedbackAdminFrontend(user.email);
+  const canManageWhatsApp = canAccessWhatsAppAdminFrontend(user.email);
 
   if (!canAccessAnyAdminFrontend(user.email)) {
     return <Navigate to="/" replace />;
@@ -30,6 +36,14 @@ export default function AdminHome({ user }: { user: User | null }) {
           icon: MessageSquare,
           title: 'Feedback',
           description: 'Review internal feedback submissions, blocked items, failed Trello syncs, and retries.',
+        }
+      : null,
+    canManageWhatsApp
+      ? {
+          to: '/admin/whatsapp',
+          icon: Smartphone,
+          title: 'WhatsApp Helper',
+          description: 'Monitor helper health, enqueue joins/sends, and trigger manual re-auth state.',
         }
       : null,
   ].filter(Boolean) as Array<{

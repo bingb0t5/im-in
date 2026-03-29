@@ -1628,3 +1628,193 @@ EXCEPTION
         RETURN json_build_object('error', SQLERRM);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- -------------------------------------------------------------------
+-- 8) WhatsApp helper queue + mapping tables
+-- -------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.whatsapp_helper_accounts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    label TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'offline'
+        CHECK (status IN ('online', 'connecting', 'offline', 'degraded')),
+    session_required BOOLEAN NOT NULL DEFAULT false,
+    last_health_state TEXT
+        CHECK (last_health_state IS NULL OR last_health_state IN ('online', 'connecting', 'offline', 'degraded')),
+    last_health_reason TEXT,
+    last_health_checked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.event_whatsapp_groups (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    helper_account_id UUID NOT NULL REFERENCES public.whatsapp_helper_accounts(id) ON DELETE CASCADE,
+    invite_url TEXT NOT NULL,
+    group_name_exact TEXT,
+    join_status TEXT NOT NULL DEFAULT 'pending_join'
+        CHECK (join_status IN ('pending_join', 'joined', 'inactive', 'failed')),
+    last_joined_at TIMESTAMPTZ,
+    last_error_code TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_whatsapp_groups_event_helper_uidx
+    ON public.event_whatsapp_groups (event_id, helper_account_id);
+CREATE INDEX IF NOT EXISTS event_whatsapp_groups_join_status_idx
+    ON public.event_whatsapp_groups (join_status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.whatsapp_join_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    helper_account_id UUID NOT NULL REFERENCES public.whatsapp_helper_accounts(id) ON DELETE CASCADE,
+    event_whatsapp_group_id UUID NOT NULL REFERENCES public.event_whatsapp_groups(id) ON DELETE CASCADE,
+    invite_url TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'processing', 'joined', 'failed', 'cancelled')),
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    group_name_exact TEXT,
+    last_error_code TEXT,
+    last_error_message TEXT,
+    processed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS whatsapp_join_jobs_status_created_idx
+    ON public.whatsapp_join_jobs (status, created_at ASC);
+CREATE INDEX IF NOT EXISTS whatsapp_join_jobs_group_idx
+    ON public.whatsapp_join_jobs (event_whatsapp_group_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.whatsapp_send_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    helper_account_id UUID NOT NULL REFERENCES public.whatsapp_helper_accounts(id) ON DELETE CASCADE,
+    event_whatsapp_group_id UUID NOT NULL REFERENCES public.event_whatsapp_groups(id) ON DELETE CASCADE,
+    job_type TEXT NOT NULL
+        CHECK (job_type IN ('send_test', 'send_disclosure', 'send_manual_post', 'send_capacity_update')),
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'processing', 'sent', 'failed', 'cancelled')),
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error_code TEXT,
+    last_error_message TEXT,
+    processed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS whatsapp_send_jobs_status_created_idx
+    ON public.whatsapp_send_jobs (status, created_at ASC);
+CREATE INDEX IF NOT EXISTS whatsapp_send_jobs_group_idx
+    ON public.whatsapp_send_jobs (event_whatsapp_group_id, created_at DESC);
+
+ALTER TABLE public.whatsapp_helper_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_whatsapp_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.whatsapp_join_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.whatsapp_send_jobs ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.whatsapp_helper_accounts FROM anon, authenticated;
+REVOKE ALL ON TABLE public.event_whatsapp_groups FROM anon, authenticated;
+REVOKE ALL ON TABLE public.whatsapp_join_jobs FROM anon, authenticated;
+REVOKE ALL ON TABLE public.whatsapp_send_jobs FROM anon, authenticated;
+
+CREATE TRIGGER whatsapp_helper_accounts_touch_updated_at
+    BEFORE UPDATE ON public.whatsapp_helper_accounts
+    FOR EACH ROW
+    EXECUTE FUNCTION public.touch_updated_at();
+
+CREATE TRIGGER event_whatsapp_groups_touch_updated_at
+    BEFORE UPDATE ON public.event_whatsapp_groups
+    FOR EACH ROW
+    EXECUTE FUNCTION public.touch_updated_at();
+
+CREATE TRIGGER whatsapp_join_jobs_touch_updated_at
+    BEFORE UPDATE ON public.whatsapp_join_jobs
+    FOR EACH ROW
+    EXECUTE FUNCTION public.touch_updated_at();
+
+CREATE TRIGGER whatsapp_send_jobs_touch_updated_at
+    BEFORE UPDATE ON public.whatsapp_send_jobs
+    FOR EACH ROW
+    EXECUTE FUNCTION public.touch_updated_at();
+
+CREATE OR REPLACE FUNCTION public.claim_next_whatsapp_join_job()
+RETURNS SETOF public.whatsapp_join_jobs
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH next_job AS (
+        SELECT id
+        FROM public.whatsapp_join_jobs
+        WHERE status = 'queued'
+           OR (
+                status = 'processing'
+                AND updated_at < (now() - interval '10 minutes')
+           )
+        ORDER BY
+            CASE
+                WHEN status = 'queued' THEN 0
+                ELSE 1
+            END,
+            created_at ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+    ), claimed AS (
+        UPDATE public.whatsapp_join_jobs j
+        SET
+            status = 'processing',
+            attempt_count = j.attempt_count + 1,
+            updated_at = now()
+        FROM next_job
+        WHERE j.id = next_job.id
+        RETURNING j.*
+    )
+    SELECT * FROM claimed;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.claim_next_whatsapp_send_job()
+RETURNS SETOF public.whatsapp_send_jobs
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH next_job AS (
+        SELECT id
+        FROM public.whatsapp_send_jobs
+        WHERE status = 'queued'
+           OR (
+                status = 'processing'
+                AND updated_at < (now() - interval '10 minutes')
+           )
+        ORDER BY
+            CASE
+                WHEN status = 'queued' THEN 0
+                ELSE 1
+            END,
+            created_at ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+    ), claimed AS (
+        UPDATE public.whatsapp_send_jobs j
+        SET
+            status = 'processing',
+            attempt_count = j.attempt_count + 1,
+            updated_at = now()
+        FROM next_job
+        WHERE j.id = next_job.id
+        RETURNING j.*
+    )
+    SELECT * FROM claimed;
+END;
+$$;
+
+INSERT INTO public.whatsapp_helper_accounts (label, status, session_required)
+VALUES ('primary-helper', 'offline', false)
+ON CONFLICT (label) DO NOTHING;
