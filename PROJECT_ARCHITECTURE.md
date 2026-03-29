@@ -152,6 +152,7 @@ The route table lives in `src/App.tsx`.
 - duration-based scheduling instead of direct end-time authoring
 - per-activity host-approval setting for membership requests
 - field-level public/private badges to explain what is shown publicly
+- supports explicit Google Maps link autofill for public/exact location text while keeping both fields editable
 - signed-in host-name hydration and normalization
 - host name is treated as public for public and semi-public activities
 - co-host access check for edit mode
@@ -192,6 +193,7 @@ The route table lives in `src/App.tsx`.
 - fetches future `events` where `is_public = true`
 - only shows items where `public_discovery_enabled = true`
 - supports search via query param
+- groups browse results into lightweight `Today`, `Tomorrow`, weekday, and `Later` sections
 - hides exact time for semi-public previews
 - prefers private access links for already-joined semi-public attendees when available
 - shows a subtle count of other upcoming activities in the next 7 days that are not publicly visible, excluding spam-marked items

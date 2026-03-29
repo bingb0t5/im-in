@@ -39,9 +39,11 @@ The weakest / least finished areas are:
 - public home page for everyone
 - signed-in dashboard at `/my-activities`
 - public search and browse
+- public browse grouped into `Today`, `Tomorrow`, weekday sections for the next 7 days, and `Later` beyond that
 - public / semi-public / private visibility modes
 - delayed-auth create flow
 - create and edit activity forms with a multi-step visibility-first flow
+- create/edit location flow can resolve shared Google Maps short links and prefill editable public/exact location fields
 - host dashboard
 - access requests for semi-public activities
 - attendee list and waitlist

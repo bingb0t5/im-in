@@ -2,6 +2,19 @@
 
 ## 2026-03-28
 
+### Google Maps host autofill
+
+- added a host-side `Fill from link` action on the create/edit activity form so shared Google Maps links can prefill `Exact location` and, when possible, `Public location`
+- kept the public/exact location inputs fully editable after autofill so hosts can still refine or override the suggested text
+- added a small public edge function to resolve shortened Google Maps links such as `maps.app.goo.gl/...` before parsing, without changing the existing schema or production event flows
+- added focused parser tests for supported Google Maps URL formats, invalid/coordinate-only cases, and autofill fallback behavior
+
+### Public calendar browse grouping
+
+- grouped the public activities list with lightweight day breaks so it is easier to scan what is on `Today`, `Tomorrow`, and later in the week
+- added weekday section labels for upcoming activities within the next 7 days
+- grouped everything 7 or more days away into a single `Later` section to keep the browse view simple
+
 ### Moderation admin tooling
 
 - changed the moderation queue action link from `Open host view` to `Open public view` so moderators stay on the public-facing surface instead of jumping into host-only tooling

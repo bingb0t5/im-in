@@ -121,6 +121,7 @@ Features:
 - only lists activities where `public_discovery_enabled = true`
 - search by query string
 - public list styling for browse mode
+- groups activities with minimal separators for `Today`, `Tomorrow`, named weekdays within the next 7 days, and `Later` for anything a week or more away
 - semi-public previews show reduced detail
 - if a signed-in attendee already has access to a semi-public activity, the app prefers the private link path when they click it
 - shows a subtle count of other upcoming activities in the next 7 days that are not currently visible in public discovery, excluding spam-marked items
@@ -162,6 +163,7 @@ Features:
 - capacity and waitlist settings
 - public vs private summary/location inputs
 - optional Google Maps link
+- explicit `Fill from link` action that can parse a shared Google Maps link and prefill the location fields while keeping them editable
 
 ### Host dashboard
 
@@ -258,6 +260,7 @@ Lets a host create a new activity with scheduling, visibility, capacity, and hos
 - public location text
 - private/full location text
 - optional Google Maps link
+- optional Google Maps-based autofill for location fields
 - start date/time
 - timezone
 - duration
