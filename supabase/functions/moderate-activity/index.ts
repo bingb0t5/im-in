@@ -96,6 +96,8 @@ Use these reason codes when relevant:
 - impersonation_or_misleading_host
 - suspicious_contact_or_payment_request
 - other
+Prefer 1-3 reason codes.
+Use "other" only as a last resort when no more specific reason code fits.
 `.trim();
 
 const responseSchema = {
@@ -245,6 +247,21 @@ function json(data: unknown, init: ResponseInit = {}) {
 function clampConfidence(value: number) {
   if (!Number.isFinite(value)) return 0.5;
   return Math.max(0, Math.min(1, Number(value)));
+}
+
+function sanitizeModerationReasons(reasons: unknown, recommendedAction?: ModerationAction) {
+  const validReasons = Array.isArray(reasons)
+    ? reasons.filter((reason): reason is string =>
+      typeof reason === 'string' && MODERATION_REASON_CODES.includes(reason as (typeof MODERATION_REASON_CODES)[number]))
+    : [];
+
+  const deduped = Array.from(new Set(validReasons));
+  const withoutOther = deduped.filter((reason) => reason !== 'other');
+  const normalized = withoutOther.length > 0 ? withoutOther : deduped;
+
+  if (normalized.length > 0) return normalized.slice(0, 3);
+
+  return recommendedAction && recommendedAction !== 'allow' ? ['other'] : [];
 }
 
 function getTrustLevel(priorHostedCount: number): HostTrustLevel {
@@ -531,7 +548,14 @@ async function callModerationModel(
     throw new Error('Moderation model returned no structured content.');
   }
 
-  return JSON.parse(rawContent) as ActivityModerationResult;
+  const parsed = JSON.parse(rawContent) as ActivityModerationResult;
+
+  return {
+    risk_level: parsed.risk_level,
+    recommended_action: parsed.recommended_action,
+    reasons: sanitizeModerationReasons(parsed.reasons, parsed.recommended_action),
+    confidence: parsed.confidence,
+  };
 }
 
 Deno.serve(async (request) => {
@@ -592,6 +616,12 @@ Deno.serve(async (request) => {
           id,
           slug,
           title,
+          starts_at,
+          timezone,
+          public_summary,
+          public_location_text,
+          description,
+          location_text,
           host_name,
           show_host_publicly,
           visibility,
@@ -623,6 +653,8 @@ Deno.serve(async (request) => {
           item.visibility === 'semi_public' && !item.show_host_publicly
             ? null
             : item.host_name,
+        description: item.visibility === 'public' ? item.description : null,
+        location_text: item.visibility === 'public' ? item.location_text : null,
       }));
 
       return json({ items: safeItems });

@@ -867,6 +867,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const namedThinkingInterests = getNamedThinkingInterests(interests);
   const hasSelfRsvp = mySelfRsvps.length > 0;
   const hasManagedRsvps = myManagedRsvps.length > 0;
+  const canUseCalendarActions = hasSelfRsvp || isEventHostViewer;
   const confirmedDetailsEmail = user?.email || guestProfile?.email || guestInfo.email;
   const confirmedDetailsName =
     pickFirstNonEmpty(
@@ -897,6 +898,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const buildCalendarDetails = (activityUrl: string) => {
     return [
       event.description?.trim() || '',
+      event.location_text?.trim() ? `Exact location: ${event.location_text.trim()}` : '',
       '',
       `View activity: ${activityUrl}`,
       event.google_maps_url?.trim() ? `Directions: ${event.google_maps_url.trim()}` : '',
@@ -905,9 +907,20 @@ export default function EventDetail({ user }: { user: User | null }) {
       .join('\n');
   };
 
+  const buildCalendarLocation = () => {
+    const mapsUrl = event.google_maps_url?.trim() || '';
+
+    if (mapsUrl) {
+      return mapsUrl;
+    }
+
+    return event.location_text?.trim() || '';
+  };
+
   const openGoogleCalendar = () => {
     const activityUrl = eventVisibility === 'semi_public' ? privateEventUrl : window.location.href;
     const details = buildCalendarDetails(activityUrl);
+    const location = buildCalendarLocation();
 
     const calendarUrl = buildGoogleCalendarEventUrl({
       title: event.title,
@@ -915,7 +928,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       endsAtIso: event.ends_at || null,
       durationMinutes: event.duration_minutes || 60,
       timezone: event.timezone,
-      location: event.location_text || '',
+      location,
       details,
     });
 
@@ -925,6 +938,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const downloadCalendarFile = () => {
     const activityUrl = eventVisibility === 'semi_public' ? privateEventUrl : window.location.href;
     const details = buildCalendarDetails(activityUrl);
+    const location = buildCalendarLocation();
     const startsAtStamp = new Date(event.starts_at).toISOString().replace(/\W/g, '').slice(0, 12);
     const uid = `${event.id}.${startsAtStamp}@joinimin.com`;
     const icsContent = buildIcsEventContent({
@@ -933,7 +947,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       startsAtIso: event.starts_at,
       endsAtIso: event.ends_at || null,
       durationMinutes: event.duration_minutes || 60,
-      location: event.location_text || '',
+      location,
       description: details,
       url: activityUrl,
       status: event.status === 'cancelled' ? 'CANCELLED' : 'CONFIRMED',
@@ -1183,7 +1197,7 @@ export default function EventDetail({ user }: { user: User | null }) {
             </div>
           </div>
 
-          {hasSelfRsvp && (
+          {canUseCalendarActions && (
             <div className="flex flex-wrap gap-x-4 gap-y-2 mt-2">
               <button
                 type="button"

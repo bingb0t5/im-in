@@ -109,6 +109,7 @@ Main product areas:
 - manage attendees, requests, hosts, sharing, and duplication
 - edit through `/host/events/:id/edit`
 - review pending join requests where pending attendees are already visible in `Going`
+- hosts can always open Google Calendar and `.ics` export actions from the activity detail page
 
 ### Create flow
 
@@ -116,6 +117,7 @@ Main product areas:
 - Step 2: add activity details
 - Step 3: set joining rules and host info
 - field-level `Public` / `Private` badges explain what is shown publicly and what stays behind the private link or after joining
+- in-flow back navigation keeps draft state while moving between steps
 
 ### Delayed-auth create flow
 

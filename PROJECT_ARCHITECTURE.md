@@ -145,6 +145,7 @@ The route table lives in `src/App.tsx`.
 
 - create and edit form
 - 3-step UI with visibility first, then details, then joining settings
+- header back button moves between steps before exiting the page
 - delayed-auth create flow
 - local draft persistence
 - timezone-aware scheduling
@@ -168,6 +169,8 @@ The route table lives in `src/App.tsx`.
 - "thinking about it"
 - semi-public request-to-view flow
 - Google Calendar + `.ics` actions
+- hosts can access calendar actions even without a self RSVP
+- calendar exports prefer the Google Maps share URL as the location field when one exists
 - share-link choices
 - host-view detection for semi-public/private access
 

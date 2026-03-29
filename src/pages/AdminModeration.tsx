@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
 import { User } from '@supabase/supabase-js';
 import { Shield, ArrowLeft, RefreshCw, ChevronDown, ChevronUp, X } from 'lucide-react';
-import { Event } from '../types';
+import { Event, PublicModerationLogEntry } from '../types';
 import { canAccessModerationAdminFrontend } from '../lib/admin';
 import { invokeAuthedFunction } from '../lib/functions';
 import { getModerationStatusBadge } from '../lib/moderation';
-import { formatDate } from '../utils';
+import { formatDate, formatDay } from '../utils';
+import { supabase } from '../supabase';
 
 type OverrideOption = 'force_visible' | 'force_limited' | 'hide' | 'mark_safe' | 'mark_spam';
 type FilterOption = 'review' | 'archived' | 'spam' | 'all';
@@ -23,6 +24,53 @@ type PendingModerationAction = {
   eventId: string;
   label: string;
   payload: ModerationActionPayload;
+};
+
+const MODERATION_REASON_COPY: Record<string, { label: string; detail: string }> = {
+  low_detail: {
+    label: 'Low detail',
+    detail: 'The public-facing listing does not yet say enough for broader discovery.',
+  },
+  overly_promotional: {
+    label: 'Overly promotional',
+    detail: 'The wording feels more like promotion than a normal community activity listing.',
+  },
+  mass_posting_signals: {
+    label: 'Mass posting signals',
+    detail: 'The listing shows patterns that can look like repeated or bulk posting.',
+  },
+  not_a_real_world_activity: {
+    label: 'Not a real-world activity',
+    detail: 'The listing does not clearly read like a genuine in-person community activity.',
+  },
+  possible_scam: {
+    label: 'Possible scam',
+    detail: 'The listing includes signals that could be misleading or deceptive.',
+  },
+  unsafe_or_illicit: {
+    label: 'Unsafe or illicit',
+    detail: 'The content raises an obvious safety or illegality concern.',
+  },
+  adult_services: {
+    label: 'Adult services',
+    detail: 'The listing appears to describe adult services rather than a normal community activity.',
+  },
+  harassment_or_hate: {
+    label: 'Harassment or hate',
+    detail: 'The content includes abusive, hateful, or harassing language.',
+  },
+  impersonation_or_misleading_host: {
+    label: 'Misleading host',
+    detail: 'The host identity or framing may be misleading or impersonating someone else.',
+  },
+  suspicious_contact_or_payment_request: {
+    label: 'Suspicious contact or payment',
+    detail: 'The listing includes unusual contact or payment requests that need review.',
+  },
+  other: {
+    label: 'Other',
+    detail: 'A general moderation concern was detected, but it did not cleanly fit a more specific rule.',
+  },
 };
 
 function getAiStatusSummary(event: Event) {
@@ -90,11 +138,13 @@ function getOverrideLabel(event: Event) {
 
 export default function AdminModeration({ user }: { user: User | null }) {
   const [events, setEvents] = useState<Event[]>([]);
+  const [logEntriesByEventId, setLogEntriesByEventId] = useState<Record<string, PublicModerationLogEntry[]>>({});
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterOption>('review');
   const [actionEventId, setActionEventId] = useState<string | null>(null);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+  const [logLoadingEventId, setLogLoadingEventId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingModerationAction | null>(null);
   const [moderatorExplanation, setModeratorExplanation] = useState('');
@@ -122,6 +172,36 @@ export default function AdminModeration({ user }: { user: User | null }) {
     if (!user || !isAdmin) return;
     void fetchEvents();
   }, [user?.id, isAdmin]);
+
+  useEffect(() => {
+    if (!expandedEventId || logEntriesByEventId[expandedEventId]) return;
+
+    let cancelled = false;
+
+    const loadLogEntries = async () => {
+      setLogLoadingEventId(expandedEventId);
+      const { data, error: rpcError } = await supabase.rpc('list_public_moderation_log', {
+        p_target_id: expandedEventId,
+        p_limit: 5,
+        p_offset: 0,
+      });
+
+      if (!cancelled) {
+        if (rpcError || !Array.isArray(data)) {
+          setLogEntriesByEventId((current) => ({ ...current, [expandedEventId]: [] }));
+        } else {
+          setLogEntriesByEventId((current) => ({ ...current, [expandedEventId]: data as PublicModerationLogEntry[] }));
+        }
+        setLogLoadingEventId((current) => (current === expandedEventId ? null : current));
+      }
+    };
+
+    void loadLogEntries();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [expandedEventId, logEntriesByEventId]);
 
   const filteredEvents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -313,6 +393,20 @@ export default function AdminModeration({ user }: { user: User | null }) {
                 ? { label: 'Inbox archived', className: 'bg-slate-100 text-slate-700 border border-slate-200' }
                 : null;
               const overrideLabel = getOverrideLabel(event);
+              const visibilityLabel = event.visibility === 'semi_public' ? 'Semi-public preview' : 'Public';
+              const publicLogEntries = logEntriesByEventId[event.id] || [];
+              const publicViewSummary =
+                event.visibility === 'semi_public'
+                  ? event.public_summary || 'No public summary added.'
+                  : event.description || event.public_summary || 'No public description added.';
+              const publicViewLocation =
+                event.visibility === 'semi_public'
+                  ? event.public_location_text || 'No public location added.'
+                  : event.location_text || event.public_location_text || 'No location added.';
+              const publicViewWhen =
+                event.visibility === 'semi_public'
+                  ? `${formatDay(event.starts_at, event.timezone)} · exact time hidden`
+                  : formatDate(event.starts_at, event.timezone);
 
               return (
                 <section key={event.id} className="bg-white rounded-2xl p-5 space-y-4">
@@ -325,7 +419,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-base font-bold text-slate-900 truncate">{event.title}</p>
                         <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                          {event.visibility === 'semi_public' ? 'Semi-public preview' : 'Public'}
+                          {visibilityLabel}
                         </span>
                       </div>
                       <p className="text-sm text-slate-500 mt-1">
@@ -364,20 +458,61 @@ export default function AdminModeration({ user }: { user: User | null }) {
                           `/events/{event.slug}`{overrideLabel ? ` · override: ${overrideLabel}` : ''}{event.moderation_archived_at ? ` · inbox archived ${formatDate(event.moderation_archived_at)}` : ''}
                         </p>
                         <Link
-                          to={`/host/events/${event.id}`}
+                          to={`/events/${event.slug}`}
                           className="text-xs font-bold text-slate-400 hover:text-brand-600 transition-colors"
                         >
-                          Open host view
+                          Open public view
                         </Link>
                       </div>
 
+                      <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Public-facing view</p>
+                          <span className="text-xs font-bold text-slate-600">{visibilityLabel}</span>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">When</p>
+                            <p className="text-sm font-bold text-slate-800">{publicViewWhen}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Host</p>
+                            <p className="text-sm font-bold text-slate-800">
+                              {event.show_host_publicly && event.host_name ? event.host_name : 'Not shown publicly'}
+                            </p>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Summary</p>
+                          <p className="text-sm text-slate-700 leading-relaxed">{publicViewSummary}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Location</p>
+                          <p className="text-sm text-slate-700 leading-relaxed">{publicViewLocation}</p>
+                        </div>
+                      </div>
+
                       {event.moderation_reasons && event.moderation_reasons.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">
-                          {event.moderation_reasons.map((reason) => (
-                            <span key={reason} className="px-2.5 py-1 rounded-full bg-slate-100 text-[11px] font-bold text-slate-500">
-                              {reason}
-                            </span>
-                          ))}
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap gap-2">
+                            {event.moderation_reasons.map((reason) => (
+                              <span key={reason} className="px-2.5 py-1 rounded-full bg-slate-100 text-[11px] font-bold text-slate-500">
+                                {MODERATION_REASON_COPY[reason]?.label || reason.replace(/_/g, ' ')}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="space-y-2">
+                            {event.moderation_reasons.map((reason) => (
+                              <div key={`${event.id}-${reason}`} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                                <p className="text-xs font-bold text-slate-700">
+                                  {MODERATION_REASON_COPY[reason]?.label || reason.replace(/_/g, ' ')}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  {MODERATION_REASON_COPY[reason]?.detail || 'A moderation reason was recorded for this listing.'}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       ) : null}
 
@@ -489,6 +624,36 @@ export default function AdminModeration({ user }: { user: User | null }) {
                         >
                           Re-run AI moderation
                         </button>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Moderation log</p>
+                          {logLoadingEventId === event.id ? (
+                            <span className="text-xs text-slate-400">Loading...</span>
+                          ) : null}
+                        </div>
+                        {publicLogEntries.length > 0 ? (
+                          <div className="space-y-3">
+                            {publicLogEntries.map((entry) => (
+                              <div key={entry.id} className="rounded-xl bg-white border border-slate-100 px-3 py-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <p className="text-sm font-bold text-slate-800">{entry.action.replace(/_/g, ' ')}</p>
+                                  <p className="text-xs text-slate-400">{formatDate(entry.created_at)}</p>
+                                </div>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  By {entry.moderator_public_handle}
+                                  {entry.reason_code ? ` · ${MODERATION_REASON_COPY[entry.reason_code]?.label || entry.reason_code.replace(/_/g, ' ')}` : ''}
+                                </p>
+                                {entry.public_explanation ? (
+                                  <p className="text-sm text-slate-600 mt-2 leading-relaxed">{entry.public_explanation}</p>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-slate-400">No moderation log entries yet for this activity.</p>
+                        )}
                       </div>
                     </>
                   ) : null}

@@ -2,6 +2,14 @@
 
 ## 2026-03-28
 
+### Moderation admin tooling
+
+- changed the moderation queue action link from `Open host view` to `Open public view` so moderators stay on the public-facing surface instead of jumping into host-only tooling
+- added public-facing activity details directly inside each expanded moderation item, including the current public summary, location, and date/time context
+- surfaced recent moderation log entries inside the admin queue so reviewers can see prior moderation history without leaving the page
+- made moderation reason chips more readable with plain-language labels and explanations
+- tightened AI moderation reason handling so `other` is treated as a last-resort fallback and is dropped when a more specific reason is also present
+
 ### Create activity flow refresh
 
 - refactored `Create Activity` into a 3-step flow with visibility as the first required decision
@@ -11,6 +19,10 @@
 - removed the `Show my name on the public listing` toggle and now always show host names on public and semi-public activities
 - marked `Host name` as a public field in the form and keep private activities as the only mode where host visibility stays private
 - fixed a mobile step-transition bug where moving into Step 3 could immediately trigger save without a fresh tap
+- fixed the create-flow header back button so Steps 2 and 3 go back within the flow instead of exiting and wiping the form
+- corrected private-activity visibility badges so private fields no longer show misleading public labels
+- updated calendar actions so hosts can always access Google Calendar / `.ics` links
+- updated calendar exports so Google Maps share URLs populate the calendar location field when present, while exact location text moves into the calendar description
 
 ### Host approval join flow refinements
 
