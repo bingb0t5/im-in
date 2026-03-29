@@ -609,6 +609,10 @@ export default function CreateEvent({ user }: { user: User | null }) {
         ? 'Activity details'
         : 'Joining settings';
 
+  const isPrivateVisibility = formData.visibility === 'private';
+  const publicBadgeClass = 'bg-orange-100 text-orange-700';
+  const privateBadgeClass = 'bg-slate-100 text-slate-500';
+
   if (initialLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -739,7 +743,9 @@ export default function CreateEvent({ user }: { user: User | null }) {
                       <div>
                         <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
                           <span>Short description</span>
-                          <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[9px] text-orange-700">Public</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] ${isPrivateVisibility ? privateBadgeClass : publicBadgeClass}`}>
+                            {isPrivateVisibility ? 'Private' : 'Public'}
+                          </span>
                         </label>
                         <textarea
                           rows={3}
@@ -753,9 +759,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                         <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
                           <span>Detailed description (optional)</span>
                           <span className={`rounded-full px-2 py-0.5 text-[9px] ${
-                            formData.visibility === 'public'
-                              ? 'bg-orange-100 text-orange-700'
-                              : 'bg-slate-100 text-slate-500'
+                            formData.visibility === 'public' ? publicBadgeClass : privateBadgeClass
                           }`}>
                             {formData.visibility === 'public' ? 'Public' : 'Private'}
                           </span>
@@ -859,7 +863,9 @@ export default function CreateEvent({ user }: { user: User | null }) {
                       <div>
                         <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
                           <span>Public location</span>
-                          <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[9px] text-orange-700">Public</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] ${isPrivateVisibility ? privateBadgeClass : publicBadgeClass}`}>
+                            {isPrivateVisibility ? 'Private' : 'Public'}
+                          </span>
                         </label>
                         <input
                           type="text"
@@ -873,9 +879,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                         <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
                           <span>Exact location</span>
                           <span className={`rounded-full px-2 py-0.5 text-[9px] ${
-                            formData.visibility === 'public'
-                              ? 'bg-orange-100 text-orange-700'
-                              : 'bg-slate-100 text-slate-500'
+                            formData.visibility === 'public' ? publicBadgeClass : privateBadgeClass
                           }`}>
                             {formData.visibility === 'public' ? 'Public' : 'Private'}
                           </span>
@@ -892,9 +896,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                         <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
                           <span>Google Maps link (optional)</span>
                           <span className={`rounded-full px-2 py-0.5 text-[9px] ${
-                            formData.visibility === 'public'
-                              ? 'bg-orange-100 text-orange-700'
-                              : 'bg-slate-100 text-slate-500'
+                            formData.visibility === 'public' ? publicBadgeClass : privateBadgeClass
                           }`}>
                             {formData.visibility === 'public' ? 'Public' : 'Private'}
                           </span>
