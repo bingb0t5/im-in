@@ -9,6 +9,82 @@ import { buildEventPath } from '../lib/events';
 import { goBackOr } from '../lib/navigation';
 import { User } from '@supabase/supabase-js';
 
+type CalendarGroup = {
+  key: string;
+  label: string;
+  events: Event[];
+};
+
+function getStartOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function getDayDifference(from: Date, to: Date) {
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((getStartOfDay(to).getTime() - getStartOfDay(from).getTime()) / millisecondsPerDay);
+}
+
+function getWeekdayLabel(date: Date) {
+  return new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(date);
+}
+
+function groupCalendarEvents(events: Event[]) {
+  const now = new Date();
+  const groups: CalendarGroup[] = [];
+  const weekdayGroups = new Map<string, CalendarGroup>();
+  let laterGroup: CalendarGroup | null = null;
+
+  events.forEach((event) => {
+    const eventDate = new Date(event.starts_at);
+    const dayDifference = getDayDifference(now, eventDate);
+
+    if (dayDifference <= 0) {
+      let todayGroup = groups.find((group) => group.key === 'today');
+      if (!todayGroup) {
+        todayGroup = { key: 'today', label: 'Today', events: [] };
+        groups.push(todayGroup);
+      }
+      todayGroup.events.push(event);
+      return;
+    }
+
+    if (dayDifference === 1) {
+      let tomorrowGroup = groups.find((group) => group.key === 'tomorrow');
+      if (!tomorrowGroup) {
+        tomorrowGroup = { key: 'tomorrow', label: 'Tomorrow', events: [] };
+        groups.push(tomorrowGroup);
+      }
+      tomorrowGroup.events.push(event);
+      return;
+    }
+
+    if (dayDifference < 7) {
+      const key = getStartOfDay(eventDate).toISOString();
+      const existingGroup = weekdayGroups.get(key);
+      if (existingGroup) {
+        existingGroup.events.push(event);
+      } else {
+        const newGroup = {
+          key,
+          label: getWeekdayLabel(eventDate),
+          events: [event],
+        };
+        weekdayGroups.set(key, newGroup);
+        groups.push(newGroup);
+      }
+      return;
+    }
+
+    if (!laterGroup) {
+      laterGroup = { key: 'later', label: 'Later', events: [] };
+      groups.push(laterGroup);
+    }
+    laterGroup.events.push(event);
+  });
+
+  return groups;
+}
+
 export default function Calendar({ user }: { user: User | null }) {
   const [events, setEvents] = useState<Event[]>([]);
   const [privateAccessByEventId, setPrivateAccessByEventId] = useState<Record<string, string>>({});
@@ -111,6 +187,7 @@ export default function Calendar({ user }: { user: User | null }) {
         (event.public_location_text && event.public_location_text.toLowerCase().includes(normalizedSearch))
       )
     : events;
+  const groupedEvents = groupCalendarEvents(filteredEvents);
 
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
@@ -195,61 +272,71 @@ export default function Calendar({ user }: { user: User | null }) {
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            <div className="bg-white rounded-2xl overflow-hidden">
-              {filteredEvents.map((event, idx) => (
-                <motion.div
-                  key={event.id}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                >
-                  {(() => {
-                    const visibility = event.visibility || (event.is_public ? 'public' : 'private');
-                    const isSemiPublic = visibility === 'semi_public';
-                    const dayOnly = formatDay(event.starts_at, event.timezone);
-                    const timeOnly = formatTime(event.starts_at, event.timezone);
-                    const previewLocation = isSemiPublic
-                      ? event.public_location_text || 'Location shared by host'
-                      : event.location_text || event.public_location_text || '';
-                    const eventPath = privateAccessByEventId[event.id] || buildEventPath(event);
+          <div className="space-y-4">
+            {groupedEvents.map((group) => (
+              <section key={group.key} className="space-y-2">
+                <div className="flex items-center gap-3 px-1">
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+                    {group.label}
+                  </p>
+                  <div className="h-px flex-1 bg-slate-200" />
+                </div>
+                <div className="bg-white rounded-2xl overflow-hidden">
+                  {group.events.map((event, idx) => (
+                    <motion.div
+                      key={event.id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                    >
+                      {(() => {
+                        const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+                        const isSemiPublic = visibility === 'semi_public';
+                        const dayOnly = formatDay(event.starts_at, event.timezone);
+                        const timeOnly = formatTime(event.starts_at, event.timezone);
+                        const previewLocation = isSemiPublic
+                          ? event.public_location_text || 'Location shared by host'
+                          : event.location_text || event.public_location_text || '';
+                        const eventPath = privateAccessByEventId[event.id] || buildEventPath(event);
 
-                    return (
-                      <Link 
-                        to={eventPath}
-                        className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${idx < filteredEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1 min-w-0">
-                            <h3 className="text-sm font-bold text-slate-900 leading-tight">{event.title}</h3>
-                            <div className="flex items-center gap-3 mt-1">
-                              {previewLocation && (
-                                <span className="text-xs text-slate-400 flex items-center gap-1 truncate">
-                                  <MapPin className="w-3 h-3 shrink-0" />{previewLocation}
-                                </span>
-                              )}
-                              <span className="text-xs text-slate-400 flex items-center gap-1 shrink-0">
-                                <Users className="w-3 h-3" />{event.confirmed_count}/{event.capacity}
-                              </span>
-                              <span className="text-xs text-slate-400 shrink-0">
-                                {event.thinking_count || 0} thinking about it
-                              </span>
+                        return (
+                          <Link 
+                            to={eventPath}
+                            className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${idx < group.events.length - 1 ? 'border-b border-slate-50' : ''}`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <h3 className="text-sm font-bold text-slate-900 leading-tight">{event.title}</h3>
+                                <div className="flex items-center gap-3 mt-1">
+                                  {previewLocation && (
+                                    <span className="text-xs text-slate-400 flex items-center gap-1 truncate">
+                                      <MapPin className="w-3 h-3 shrink-0" />{previewLocation}
+                                    </span>
+                                  )}
+                                  <span className="text-xs text-slate-400 flex items-center gap-1 shrink-0">
+                                    <Users className="w-3 h-3" />{event.confirmed_count}/{event.capacity}
+                                  </span>
+                                  <span className="text-xs text-slate-400 shrink-0">
+                                    {event.thinking_count || 0} thinking about it
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-xs font-bold text-slate-700">{dayOnly}</p>
+                                {!isSemiPublic ? (
+                                  <p className="text-xs text-slate-400">{timeOnly}</p>
+                                ) : (
+                                  <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest mt-0.5">Semi public</p>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p className="text-xs font-bold text-slate-700">{dayOnly}</p>
-                            {!isSemiPublic ? (
-                              <p className="text-xs text-slate-400">{timeOnly}</p>
-                            ) : (
-                              <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest mt-0.5">Semi public</p>
-                            )}
-                          </div>
-                        </div>
-                      </Link>
-                    );
-                  })()}
-                </motion.div>
-              ))}
-            </div>
+                          </Link>
+                        );
+                      })()}
+                    </motion.div>
+                  ))}
+                </div>
+              </section>
+            ))}
             {!normalizedSearch && hiddenUpcomingCount > 0 ? (
               <p className="px-1 text-center text-xs text-slate-300">{hiddenUpcomingLabel}</p>
             ) : null}
