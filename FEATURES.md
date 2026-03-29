@@ -177,6 +177,7 @@ Features:
 - remove attendee
 - share/copy links
 - WhatsApp share actions
+- post-create success modal with quick actions for WhatsApp sharing, returning to `My Activities`, or returning `Home`
 - access request review
 - join request review (when host approval is enabled)
 - host/co-host management

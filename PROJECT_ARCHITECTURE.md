@@ -178,10 +178,13 @@ The route table lives in `src/App.tsx`.
 ### `HostDashboard.tsx`
 
 - host/co-host management page
+- receives the one-time post-create success state from `CreateEvent.tsx`
+- keeps the create-success modal visible after the dashboard finishes loading
 - attendee and waitlist views
 - attendee `Going` list can include pending-approval rows when host approval is enabled
 - add/remove attendee actions
 - copy/share public and private links
+- post-create modal offers WhatsApp share, `My Activities`, and `Home` actions
 - access-request review
 - join-request review and approve/reject actions when enabled
 - host list and add-host flow

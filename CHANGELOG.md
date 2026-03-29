@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 2026-03-29
+
+### Host dashboard post-create modal fix
+
+- fixed the host-dashboard success modal so it renders on the real management page instead of disappearing after the initial loading state
+- kept the one-time post-create actions focused on sharing the private WhatsApp link or returning to `My Activities` / `Home`
+- tightened the WhatsApp button layout so the icon and wrapped label stay aligned on mobile
+
 ## 2026-03-28
 
 ### Google Maps host autofill

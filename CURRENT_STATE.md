@@ -45,6 +45,7 @@ The weakest / least finished areas are:
 - create and edit activity forms with a multi-step visibility-first flow
 - create/edit location flow can resolve shared Google Maps short links and prefill editable public/exact location fields
 - host dashboard
+- post-create success modal on the host dashboard with share / return actions that now persist correctly after the dashboard finishes loading
 - access requests for semi-public activities
 - attendee list and waitlist
 - optional host-approval join flow before membership is granted
@@ -82,6 +83,7 @@ The weakest / least finished areas are:
 - public and semi-public activities now always expose host names from the create/edit flow
 - hosts can now use calendar export actions even when they are not personally attending
 - calendar exports now use Google Maps share URLs as the calendar location when available
+- new-activity success state is carried into the host dashboard so the one-time modal can survive the initial dashboard load
 - filtered realtime on the host dashboard
 - Supabase Edge Function moderation with content-hash reuse and stored discovery state
 - separate reviewer archive state for the moderation queue via `events.moderation_archived_at`
