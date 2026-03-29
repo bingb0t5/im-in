@@ -425,16 +425,11 @@ The function filters board events internally and only reacts when a card is move
 
 ## Contributing
 
-If you are new to the project, start with:
+Please read `CONTRIBUTING.md` before submitting pull requests.
 
-- `README.md`
-- `PROJECT_ARCHITECTURE.md`
-- `CURRENT_STATE.md`
-- `CONTRIBUTING.md`
-- `SCHEMA_OR_DATA_MODEL.md`
-- `AI_DEV_RULES.md`
+## Governance
 
-Contributors should treat auth, RSVP/waitlist logic, guest identity, visibility/share behavior, and schema changes as high-risk areas.
+See `GOVERNANCE.md` for how decisions are made and how the project is structured.
 
 ## Community / Open Build
 
