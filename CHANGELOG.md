@@ -1,6 +1,27 @@
 # CHANGELOG
 
+## 2026-03-29
+
+### Host dashboard post-create modal fix
+
+- fixed the host-dashboard success modal so it renders on the real management page instead of disappearing after the initial loading state
+- kept the one-time post-create actions focused on sharing the private WhatsApp link or returning to `My Activities` / `Home`
+- tightened the WhatsApp button layout so the icon and wrapped label stay aligned on mobile
+
 ## 2026-03-28
+
+### Google Maps host autofill
+
+- added a host-side `Fill from link` action on the create/edit activity form so shared Google Maps links can prefill `Exact location` and, when possible, `Public location`
+- kept the public/exact location inputs fully editable after autofill so hosts can still refine or override the suggested text
+- added a small public edge function to resolve shortened Google Maps links such as `maps.app.goo.gl/...` before parsing, without changing the existing schema or production event flows
+- added focused parser tests for supported Google Maps URL formats, invalid/coordinate-only cases, and autofill fallback behavior
+
+### Public calendar browse grouping
+
+- grouped the public activities list with lightweight day breaks so it is easier to scan what is on `Today`, `Tomorrow`, and later in the week
+- added weekday section labels for upcoming activities within the next 7 days
+- grouped everything 7 or more days away into a single `Later` section to keep the browse view simple
 
 ### Moderation admin tooling
 

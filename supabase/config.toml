@@ -9,3 +9,6 @@ verify_jwt = false
 
 [functions.feedback-admin]
 verify_jwt = false
+
+[functions.resolve-google-maps-link]
+verify_jwt = false

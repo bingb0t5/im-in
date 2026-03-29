@@ -7,6 +7,9 @@ Use this before shipping a new build of `I'm In`.
 - Confirm `.env` (or Render build env) has:
   - `VITE_SUPABASE_URL`
   - `VITE_SUPABASE_ANON_KEY`
+- If deploying `resolve-google-maps-link`, confirm `supabase/config.toml` includes:
+  - `[functions.resolve-google-maps-link]`
+  - `verify_jwt = false`
 - Run `npm install`.
 - Run `npm run lint`.
 - Run `npm run build`.

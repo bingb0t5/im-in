@@ -1636,6 +1636,7 @@ BEGIN
       ON e.id = ea.event_id
     WHERE ea.attendee_profile_id = v_profile_id
       AND ea.status <> 'cancelled'
+      AND coalesce(ea.added_by_type, 'self') <> 'proxy'
     ORDER BY ea.joined_at DESC;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
@@ -1743,6 +1744,7 @@ RETURNS TABLE (
       ON ap.id = ea.attendee_profile_id
     WHERE auth.uid() IS NOT NULL
       AND ea.status <> 'cancelled'
+      AND coalesce(ea.added_by_type, 'self') <> 'proxy'
       AND (
           ea.user_id = auth.uid()
           OR ap.user_id = auth.uid()

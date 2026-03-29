@@ -15,13 +15,15 @@ import {
 } from '../utils';
 import { pickWaitlistAttendeesForPromotion } from '../lib/rsvp';
 import { buildAuthRedirectUrl } from '../lib/authRedirect';
-import { invokeAuthedFunction } from '../lib/functions';
+import { invokeAuthedFunction, invokePublicFunction } from '../lib/functions';
 import { goBackOr } from '../lib/navigation';
+import { applyGoogleMapsAutofill, isGoogleMapsShortUrl, parseGoogleMapsLocation } from '../lib/googleMaps';
 import { shouldModerateVisibility } from '../lib/moderation';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
 
 const CREATE_EVENT_DRAFT_KEY = 'im_in_create_event_draft';
 const CREATE_EVENT_PENDING_AUTH_KEY = 'im_in_create_event_pending_auth';
+const CREATE_EVENT_SUCCESS_KEY = 'im_in_recently_created_event_id';
 const DETECTED_EVENT_TIMEZONE = (() => {
   const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return EVENT_TIMEZONE_OPTIONS.some((option) => option.value === browserTimezone)
@@ -113,6 +115,9 @@ export default function CreateEvent({ user }: { user: User | null }) {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(isEditing ? 2 : 1);
   const [visibilitySelected, setVisibilitySelected] = useState(isEditing);
   const [showTimezoneField, setShowTimezoneField] = useState(isEditing);
+  const [mapsAutofillLoading, setMapsAutofillLoading] = useState(false);
+  const [mapsAutofillMessage, setMapsAutofillMessage] = useState<string | null>(null);
+  const [mapsAutofillError, setMapsAutofillError] = useState<string | null>(null);
 
   const pickHostNameFromProfile = (profile: any) => {
     const fullName = (profile?.full_name || '').trim();
@@ -486,7 +491,13 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
         await runModerationForEvent(result.data.id, resolvedVisibility);
 
-        navigate(`/host/events/${result.data.id}`);
+        if (!isEditing) {
+          sessionStorage.setItem(CREATE_EVENT_SUCCESS_KEY, result.data.id);
+        }
+
+        navigate(`/host/events/${result.data.id}`, {
+          state: isEditing ? undefined : { justCreated: true },
+        });
       }
     } catch (err: any) {
       console.error('Error saving activity:', err);
@@ -600,6 +611,64 @@ export default function CreateEvent({ user }: { user: User | null }) {
       return;
     }
     goBackOr(navigate, isEditing ? `/host/events/${id}` : '/');
+  };
+
+  const handleFillLocationFromGoogleMaps = async () => {
+    const rawUrl = formData.google_maps_url.trim();
+
+    if (!rawUrl) {
+      setMapsAutofillError('Paste a Google Maps share link first.');
+      setMapsAutofillMessage(null);
+      return;
+    }
+
+    setMapsAutofillLoading(true);
+    setMapsAutofillError(null);
+    setMapsAutofillMessage(null);
+
+    try {
+      let resolvedUrl = rawUrl;
+
+      if (isGoogleMapsShortUrl(rawUrl)) {
+        const response = await invokePublicFunction<{ resolvedUrl: string }>('resolve-google-maps-link', {
+          url: rawUrl,
+        });
+        resolvedUrl = response.resolvedUrl || rawUrl;
+      }
+
+      const parsedLocation = parseGoogleMapsLocation(resolvedUrl);
+      const nextFields = applyGoogleMapsAutofill(
+        {
+          google_maps_url: formData.google_maps_url,
+          location_text: formData.location_text,
+          public_location_text: formData.public_location_text,
+        },
+        parsedLocation,
+      );
+
+      setFormData((prev) => ({
+        ...prev,
+        google_maps_url: nextFields.google_maps_url,
+        location_text: nextFields.location_text,
+        public_location_text: nextFields.public_location_text,
+      }));
+
+      if (parsedLocation.exactLocation && parsedLocation.publicLocation) {
+        setMapsAutofillMessage('Filled the public and exact location from the link. You can still edit both fields.');
+      } else if (parsedLocation.exactLocation) {
+        setMapsAutofillMessage('Filled the exact location from the link. Check the public location before saving.');
+      } else {
+        setMapsAutofillMessage('Saved the link, but could not read a location from it. You can still type the fields manually.');
+      }
+    } catch (autofillError) {
+      setMapsAutofillError(
+        autofillError instanceof Error
+          ? autofillError.message
+          : 'Could not read the Google Maps link.',
+      );
+    } finally {
+      setMapsAutofillLoading(false);
+    }
   };
 
   const stepTitle =
@@ -862,6 +931,50 @@ export default function CreateEvent({ user }: { user: User | null }) {
                     <div className="px-6 py-5 border-t border-slate-100 space-y-4">
                       <div>
                         <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+                          <span>Google Maps link (optional)</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] ${
+                            formData.visibility === 'public' ? publicBadgeClass : privateBadgeClass
+                          }`}>
+                            {formData.visibility === 'public' ? 'Public' : 'Private'}
+                          </span>
+                        </label>
+                        <input
+                          type="url"
+                          placeholder="Paste a Google Maps share link"
+                          className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                          value={formData.google_maps_url}
+                          onChange={(e) => {
+                            setFormData({ ...formData, google_maps_url: e.target.value });
+                            setMapsAutofillError(null);
+                            setMapsAutofillMessage(null);
+                          }}
+                        />
+                        <div className="mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                          <p className="text-xs text-slate-400">
+                            Paste a shared Google Maps link and we will try to fill the location fields for you.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => { void handleFillLocationFromGoogleMaps(); }}
+                            disabled={mapsAutofillLoading}
+                            className="inline-flex items-center justify-center rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200 transition-all disabled:opacity-50"
+                          >
+                            {mapsAutofillLoading ? 'Reading link...' : 'Fill from link'}
+                          </button>
+                        </div>
+                        {mapsAutofillMessage ? (
+                          <p className="mt-3 text-xs text-brand-700 bg-brand-50 border border-brand-100 rounded-2xl px-4 py-3">
+                            {mapsAutofillMessage}
+                          </p>
+                        ) : null}
+                        {mapsAutofillError ? (
+                          <p className="mt-3 text-xs text-red-600 bg-red-50 border border-red-100 rounded-2xl px-4 py-3">
+                            {mapsAutofillError}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div>
+                        <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
                           <span>Public location</span>
                           <span className={`rounded-full px-2 py-0.5 text-[9px] ${isPrivateVisibility ? privateBadgeClass : publicBadgeClass}`}>
                             {isPrivateVisibility ? 'Private' : 'Public'}
@@ -890,23 +1003,6 @@ export default function CreateEvent({ user }: { user: User | null }) {
                           className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
                           value={formData.location_text}
                           onChange={(e) => setFormData({ ...formData, location_text: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-                          <span>Google Maps link (optional)</span>
-                          <span className={`rounded-full px-2 py-0.5 text-[9px] ${
-                            formData.visibility === 'public' ? publicBadgeClass : privateBadgeClass
-                          }`}>
-                            {formData.visibility === 'public' ? 'Public' : 'Private'}
-                          </span>
-                        </label>
-                        <input
-                          type="url"
-                          placeholder="Paste a Google Maps share link"
-                          className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
-                          value={formData.google_maps_url}
-                          onChange={(e) => setFormData({ ...formData, google_maps_url: e.target.value })}
                         />
                       </div>
                     </div>
