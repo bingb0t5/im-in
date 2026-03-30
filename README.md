@@ -439,6 +439,10 @@ See PRIVACY.md
 
 See TERMS.md
 
+## Licensing
+
+See LICENSING.md
+
 ## Community / Open Build
 
 The product is positioned as an open, community-built project. The landing page currently links to:
