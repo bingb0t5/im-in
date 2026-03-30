@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
-import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, X, Plus } from 'lucide-react';
+import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, X, Plus, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { buildGoogleCalendarEventUrl, buildIcsEventContent, formatDate, formatDay, formatDurationMinutes, generateSlug } from '../utils';
 import { Event, Attendee, EventInterest } from '../types';
-import { guestService, AttendeeProfile, getAccountNameFromUser } from '../services/guestService';
+import { guestService, AttendeeProfile, getAccountNameFromUser, isSystemGuestEmail } from '../services/guestService';
 import { getAttendanceSummary, getMyRsvpBuckets } from '../lib/attendees';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { findMyInterest, getNamedThinkingInterests, getThinkingCount } from '../lib/interests';
@@ -39,8 +39,13 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [showThinkingModal, setShowThinkingModal] = useState(false);
   const [isEventHostViewer, setIsEventHostViewer] = useState(false);
   const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
+  const [adderHasEmailByProfileId, setAdderHasEmailByProfileId] = useState<Record<string, boolean>>({});
   const [successType, setSuccessType] = useState<'self' | 'proxy'>('self');
   const [proxyPendingApproval, setProxyPendingApproval] = useState(false);
+  const [selfPendingApproval, setSelfPendingApproval] = useState(false);
+  const [emailUpgradeValue, setEmailUpgradeValue] = useState('');
+  const [emailUpgradeSaving, setEmailUpgradeSaving] = useState(false);
+  const [emailUpgradeMessage, setEmailUpgradeMessage] = useState<string | null>(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [requestName, setRequestName] = useState('');
   const [requestWhatsapp, setRequestWhatsapp] = useState('');
@@ -101,6 +106,11 @@ export default function EventDetail({ user }: { user: User | null }) {
     return pickFirstNonEmpty(person.guest_name, fallbackNameFromEmail(person.guest_email)) || 'Guest';
   };
 
+  const getDisplayEmail = (email?: string | null) => {
+    if (!email || isSystemGuestEmail(email)) return '';
+    return email;
+  };
+
   const getAddedByLabel = (attendee: Attendee) => {
     if (!attendee.added_by_type || attendee.added_by_type === 'self') return null;
     if (attendee.added_by_type === 'host') return 'added by host';
@@ -113,10 +123,25 @@ export default function EventDetail({ user }: { user: User | null }) {
         return `added by ${signedInPreferredName}`;
       }
       const adderName = adderNamesByProfileId[adderId];
+      const adderHasEmail = adderHasEmailByProfileId[adderId];
+      if (adderHasEmail === false) {
+        return `added by ${adderName || 'attendee'} (guest)`;
+      }
       if (adderName) return `added by ${adderName}`;
       return 'added by attendee';
     }
     return null;
+  };
+
+  const isGuestAccountAttendee = (attendee: Attendee) => {
+    if (attendee.user_id) return false;
+    if (attendee.added_by_type && attendee.added_by_type !== 'self') return false;
+    return !attendee.guest_email || isSystemGuestEmail(attendee.guest_email);
+  };
+
+  const getAttendeeDisplayName = (attendee: Attendee) => {
+    const baseName = getDisplayName(attendee);
+    return isGuestAccountAttendee(attendee) ? `${baseName} (guest account)` : baseName;
   };
 
   const hydrateAdderNames = async (attendeeRows: Attendee[]) => {
@@ -130,6 +155,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
     if (ids.length === 0) {
       setAdderNamesByProfileId({});
+      setAdderHasEmailByProfileId({});
       return;
     }
 
@@ -139,15 +165,18 @@ export default function EventDetail({ user }: { user: User | null }) {
       .in('id', ids);
 
     const map: Record<string, string> = {};
+    const hasEmailMap: Record<string, boolean> = {};
     (data || []).forEach((profile: any) => {
       const fullName = (profile.full_name || '').trim();
       const fallback = fallbackNameFromEmail(profile.email);
       map[profile.id] = fullName || fallback || 'attendee';
+      hasEmailMap[profile.id] = !!(profile.email && !isSystemGuestEmail(profile.email));
     });
     if (signedInProfileId && signedInPreferredName) {
       map[signedInProfileId] = signedInPreferredName;
     }
     setAdderNamesByProfileId(map);
+    setAdderHasEmailByProfileId(hasEmailMap);
   };
 
   useEffect(() => {
@@ -157,7 +186,7 @@ export default function EventDetail({ user }: { user: User | null }) {
         const profile = await guestService.validateSession(token);
         if (profile) {
           setGuestProfile(profile);
-          setGuestInfo({ name: profile.full_name, email: profile.email });
+          setGuestInfo({ name: profile.full_name, email: getDisplayEmail(profile.email) });
         } else {
           guestService.clearStoredSession();
         }
@@ -401,6 +430,16 @@ export default function EventDetail({ user }: { user: User | null }) {
     void loadMyJoinRequestState();
   }, [event?.id, user?.id, user?.email, guestProfile?.id, guestInfo.email]);
 
+  useEffect(() => {
+    if (!showSuccessModal) return;
+    if (guestInfo.email && !isSystemGuestEmail(guestInfo.email)) {
+      setEmailUpgradeValue(guestInfo.email);
+    } else {
+      setEmailUpgradeValue('');
+    }
+    setEmailUpgradeMessage(null);
+  }, [showSuccessModal, guestInfo.email]);
+
   const fetchEvent = async () => {
     if (!slug) {
       setEvent(null);
@@ -477,9 +516,9 @@ export default function EventDetail({ user }: { user: User | null }) {
   const clearMyInterest = async (
     eventId: string,
     currentProfileId: string | null,
-    email: string,
+    email?: string | null,
   ) => {
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = (email || '').trim().toLowerCase();
     const { error } = await supabase
       .from('event_interests')
       .delete()
@@ -505,17 +544,18 @@ export default function EventDetail({ user }: { user: User | null }) {
       return;
     }
 
-    const email = user?.email || guestInfo.email;
+    const rawEmail = (user?.email || guestInfo.email || '').trim().toLowerCase();
+    const requireGuestEmail = !user && event.require_guest_email_for_join === true;
     const name = pickFirstNonEmpty(
       user?.id && event.host_user_id === user.id ? event.host_name : '',
       user?.user_metadata?.full_name,
       signedInPreferredName,
       guestProfile?.full_name,
       guestInfo.name,
-      fallbackNameFromEmail(email),
+      fallbackNameFromEmail(rawEmail),
     );
 
-    if (!email || !name) {
+    if (!name || (requireGuestEmail && !rawEmail)) {
       if (user?.email && !guestInfo.email) {
         setGuestInfo(prev => ({ ...prev, email: user.email! }));
       }
@@ -538,10 +578,17 @@ export default function EventDetail({ user }: { user: User | null }) {
         const names = name.split(' ');
         const firstName = names[0];
         const lastName = names.slice(1).join(' ') || '';
-        const { profile } = await guestService.createGuestSession(email, firstName, lastName);
+        const { profile } = await guestService.createGuestSession(firstName, lastName, { email: rawEmail || null });
         currentProfileId = profile.id;
         setGuestProfile(profile);
+        setGuestInfo((prev) => ({
+          ...prev,
+          name: profile.full_name || prev.name,
+          email: getDisplayEmail(profile.email),
+        }));
       }
+
+      const rpcEmail = (rawEmail || (currentProfileId ? `guest+${currentProfileId}@guest.im-in.local` : '')).toLowerCase();
 
       const eventVisibility = event.visibility || (event.is_public ? 'public' : 'private');
       const visibilityMode = eventVisibility === 'public' ? 'count_only' : 'named';
@@ -549,7 +596,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       const { data, error } = await supabase.rpc('toggle_event_interest', {
         p_event_id: event.id,
         p_guest_name: name,
-        p_guest_email: email,
+        p_guest_email: rpcEmail,
         p_visibility_mode: visibilityMode,
         p_user_id: user?.id || null,
         p_attendee_profile_id: currentProfileId || null,
@@ -571,17 +618,18 @@ export default function EventDetail({ user }: { user: User | null }) {
     if (!event) return;
     setRsvpLoading(true);
 
-    const email = user?.email || guestInfo.email;
+    const rawEmail = (user?.email || guestInfo.email || '').trim().toLowerCase();
+    const requireGuestEmail = !user && event.require_guest_email_for_join === true;
     const name = pickFirstNonEmpty(
       user?.id && event.host_user_id === user.id ? event.host_name : '',
       user?.user_metadata?.full_name,
       signedInPreferredName,
       guestProfile?.full_name,
       guestInfo.name,
-      fallbackNameFromEmail(email),
+      fallbackNameFromEmail(rawEmail),
     );
 
-    if (!email || !name) {
+    if (!name || (requireGuestEmail && !rawEmail)) {
       if (user?.email && !guestInfo.email) {
         setGuestInfo(prev => ({ ...prev, email: user.email! }));
       }
@@ -598,16 +646,22 @@ export default function EventDetail({ user }: { user: User | null }) {
         const names = name.split(' ');
         const firstName = names[0];
         const lastName = names.slice(1).join(' ') || '';
-        const { profile } = await guestService.createGuestSession(email, firstName, lastName);
+        const { profile } = await guestService.createGuestSession(firstName, lastName, { email: rawEmail || null });
         currentProfileId = profile.id;
         setGuestProfile(profile);
+        setGuestInfo((prev) => ({
+          ...prev,
+          name: profile.full_name || prev.name,
+          email: getDisplayEmail(profile.email),
+        }));
       }
+      const rpcEmail = (rawEmail || (currentProfileId ? `guest+${currentProfileId}@guest.im-in.local` : '')).toLowerCase();
 
       // 2. Use request-aware RSVP path so host-approval activities create pending requests.
       const { data, error } = await supabase.rpc('request_or_submit_rsvp', {
         p_event_id: event.id,
         p_guest_name: name,
-        p_guest_email: email,
+        p_guest_email: rpcEmail,
         p_attendee_profile_id: currentProfileId || null,
       });
 
@@ -618,7 +672,10 @@ export default function EventDetail({ user }: { user: User | null }) {
       if (result === 'request_pending' || result === 'already_pending') {
         setMyJoinRequestStatus('pending');
         setShowRsvpModal(false);
-        await clearMyInterest(event.id, currentProfileId || null, email);
+        setSelfPendingApproval(true);
+        setSuccessType('self');
+        setShowSuccessModal(true);
+        await clearMyInterest(event.id, currentProfileId || null, rpcEmail);
         fetchInterests();
         return;
       }
@@ -631,9 +688,10 @@ export default function EventDetail({ user }: { user: User | null }) {
 
       setMyJoinRequestStatus(null);
       setShowRsvpModal(false);
+      setSelfPendingApproval(false);
       setSuccessType('self');
       setShowSuccessModal(true);
-      await clearMyInterest(event.id, currentProfileId || null, email);
+      await clearMyInterest(event.id, currentProfileId || null, rpcEmail);
       fetchAttendees();
       fetchInterests();
     } catch (error: any) {
@@ -650,10 +708,11 @@ export default function EventDetail({ user }: { user: User | null }) {
     setRsvpLoading(true);
     setProxyError(null);
 
-    const email = user?.email || proxyOwnerEmail.trim() || guestInfo.email;
+    const rawEmail = (user?.email || proxyOwnerEmail.trim() || guestInfo.email || '').trim().toLowerCase();
+    const requireGuestEmail = !user && event.require_guest_email_for_join === true;
     let currentProfileId = guestProfile?.id;
 
-    if (!email) {
+    if (requireGuestEmail && !rawEmail) {
       setProxyError('Email is required to add someone else.');
       setRsvpLoading(false);
       return;
@@ -669,7 +728,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       }
 
       if (!user && !currentProfileId) {
-        const ownerName = pickFirstNonEmpty(proxyOwnerName, guestInfo.name, fallbackNameFromEmail(email));
+        const ownerName = pickFirstNonEmpty(proxyOwnerName, guestInfo.name, fallbackNameFromEmail(rawEmail));
         if (!ownerName) {
           setProxyError('Please enter your name.');
           setRsvpLoading(false);
@@ -678,10 +737,10 @@ export default function EventDetail({ user }: { user: User | null }) {
         const names = ownerName.split(' ');
         const firstName = names[0];
         const lastName = names.slice(1).join(' ') || '';
-        const { profile } = await guestService.createGuestSession(email, firstName, lastName);
+        const { profile } = await guestService.createGuestSession(firstName, lastName, { email: rawEmail || null });
         currentProfileId = profile.id;
         setGuestProfile(profile);
-        setGuestInfo({ name: profile.full_name, email: profile.email });
+        setGuestInfo({ name: profile.full_name, email: getDisplayEmail(profile.email) });
       }
 
       if (!currentProfileId) {
@@ -701,6 +760,8 @@ export default function EventDetail({ user }: { user: User | null }) {
         }
       }
 
+      const rpcEmail = (rawEmail || (currentProfileId ? `guest+${currentProfileId}@guest.im-in.local` : '')).toLowerCase();
+
       // 3. Use server-side upsert path for proxy RSVP (handles legacy constraints + auth).
       const sessionToken = guestService.getStoredSession();
       const { data, error } = await supabase.rpc('add_proxy_attendee', {
@@ -708,7 +769,7 @@ export default function EventDetail({ user }: { user: User | null }) {
         p_proxy_name: proxyName.trim(),
         p_attendee_profile_id: currentProfileId,
         p_user_id: user?.id || null,
-        p_owner_email: email,
+        p_owner_email: rpcEmail,
         p_session_token: sessionToken,
       });
       if (error) throw error;
@@ -807,6 +868,30 @@ export default function EventDetail({ user }: { user: User | null }) {
     }
   };
 
+  const handleSaveEmailUpgrade = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!guestProfile?.id) return;
+    const normalized = emailUpgradeValue.trim().toLowerCase();
+    if (!normalized) {
+      setEmailUpgradeMessage('Please enter an email address.');
+      return;
+    }
+
+    try {
+      setEmailUpgradeSaving(true);
+      setEmailUpgradeMessage(null);
+      const updated = await guestService.addEmailToProfile(guestProfile.id, normalized);
+      setGuestProfile(updated);
+      setGuestInfo((prev) => ({ ...prev, email: normalized, name: updated.full_name || prev.name }));
+      setEmailUpgradeValue('');
+      setEmailUpgradeMessage('Email saved. You can now recover this guest account later.');
+    } catch (error: any) {
+      setEmailUpgradeMessage(error?.message || 'Could not save email right now.');
+    } finally {
+      setEmailUpgradeSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 pb-24">
@@ -867,8 +952,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const namedThinkingInterests = getNamedThinkingInterests(interests);
   const hasSelfRsvp = mySelfRsvps.length > 0;
   const hasManagedRsvps = myManagedRsvps.length > 0;
-  const canUseCalendarActions = hasSelfRsvp || isEventHostViewer;
-  const confirmedDetailsEmail = user?.email || guestProfile?.email || guestInfo.email;
+  const confirmedDetailsEmail = getDisplayEmail(user?.email || guestProfile?.email || guestInfo.email);
   const confirmedDetailsName =
     pickFirstNonEmpty(
       user?.id && event.host_user_id === user.id ? event.host_name : '',
@@ -878,6 +962,12 @@ export default function EventDetail({ user }: { user: User | null }) {
       guestInfo.name,
       fallbackNameFromEmail(confirmedDetailsEmail),
     ) || 'Guest';
+  const shouldPromptEmailUpgrade =
+    !user &&
+    !!guestProfile?.id &&
+    isSystemGuestEmail(guestProfile?.email || guestInfo.email) &&
+    event.require_guest_email_for_join === false;
+  const isGuestEmailRequired = event.require_guest_email_for_join === true;
 
   const shareInvite = (url: string) => {
     const text = `${event.title} – ${formatDate(event.starts_at, event.timezone)}\n${spotsRemaining} spots left. Join here:\n${url}`;
@@ -1155,67 +1245,75 @@ export default function EventDetail({ user }: { user: User | null }) {
             {event.title}
           </h1>
           
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-              <div>
-                <p className="font-bold text-slate-800 text-sm">{formatDate(event.starts_at, event.timezone)}</p>
-                <p className="text-xs text-slate-400">{formatDurationMinutes(event.duration_minutes)}</p>
-              </div>
-            </div>
-
-            {event.location_text && (
-              <div className="flex items-start gap-3">
-                <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-3 min-w-0 flex-1">
+              <div className="flex items-center gap-3">
+                <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
                 <div>
-                  <p className="font-bold text-slate-800 text-sm">{event.location_text}</p>
-                  {event.google_maps_url && (
-                    <button
-                      type="button"
-                      onClick={openDirections}
-                      className="mt-1 text-xs font-bold text-brand-600 hover:text-brand-500 transition-all active:scale-95"
-                    >
-                      Get directions →
-                    </button>
+                  <p className="font-bold text-slate-800 text-sm">{formatDate(event.starts_at, event.timezone)}</p>
+                  <p className="text-xs text-slate-400">{formatDurationMinutes(event.duration_minutes)}</p>
+                </div>
+              </div>
+
+              {event.location_text && (
+                <div className="flex items-start gap-3">
+                  <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-slate-800 text-sm">{event.location_text}</p>
+                    {event.google_maps_url && (
+                      <button
+                        type="button"
+                        onClick={openDirections}
+                        className="mt-1 text-xs font-bold text-brand-600 hover:text-brand-500 transition-all active:scale-95"
+                      >
+                        Get directions →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-3">
+                <Users className="w-4 h-4 text-slate-400 shrink-0" />
+                <div>
+                  <p className="font-bold text-slate-800 text-sm">{confirmedCount} / {event.capacity} going</p>
+                  {isFull ? (
+                    <p className="text-xs text-amber-500">
+                      {event.allow_waitlist ? `${waitlistCount} on waitlist` : 'Full'}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-400">{spotsRemaining} spots left</p>
                   )}
                 </div>
               </div>
-            )}
+            </div>
 
-            <div className="flex items-center gap-3">
-              <Users className="w-4 h-4 text-slate-400 shrink-0" />
-              <div>
-                <p className="font-bold text-slate-800 text-sm">{confirmedCount} / {event.capacity} going</p>
-                {isFull ? (
-                  <p className="text-xs text-amber-500">
-                    {event.allow_waitlist ? `${waitlistCount} on waitlist` : 'Full'}
-                  </p>
-                ) : (
-                  <p className="text-xs text-slate-400">{spotsRemaining} spots left</p>
-                )}
+            <div className="shrink-0 pt-0.5">
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 text-right">Save to calendar</p>
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={openGoogleCalendar}
+                  className="rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 px-3 py-2 transition-all active:scale-[0.99] text-left"
+                >
+                  <span className="inline-flex items-center gap-1.5 text-sm font-black leading-none">
+                    <Calendar className="w-4 h-4" />
+                    Google
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadCalendarFile}
+                  className="rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 px-3 py-2 transition-all active:scale-[0.99] text-left"
+                >
+                  <span className="inline-flex items-center gap-1.5 text-sm font-black leading-none">
+                    <Download className="w-4 h-4" />
+                    Apple (.ics)
+                  </span>
+                </button>
               </div>
             </div>
           </div>
-
-          {canUseCalendarActions && (
-            <div className="flex flex-wrap gap-x-4 gap-y-2 mt-2">
-              <button
-                type="button"
-                onClick={openGoogleCalendar}
-                className="inline-flex items-center gap-2 text-sm font-bold text-brand-600 hover:text-brand-500 transition-all active:scale-95"
-              >
-                <Calendar className="w-4 h-4" />
-                Add to Google Calendar
-              </button>
-              <button
-                type="button"
-                onClick={downloadCalendarFile}
-                className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-700 transition-all active:scale-95"
-              >
-                Download Calendar File (.ics)
-              </button>
-            </div>
-          )}
 
           {event.description && (
             <p className="text-slate-500 leading-relaxed whitespace-pre-wrap text-sm pt-2">{event.description}</p>
@@ -1232,7 +1330,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                   <div className="flex items-center gap-3">
                     <span className="text-[10px] font-bold text-slate-300 w-5 text-right">{i + 1}</span>
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-700 text-sm">{getDisplayName(attendee)}</span>
+                      <span className="font-bold text-slate-700 text-sm">{getAttendeeDisplayName(attendee)}</span>
                       {getAddedByLabel(attendee) && (
                         <span className="text-[11px] text-slate-400">{getAddedByLabel(attendee)}</span>
                       )}
@@ -1315,7 +1413,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                   <div key={rsvp.id} className="flex items-center justify-between bg-brand-50 rounded-xl px-4 py-3">
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-brand-600" />
-                      <span className="text-sm font-bold text-brand-700">{getDisplayName(rsvp)}</span>
+                      <span className="text-sm font-bold text-brand-700">{getAttendeeDisplayName(rsvp)}</span>
                       {rsvp.status === 'waitlist' && (
                         <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">Waitlist</span>
                       )}
@@ -1436,7 +1534,11 @@ export default function EventDetail({ user }: { user: User | null }) {
                     {guestProfile ? `Joining as ${guestProfile.first_name}` : 'Almost there!'}
                   </h2>
                   <p className="text-slate-500 font-medium text-sm">
-                    {guestProfile ? "We've remembered you on this device." : "Enter your details once and we'll remember you on this device."}
+                    {guestProfile
+                      ? "We've remembered you on this device."
+                      : isGuestEmailRequired
+                        ? "Enter your details once and we'll remember you on this device."
+                        : "Just add your name and you're in."}
                   </p>
                 </div>
                 <button onClick={() => setShowRsvpModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
@@ -1458,7 +1560,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                         onChange={e => setGuestInfo({ ...guestInfo, name: e.target.value })}
                       />
                     </div>
-                    {!user && (
+                    {!user && isGuestEmailRequired && (
                       <div>
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">Email Address</label>
                         <input
@@ -1576,16 +1678,43 @@ export default function EventDetail({ user }: { user: User | null }) {
               <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-2">
                 {successType === 'proxy'
                   ? (proxyPendingApproval ? 'Request sent!' : "They're in!")
-                  : "You're in!"}
+                  : (selfPendingApproval ? 'Request sent!' : "You're in!")}
               </h2>
               <p className="text-slate-500 font-medium mb-8 text-sm leading-relaxed">
                 {successType === 'proxy'
                   ? (proxyPendingApproval
                     ? 'They now appear in the list as pending host approval.'
                     : "We've added them to the list. You can manage this activity in your bookings.")
-                  : "We've added you to the list. You can manage all your activities in one place."}
+                  : (selfPendingApproval
+                    ? 'Your request has been sent to the host for approval.'
+                    : "You're on the list. You can manage all your activities in one place.")}
               </p>
-              
+
+              {shouldPromptEmailUpgrade && (
+                <form onSubmit={handleSaveEmailUpgrade} className="mb-6 rounded-2xl border border-brand-100 bg-brand-50 p-4 text-left space-y-3">
+                  <p className="text-sm font-bold text-brand-700">Add email for recovery?</p>
+                  <p className="text-xs text-brand-700/90">
+                    Add your email to recover this account and join multiple activities with the same guest login.
+                    Email is only used for account recovery and no other emails will be sent.
+                  </p>
+                  <input
+                    type="email"
+                    value={emailUpgradeValue}
+                    onChange={(e) => setEmailUpgradeValue(e.target.value)}
+                    placeholder="you@example.com"
+                    className="w-full p-3 rounded-xl bg-white border border-brand-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all text-sm font-bold"
+                  />
+                  {emailUpgradeMessage && <p className="text-xs text-brand-700">{emailUpgradeMessage}</p>}
+                  <button
+                    type="submit"
+                    disabled={emailUpgradeSaving}
+                    className="w-full bg-white hover:bg-brand-100 text-brand-700 font-black py-3 rounded-xl transition-all active:scale-95"
+                  >
+                    {emailUpgradeSaving ? 'Saving...' : 'Save my email'}
+                  </button>
+                </form>
+              )}
+
               <div className="space-y-3">
                 <button
                   onClick={() => {
@@ -1765,17 +1894,19 @@ export default function EventDetail({ user }: { user: User | null }) {
                         onChange={e => setProxyOwnerName(e.target.value)}
                       />
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">Your Email</label>
-                      <input
-                        required
-                        type="email"
-                        className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
-                        placeholder="you@example.com"
-                        value={proxyOwnerEmail}
-                        onChange={e => setProxyOwnerEmail(e.target.value)}
-                      />
-                    </div>
+                    {isGuestEmailRequired && (
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">Your Email</label>
+                        <input
+                          required
+                          type="email"
+                          className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
+                          placeholder="you@example.com"
+                          value={proxyOwnerEmail}
+                          onChange={e => setProxyOwnerEmail(e.target.value)}
+                        />
+                      </div>
+                    )}
                   </>
                 )}
                 <div>

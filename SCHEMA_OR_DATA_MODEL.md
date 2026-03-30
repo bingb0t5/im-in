@@ -48,6 +48,7 @@ Important fields the frontend uses:
 - `visibility`
 - `allow_waitlist`
 - `require_host_approval_for_join`
+- `require_guest_email_for_join`
 - `is_public`
 - `public_discovery_enabled`
 - `moderation_status`
@@ -68,6 +69,7 @@ Important behavioral meaning:
 - `access_code` is used to construct the private semi-public link
 - `public_discovery_enabled` is the additional gate for broader public discovery
 - `require_host_approval_for_join` controls whether join attempts become pending host-reviewed requests
+- `require_guest_email_for_join` controls whether guest join flows must collect an email before RSVP/proxy/interest writes
 - `show_host_publicly` still exists in data, but the create/edit product flow now treats host names as always public for `public` and `semi_public` activities
 - moderation fields store the latest public-moderation classification, any simple manual override state, and an optional reviewer archive timestamp for the admin queue
 - platform moderation applies to public-facing activity content
@@ -322,6 +324,7 @@ Important behavioral meaning:
 - guests and signed-in users both end up represented here
 - the app uses this table for names, session ownership, and attendee linkage
 - signed-in users are synchronized into this table through `guestService.getOrCreateProfileForUser(...)`
+- some guest profiles may use system placeholder emails until the guest explicitly adds a recovery email later
 
 ### `attendee_sessions`
 
@@ -398,6 +401,8 @@ The app often matches a person through a combination of:
 - `guest_email`
 
 This is why attendee matching and name resolution are more complex than a typical auth-only app.
+
+Current priority in matching helpers is profile-first when `attendee_profile_id` is available, then email fallback.
 
 ## Visibility Model In Data Terms
 

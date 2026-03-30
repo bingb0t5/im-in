@@ -29,12 +29,12 @@ export function getMyRsvpBuckets(attendees: Attendee[], input: FindMyRsvpsInput)
       return;
     }
 
-    if (userEmail && attendee.guest_email?.toLowerCase() === userEmail.toLowerCase()) {
+    if (profileId && attendee.attendee_profile_id === profileId) {
       addIfMissing(selfRsvps, attendee);
       return;
     }
 
-    if (profileId && attendee.attendee_profile_id === profileId) {
+    if (userEmail && attendee.guest_email?.toLowerCase() === userEmail.toLowerCase()) {
       addIfMissing(selfRsvps, attendee);
     }
   });

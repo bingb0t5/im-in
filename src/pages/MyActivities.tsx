@@ -441,9 +441,16 @@ export default function MyActivities({ user }: { user: User | null }) {
                         <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-0.5">I'm thinking about it</p>
                       ) : null}
                       <div className="flex flex-wrap gap-1 mt-1">
-                        {groupedBooking.attendees.map((name: string, i: number) => (
-                          <span key={i} className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md">
-                            {name}
+                        {groupedBooking.attendees.map((attendee: { name: string; status: string }, i: number) => (
+                          <span
+                            key={i}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                              attendee.status === 'thinking'
+                                ? 'text-indigo-600 bg-indigo-50'
+                                : 'text-brand-600 bg-brand-50'
+                            }`}
+                          >
+                            {attendee.name}
                           </span>
                         ))}
                       </div>
@@ -513,9 +520,16 @@ export default function MyActivities({ user }: { user: User | null }) {
                           <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-0.5">I'm thinking about it</p>
                         ) : null}
                         <div className="flex flex-wrap gap-1 mt-1">
-                          {groupedBooking.attendees.map((name: string, i: number) => (
-                            <span key={i} className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md">
-                              {name}
+                          {groupedBooking.attendees.map((attendee: { name: string; status: string }, i: number) => (
+                            <span
+                              key={i}
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                attendee.status === 'thinking'
+                                  ? 'text-indigo-600 bg-indigo-50'
+                                  : 'text-brand-600 bg-brand-50'
+                              }`}
+                            >
+                              {attendee.name}
                             </span>
                           ))}
                         </div>

@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## 2026-03-30
+
+### Optional guest email + name-first join flow
+
+- added host-controlled `require_guest_email_for_join` so each activity can require guest email or allow name-only signup
+- set guest-email requirement default to off (`not required`) and backfilled existing activities to unchecked/off
+- changed guest RSVP, proxy add, and `thinking about it` flows to support name-first signup when email is optional
+- added a post-success prompt that invites no-email guests to optionally add email for recovery and cross-activity continuity, with explicit copy that no other emails will be sent
+- updated host attendee labeling and rendering so no-email guests are shown clearly and guest-added entries can display `added by guest user`
+- updated guest profile/session handling to support no-email guest profiles with later email upgrade/merge behavior
+- updated guest proxy-session bookings so activities still appear in `Activities I'm In` when a no-email guest only adds someone else
+- refined attendee labels so guest-added entries show `added by <name> (guest)` and no-email self signups show `(guest account)` beside the attendee name
+- fixed mixed-status attendee chips in `Your Activities` / `Activities I'm In` so `thinking` people render with the indigo style instead of looking confirmed
+- made calendar actions always available on activity details (even without RSVP) and restyled them as clearer Google/Apple-style action buttons
+- tightened the activity-detail calendar action layout to use smaller, compact white buttons that sit closer to the event details area
+- updated `Your Activities` to show `(Guest account)` next to no-email sessions and added a clear CTA to add email for account recovery/access continuity
+- updated schema/reconcile docs and project documentation to reflect the new identity and host-setting behavior
+
 ## 2026-03-29
 
 ### Host dashboard post-create modal fix
