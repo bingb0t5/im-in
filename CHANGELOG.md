@@ -18,6 +18,10 @@
 - updated `Your Activities` to show `(Guest account)` next to no-email sessions and added a clear CTA to add email for account recovery/access continuity
 - updated schema/reconcile docs and project documentation to reflect the new identity and host-setting behavior
 
+### Documentation
+
+- restored the root `LICENSING.md` file describing the dual-licensing model (AGPL open-source path plus separate commercial licensing path)
+
 ## 2026-03-29
 
 ### Host dashboard post-create modal fix
