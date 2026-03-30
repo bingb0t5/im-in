@@ -67,6 +67,7 @@ type CreateEventDraft = {
     visibility: 'public' | 'semi_public' | 'private';
     allow_waitlist: boolean;
     require_host_approval_for_join: boolean;
+    require_guest_email_for_join: boolean;
     is_public: boolean;
   };
   authEmail: string;
@@ -99,6 +100,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
     visibility: 'semi_public' as 'public' | 'semi_public' | 'private',
     allow_waitlist: true,
     require_host_approval_for_join: false,
+    require_guest_email_for_join: false,
     is_public: true,
   });
 
@@ -334,6 +336,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
         visibility: normalizedEvent.visibility || (normalizedEvent.is_public ? 'public' : 'private'),
         allow_waitlist: normalizedEvent.allow_waitlist ?? true,
         require_host_approval_for_join: normalizedEvent.require_host_approval_for_join ?? false,
+        require_guest_email_for_join: normalizedEvent.require_guest_email_for_join ?? false,
         is_public: normalizedEvent.is_public ?? true,
       });
       setVisibilitySelected(true);
@@ -1084,6 +1087,24 @@ export default function CreateEvent({ user }: { user: User | null }) {
                           <p className="text-xs text-slate-400">People can request to join, and you approve them later.</p>
                         </div>
                       </label>
+
+                      <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Guest sign-up</p>
+                        <label className="flex items-start gap-3 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all mt-0.5"
+                          checked={formData.require_guest_email_for_join}
+                          onChange={(e) => setFormData({ ...formData, require_guest_email_for_join: e.target.checked })}
+                        />
+                        <div>
+                          <p className="text-sm font-bold text-slate-700">Require email for guest sign up</p>
+                          <p className="text-xs text-slate-400">
+                            If off, guests can join with just a name and add email later for recovery.
+                          </p>
+                        </div>
+                        </label>
+                      </div>
                     </div>
 
                     <div className="px-6 py-5 border-t border-slate-100 space-y-4">

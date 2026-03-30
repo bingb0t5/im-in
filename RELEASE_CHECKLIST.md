@@ -39,9 +39,11 @@ Use this before shipping a new build of `I'm In`.
 - **Event create/edit:** host can create and edit an activity, including delayed-auth create save flow.
 - **Calendar visibility:** private activities are hidden from `/calendar`.
 - **RSVP:** signed-in and guest RSVP both work.
+- **Guest email setting:** `require_guest_email_for_join` behaves correctly in both modes.
+- **Name-first guest flow:** when optional mode is on, guests can join with name only and then add email from success UI.
 - **Waitlist:** full event correctly places new RSVP on waitlist.
 - **Cancellation:** "Yes, can't make it" cancels RSVP and promotes next waitlisted attendee.
-- **Proxy add:** "Add someone else" works, including re-adding a previously cancelled name.
+- **Proxy add:** "Add someone else" works in both guest-email-required and optional-email modes, including re-adding a previously cancelled name.
 - **Thinking about it:** public and non-public activity interest flows still work.
 - **Semi-public:** request-to-view, private link access, and host request actions still work.
 - **Host dashboard:** co-host access still works and host list loads correctly.

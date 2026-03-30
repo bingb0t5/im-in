@@ -8,7 +8,7 @@ import { formatDate, formatDurationMinutes, generateSlug } from '../utils';
 import { Event, Attendee, EventAccessRequest, EventInterest, EventJoinRequest } from '../types';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/moderation';
-import { guestService, getAccountNameFromUser } from '../services/guestService';
+import { guestService, getAccountNameFromUser, isSystemGuestEmail } from '../services/guestService';
 
 export default function HostDashboard({ user }: { user: User | null }) {
   const CREATE_EVENT_SUCCESS_KEY = 'im_in_recently_created_event_id';
@@ -22,6 +22,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [newAttendee, setNewAttendee] = useState({ name: '', email: '' });
   const [actionLoading, setActionLoading] = useState(false);
   const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
+  const [adderHasEmailByProfileId, setAdderHasEmailByProfileId] = useState<Record<string, boolean>>({});
   const [accessRequests, setAccessRequests] = useState<EventAccessRequest[]>([]);
   const [requestActionLoadingId, setRequestActionLoadingId] = useState<string | null>(null);
   const [accessRequestView, setAccessRequestView] = useState<'pending' | 'approved' | 'declined'>('pending');
@@ -58,6 +59,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
     const localPart = (email || '').split('@')[0] || '';
     const fallback = localPart.replace(/[._-]+/g, ' ').trim();
     return fallback || 'Guest';
+  };
+
+  const getDisplayEmail = (email?: string | null) => {
+    if (!email || isSystemGuestEmail(email)) return 'No email provided';
+    return email;
   };
 
   const normalizeWhatsapp = (value: string) => value.replace(/[^\d]/g, '');
@@ -102,9 +108,22 @@ export default function HostDashboard({ user }: { user: User | null }) {
     if (attendee.added_by_type === 'proxy') {
       const adderId = attendee.added_by_attendee_profile_id || '';
       const adderName = adderNamesByProfileId[adderId];
+      const adderHasEmail = adderHasEmailByProfileId[adderId];
+      if (adderHasEmail === false) return `added by ${adderName || 'attendee'} (guest)`;
       return adderName ? `added by ${adderName}` : 'added by attendee';
     }
     return null;
+  };
+
+  const isGuestAccountAttendee = (attendee: Attendee) => {
+    if (attendee.user_id) return false;
+    if (attendee.added_by_type && attendee.added_by_type !== 'self') return false;
+    return !attendee.guest_email || isSystemGuestEmail(attendee.guest_email);
+  };
+
+  const getAttendeeDisplayName = (attendee: Attendee) => {
+    const baseName = getDisplayName(attendee.guest_name, attendee.guest_email);
+    return isGuestAccountAttendee(attendee) ? `${baseName} (guest account)` : baseName;
   };
 
   const hydrateAdderNames = async (attendeeRows: Attendee[]) => {
@@ -118,6 +137,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
     if (ids.length === 0) {
       setAdderNamesByProfileId({});
+      setAdderHasEmailByProfileId({});
       return;
     }
 
@@ -127,12 +147,15 @@ export default function HostDashboard({ user }: { user: User | null }) {
       .in('id', ids);
 
     const map: Record<string, string> = {};
+    const hasEmailMap: Record<string, boolean> = {};
     (data || []).forEach((profile: any) => {
       const fullName = (profile.full_name || '').trim();
       const fallback = ((profile.email || '').split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
       map[profile.id] = fullName || fallback || 'attendee';
+      hasEmailMap[profile.id] = !!(profile.email && !isSystemGuestEmail(profile.email));
     });
     setAdderNamesByProfileId(map);
+    setAdderHasEmailByProfileId(hasEmailMap);
   };
 
   useEffect(() => {
@@ -622,6 +645,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
           visibility: event.visibility || (event.is_public ? 'public' : 'private'),
           allow_waitlist: event.allow_waitlist,
           is_public: event.is_public,
+          require_guest_email_for_join: event.require_guest_email_for_join,
           host_user_id: user?.id,
           status: 'scheduled',
           slug: newSlug
@@ -1040,7 +1064,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div>
                         <p className="font-bold text-slate-800 text-sm">{request.guest_name}</p>
-                        <p className="text-xs text-slate-400">{request.guest_email}</p>
+                        <p className="text-xs text-slate-400">{getDisplayEmail(request.guest_email)}</p>
                         {request.request_note ? (
                           <p className="text-xs text-slate-500 mt-1">{request.request_note}</p>
                         ) : null}
@@ -1210,15 +1234,15 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 <div key={a.id} className="px-5 py-3 flex items-center justify-between hover:bg-slate-50 transition-all group">
                   <div>
                     <div className="flex items-center gap-2">
-                      <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
+                      <p className="font-bold text-slate-800 text-sm">{getAttendeeDisplayName(a)}</p>
                       {getAddedByLabel(a) && (
                         <span className="text-[11px] text-slate-400">{getAddedByLabel(a)}</span>
                       )}
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{a.guest_email}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{getDisplayEmail(a.guest_email)}</p>
                   </div>
                   <button 
-                    onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getDisplayName(a.guest_name, a.guest_email) })} 
+                    onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getAttendeeDisplayName(a) })} 
                     className="p-2 text-slate-300 hover:text-red-400 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100 active:scale-95"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -1229,10 +1253,10 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 <div key={a.id} className="px-5 py-3 flex items-center justify-between bg-slate-50/60">
                   <div>
                     <div className="flex items-center gap-2">
-                      <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
+                      <p className="font-bold text-slate-800 text-sm">{getAttendeeDisplayName(a)}</p>
                       <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest">Pending host approval</span>
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{a.guest_email}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{getDisplayEmail(a.guest_email)}</p>
                   </div>
                 </div>
               ))}
@@ -1252,7 +1276,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 <div key={a.id} className="px-5 py-3 flex items-center justify-between hover:bg-slate-50 transition-all group">
                   <div>
                     <div className="flex items-center gap-2">
-                      <p className="font-bold text-slate-800 text-sm">{getDisplayName(a.guest_name, a.guest_email)}</p>
+                      <p className="font-bold text-slate-800 text-sm">{getAttendeeDisplayName(a)}</p>
                       {getAddedByLabel(a) && (
                         <span className="text-[11px] text-slate-400">{getAddedByLabel(a)}</span>
                       )}
@@ -1260,7 +1284,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                     <p className="text-[11px] text-slate-400 mt-0.5">#{i + 1} on waitlist</p>
                   </div>
                   <button 
-                    onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getDisplayName(a.guest_name, a.guest_email) })} 
+                    onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getAttendeeDisplayName(a) })} 
                     className="p-2 text-slate-300 hover:text-red-400 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100 active:scale-95"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -1283,7 +1307,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
               {namedInterests.slice(0, 6).map((interest) => (
                 <div key={interest.id} className="py-2.5">
                   <p className="text-sm font-bold text-slate-800">{getDisplayName(interest.guest_name, interest.guest_email)}</p>
-                  <p className="text-[11px] text-slate-400">{interest.guest_email}</p>
+                  <p className="text-[11px] text-slate-400">{getDisplayEmail(interest.guest_email)}</p>
                 </div>
               ))}
             </div>

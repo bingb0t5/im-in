@@ -24,6 +24,7 @@ Unless the repository is intentionally changed, always assume:
 - there is no Airtable integration
 - signed-in users use Supabase Auth
 - guests use `attendee_profiles` + `attendee_sessions` + local token storage
+- guest email can be host-required or optional per activity (`require_guest_email_for_join`)
 - the create flow supports delayed auth: fill the form first, authenticate only at save time
 - visibility modes matter: `public`, `semi_public`, and `private`
 - RSVP and waitlist integrity depend on both shared frontend logic and database-backed operations
@@ -124,6 +125,7 @@ Rules:
 - Do not clear or overwrite guest session tokens casually.
 - Do not change storage keys without backward-compat handling.
 - Do not assume guest bookings can be derived from email alone.
+- Treat no-email guest profiles as valid identities; profile/session matching is primary when available.
 - Preserve recovery-link behavior unless explicitly redesigning it.
 - Be explicit that `/recover` token restore is real, but `/login?recovery=true` currently behaves like OTP login rather than a true guest-session recovery flow.
 
@@ -253,6 +255,7 @@ At minimum, update docs if you change:
 - visibility/share-link rules
 - guest recovery behavior
 - timezone/duration behavior
+- user-facing features or behavior (`CHANGELOG.md`)
 
 Docs should describe the current real architecture:
 

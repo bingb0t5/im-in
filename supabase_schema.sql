@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS public.events (
     visibility TEXT CHECK (visibility IN ('public', 'semi_public', 'private')) DEFAULT 'semi_public',
     allow_waitlist BOOLEAN DEFAULT true,
     require_host_approval_for_join BOOLEAN NOT NULL DEFAULT false,
+    require_guest_email_for_join BOOLEAN NOT NULL DEFAULT false,
     is_public BOOLEAN DEFAULT false,
     public_discovery_enabled BOOLEAN NOT NULL DEFAULT false,
     moderation_status TEXT NOT NULL DEFAULT 'not_required' CHECK (moderation_status IN ('not_required', 'pending', 'approved', 'limited', 'review', 'blocked', 'error')),
@@ -489,6 +490,7 @@ CREATE OR REPLACE FUNCTION public.get_event_for_view(
     visibility TEXT,
     allow_waitlist BOOLEAN,
     require_host_approval_for_join BOOLEAN,
+    require_guest_email_for_join BOOLEAN,
     is_public BOOLEAN,
     public_discovery_enabled BOOLEAN,
     moderation_status TEXT,
@@ -572,6 +574,7 @@ BEGIN
         v_event.visibility,
         v_event.allow_waitlist,
         coalesce(v_event.require_host_approval_for_join, false),
+        coalesce(v_event.require_guest_email_for_join, false),
         v_event.is_public,
         v_event.public_discovery_enabled,
         v_event.moderation_status,
@@ -824,9 +827,17 @@ BEGIN
     FROM public.event_attendees ea
     JOIN public.events e
       ON e.id = ea.event_id
-    WHERE ea.attendee_profile_id = v_profile_id
-      AND ea.status <> 'cancelled'
-      AND coalesce(ea.added_by_type, 'self') <> 'proxy'
+    WHERE ea.status <> 'cancelled'
+      AND (
+        (
+          ea.attendee_profile_id = v_profile_id
+          AND coalesce(ea.added_by_type, 'self') <> 'proxy'
+        )
+        OR (
+          coalesce(ea.added_by_type, 'self') = 'proxy'
+          AND ea.added_by_attendee_profile_id = v_profile_id
+        )
+      )
     ORDER BY ea.joined_at DESC;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;

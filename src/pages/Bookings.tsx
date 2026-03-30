@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { guestService } from '../services/guestService';
+import { guestService, isSystemGuestEmail } from '../services/guestService';
 import { ArrowLeft, Calendar, MapPin, AlertCircle, LogOut } from 'lucide-react';
 import { formatDate, isOnOrAfterTodayInTimeZone } from '../utils';
 import { motion } from 'motion/react';
@@ -15,6 +15,9 @@ export default function Bookings() {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<AttendeeProfile | null>(null);
   const [showPastActivities, setShowPastActivities] = useState(false);
+  const [emailUpgradeValue, setEmailUpgradeValue] = useState('');
+  const [emailUpgradeSaving, setEmailUpgradeSaving] = useState(false);
+  const [emailUpgradeMessage, setEmailUpgradeMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchBookings = async () => {
@@ -52,6 +55,25 @@ export default function Bookings() {
   const pastBookings = groupedBookings.filter((groupedBooking) =>
     !isOnOrAfterTodayInTimeZone(groupedBooking.events.starts_at, groupedBooking.events.timezone),
   );
+  const isGuestAccount = !!profile && (!profile.email || isSystemGuestEmail(profile.email));
+
+  const handleSaveEmailUpgrade = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!profile?.id) return;
+
+    try {
+      setEmailUpgradeSaving(true);
+      setEmailUpgradeMessage(null);
+      const updated = await guestService.addEmailToProfile(profile.id, emailUpgradeValue);
+      setProfile(updated);
+      setEmailUpgradeMessage('Email saved. You now have full guest account recovery.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not save email right now.';
+      setEmailUpgradeMessage(message);
+    } finally {
+      setEmailUpgradeSaving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -96,7 +118,11 @@ export default function Bookings() {
         <header>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">Your Activities</h1>
           <p className="text-slate-500 font-medium text-sm mt-1">
-            Logged in as <span className="text-slate-900 font-bold">{profile?.full_name}</span>
+            Logged in as{' '}
+            <span className="text-slate-900 font-bold">
+              {profile?.full_name}
+              {isGuestAccount ? ' (Guest account)' : ''}
+            </span>
           </p>
         </header>
 
@@ -133,9 +159,16 @@ export default function Bookings() {
                       <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-0.5">I'm thinking about it</p>
                     )}
                     <div className="flex flex-wrap gap-1 mt-1">
-                      {groupedBooking.attendees.map((name: string, i: number) => (
-                        <span key={i} className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md">
-                          {name}
+                      {groupedBooking.attendees.map((attendee, i: number) => (
+                        <span
+                          key={i}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                            attendee.status === 'thinking'
+                              ? 'text-indigo-600 bg-indigo-50'
+                              : 'text-brand-600 bg-brand-50'
+                          }`}
+                        >
+                          {attendee.name}
                         </span>
                       ))}
                     </div>
@@ -187,9 +220,16 @@ export default function Bookings() {
                           <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-0.5">I'm thinking about it</p>
                         )}
                         <div className="flex flex-wrap gap-1 mt-1">
-                          {groupedBooking.attendees.map((name: string, i: number) => (
-                            <span key={i} className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md">
-                              {name}
+                          {groupedBooking.attendees.map((attendee, i: number) => (
+                            <span
+                              key={i}
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                attendee.status === 'thinking'
+                                  ? 'text-indigo-600 bg-indigo-50'
+                                  : 'text-brand-600 bg-brand-50'
+                              }`}
+                            >
+                              {attendee.name}
                             </span>
                           ))}
                         </div>
@@ -214,6 +254,33 @@ export default function Bookings() {
                 ))}
               </div>
             ) : null}
+          </section>
+        ) : null}
+
+        {isGuestAccount ? (
+          <section className="bg-white rounded-2xl border border-brand-100 p-5">
+            <p className="text-sm font-black text-brand-700">Want access to all features of I&apos;m In?</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Add your email for account recovery and easier access across activities. We only use it for account recovery.
+            </p>
+            <form onSubmit={handleSaveEmailUpgrade} className="mt-3 space-y-2.5">
+              <input
+                type="email"
+                required
+                value={emailUpgradeValue}
+                onChange={(e) => setEmailUpgradeValue(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full p-3 rounded-xl bg-white border border-slate-200 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all text-sm font-bold"
+              />
+              {emailUpgradeMessage ? <p className="text-xs text-brand-700">{emailUpgradeMessage}</p> : null}
+              <button
+                type="submit"
+                disabled={emailUpgradeSaving}
+                className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-sm py-3 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+              >
+                {emailUpgradeSaving ? 'Saving...' : 'Add my email'}
+              </button>
+            </form>
           </section>
         ) : null}
       </main>

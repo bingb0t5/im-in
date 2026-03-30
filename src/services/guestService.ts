@@ -5,7 +5,7 @@ import { BookingRow } from '../lib/bookings';
 
 export interface AttendeeProfile {
   id: string;
-  email: string;
+  email?: string | null;
   first_name: string;
   last_name: string;
   full_name: string;
@@ -21,6 +21,15 @@ const GUEST_SESSION_KEY = 'im_in_guest_session';
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
+}
+
+function buildSystemGuestEmail(seed: string) {
+  return `guest+${seed}@guest.im-in.local`;
+}
+
+export function isSystemGuestEmail(email?: string | null) {
+  const normalized = normalizeEmail(email || '');
+  return normalized.endsWith('@guest.im-in.local') || normalized.endsWith('@proxy.im-in.local');
 }
 
 function pickFirstNonEmpty(...values: Array<string | null | undefined>) {
@@ -89,40 +98,57 @@ export const guestService = {
     return { token, profile };
   },
 
-  async createGuestSession(email: string, firstName: string, lastName: string, userId?: string): Promise<GuestSession> {
-    const normalizedEmail = normalizeEmail(email);
+  async createGuestSession(
+    firstName: string,
+    lastName: string,
+    options?: { email?: string | null; userId?: string },
+  ): Promise<GuestSession> {
+    const normalizedEmail = normalizeEmail(options?.email || '');
+    const userId = options?.userId || null;
+    const hasRealEmail = !!normalizedEmail;
 
-    // 1. Get or create profile
+    // 1. Get or create profile.
     let profile: AttendeeProfile;
-    const { data: existingProfile } = await supabase
-      .from('attendee_profiles')
-      .select('*')
-      .eq('email', normalizedEmail)
-      .maybeSingle();
+    let existingProfile: AttendeeProfile | null = null;
+    if (hasRealEmail) {
+      const { data } = await supabase
+        .from('attendee_profiles')
+        .select('*')
+        .eq('email', normalizedEmail)
+        .maybeSingle();
+      existingProfile = data as AttendeeProfile | null;
+    }
 
     if (existingProfile) {
       profile = existingProfile;
-      // Update name if it changed, and user_id if provided
+      // Update name if it changed, and user_id if provided.
       await supabase
         .from('attendee_profiles')
-        .update({ 
-          first_name: firstName || profile.first_name, 
+        .update({
+          first_name: firstName || profile.first_name,
           last_name: lastName || profile.last_name,
-          user_id: userId || profile.user_id 
+          user_id: userId || profile.user_id,
         })
         .eq('id', profile.id);
     } else {
+      const fallbackEmail = hasRealEmail
+        ? normalizedEmail
+        : buildSystemGuestEmail(
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : generateSessionToken().slice(0, 16),
+          );
       const { data: newProfile, error: profileError } = await supabase
         .from('attendee_profiles')
-        .insert([{ 
-          email: normalizedEmail, 
-          first_name: firstName, 
+        .insert([{
+          email: fallbackEmail,
+          first_name: firstName,
           last_name: lastName,
-          user_id: userId || null
+          user_id: userId,
         }])
         .select()
         .single();
-      
+
       if (profileError) throw profileError;
       profile = newProfile;
     }
@@ -204,6 +230,56 @@ export const guestService = {
 
     // TODO: Integrate real email delivery service and send:
     // `${window.location.origin}/recover?token=${token}`
+  },
+
+  async addEmailToProfile(profileId: string, email: string): Promise<AttendeeProfile> {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) throw new Error('Please provide a valid email.');
+
+    const { data: existingByEmail, error: existingError } = await supabase
+      .from('attendee_profiles')
+      .select('*')
+      .eq('email', normalizedEmail)
+      .maybeSingle();
+    if (existingError) throw existingError;
+
+    if (existingByEmail && existingByEmail.id !== profileId) {
+      // Merge identity references so the existing email-backed profile becomes canonical.
+      await Promise.all([
+        supabase
+          .from('event_attendees')
+          .update({ attendee_profile_id: existingByEmail.id })
+          .eq('attendee_profile_id', profileId),
+        supabase
+          .from('event_interests')
+          .update({ attendee_profile_id: existingByEmail.id })
+          .eq('attendee_profile_id', profileId),
+        supabase
+          .from('event_join_requests')
+          .update({ attendee_profile_id: existingByEmail.id })
+          .eq('attendee_profile_id', profileId),
+        supabase
+          .from('attendee_sessions')
+          .update({ attendee_profile_id: existingByEmail.id })
+          .eq('attendee_profile_id', profileId),
+      ]);
+
+      await supabase
+        .from('attendee_profiles')
+        .delete()
+        .eq('id', profileId);
+
+      return existingByEmail as AttendeeProfile;
+    }
+
+    const { data: updated, error } = await supabase
+      .from('attendee_profiles')
+      .update({ email: normalizedEmail })
+      .eq('id', profileId)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return updated as AttendeeProfile;
   },
 
   async getOrCreateProfileForUser(user: User, name?: string): Promise<AttendeeProfile> {

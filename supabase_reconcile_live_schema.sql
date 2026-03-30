@@ -394,6 +394,9 @@ ALTER TABLE public.events
 ALTER TABLE public.events
     ADD COLUMN IF NOT EXISTS require_host_approval_for_join BOOLEAN DEFAULT false;
 
+ALTER TABLE public.events
+    ADD COLUMN IF NOT EXISTS require_guest_email_for_join BOOLEAN DEFAULT false;
+
 CREATE TABLE IF NOT EXISTS public.moderator_public_identities (
     user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     public_handle TEXT NOT NULL UNIQUE,
@@ -575,11 +578,21 @@ UPDATE public.events
 SET require_host_approval_for_join = false
 WHERE require_host_approval_for_join IS NULL;
 
+UPDATE public.events
+SET require_guest_email_for_join = false
+WHERE require_guest_email_for_join IS NULL;
+
 ALTER TABLE public.events
     ALTER COLUMN require_host_approval_for_join SET DEFAULT false;
 
 ALTER TABLE public.events
+    ALTER COLUMN require_guest_email_for_join SET DEFAULT false;
+
+ALTER TABLE public.events
     ALTER COLUMN require_host_approval_for_join SET NOT NULL;
+
+ALTER TABLE public.events
+    ALTER COLUMN require_guest_email_for_join SET NOT NULL;
 
 DO $$
 BEGIN
@@ -1299,6 +1312,7 @@ CREATE OR REPLACE FUNCTION public.get_event_for_view(
     visibility TEXT,
     allow_waitlist BOOLEAN,
     require_host_approval_for_join BOOLEAN,
+    require_guest_email_for_join BOOLEAN,
     is_public BOOLEAN,
     public_discovery_enabled BOOLEAN,
     moderation_status TEXT,
@@ -1382,6 +1396,7 @@ BEGIN
         v_event.visibility,
         v_event.allow_waitlist,
         coalesce(v_event.require_host_approval_for_join, false),
+        coalesce(v_event.require_guest_email_for_join, false),
         v_event.is_public,
         v_event.public_discovery_enabled,
         v_event.moderation_status,
@@ -1634,9 +1649,17 @@ BEGIN
     FROM public.event_attendees ea
     JOIN public.events e
       ON e.id = ea.event_id
-    WHERE ea.attendee_profile_id = v_profile_id
-      AND ea.status <> 'cancelled'
-      AND coalesce(ea.added_by_type, 'self') <> 'proxy'
+    WHERE ea.status <> 'cancelled'
+      AND (
+        (
+          ea.attendee_profile_id = v_profile_id
+          AND coalesce(ea.added_by_type, 'self') <> 'proxy'
+        )
+        OR (
+          coalesce(ea.added_by_type, 'self') = 'proxy'
+          AND ea.added_by_attendee_profile_id = v_profile_id
+        )
+      )
     ORDER BY ea.joined_at DESC;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;

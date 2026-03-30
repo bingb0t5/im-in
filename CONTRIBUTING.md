@@ -64,6 +64,7 @@ Ask yourself:
 - Does this make it easier for someone to host or join an activity?
 - Does this keep things safe and simple?
 - Would someone new understand this without explanation?
+- If this changes user-facing behavior, did I update `CHANGELOG.md`?
 
 If not, rethink it.
 

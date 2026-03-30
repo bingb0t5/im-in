@@ -151,6 +151,7 @@ The route table lives in `src/App.tsx`.
 - timezone-aware scheduling
 - duration-based scheduling instead of direct end-time authoring
 - per-activity host-approval setting for membership requests
+- per-activity guest-email requirement setting for join flows
 - field-level public/private badges to explain what is shown publicly
 - supports explicit Google Maps link autofill for public/exact location text while keeping both fields editable
 - signed-in host-name hydration and normalization
@@ -162,11 +163,13 @@ The route table lives in `src/App.tsx`.
 - activity read page
 - attendee list rendering
 - signed-in and guest RSVP
+- name-first guest RSVP path for activities where hosts allow optional guest email
 - request-aware RSVP path for host-approval activities
 - pending join-request attendees shown in `Going` with a `Pending host approval` label
 - cancellation
 - waitlist messaging
 - proxy RSVP / add another person
+- post-success prompt for no-email guests to optionally add an email for recovery and cross-activity continuity
 - "thinking about it"
 - semi-public request-to-view flow
 - Google Calendar + `.ics` actions
@@ -323,6 +326,8 @@ Guest attendees use:
 - `feedback_submissions`
 - `trello_prompt_jobs`
 - local storage token persistence
+
+Guests can now exist as no-email profiles (with internal placeholder emails) until they add a recovery email later.
 
 This guest session is then used by:
 

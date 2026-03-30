@@ -9,7 +9,10 @@ export interface BookingRow {
 }
 
 export interface GroupedBooking extends BookingRow {
-  attendees: string[];
+  attendees: Array<{
+    name: string;
+    status: string;
+  }>;
 }
 
 export function groupBookingsByEvent(bookings: BookingRow[]): GroupedBooking[] {
@@ -20,10 +23,10 @@ export function groupBookingsByEvent(bookings: BookingRow[]): GroupedBooking[] {
       if (!acc[eventId]) {
         acc[eventId] = {
           ...booking,
-          attendees: [booking.guest_name],
+          attendees: [{ name: booking.guest_name, status: booking.status }],
         };
       } else {
-        acc[eventId].attendees.push(booking.guest_name);
+        acc[eventId].attendees.push({ name: booking.guest_name, status: booking.status });
         if (booking.status === 'confirmed') {
           acc[eventId].status = 'confirmed';
         } else if (booking.status === 'waitlist' && acc[eventId].status !== 'confirmed') {

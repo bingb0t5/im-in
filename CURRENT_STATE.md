@@ -49,8 +49,10 @@ The weakest / least finished areas are:
 - access requests for semi-public activities
 - attendee list and waitlist
 - optional host-approval join flow before membership is granted
+- optional host-controlled guest-email requirement for join flows
 - proxy RSVP / "add another person" with host-approval-aware pending request behavior
 - "thinking about it"
+- post-signup email-upgrade prompt for no-email guest signups
 - lightweight AI moderation for broader public discovery on public activities and semi-public public previews
 - hidden moderation admin queue with review, archived, and spam buckets for allowlisted admins, scoped to public-facing activity moderation
 - hidden admin hub at `/admin` that links to the current internal admin tools
@@ -72,6 +74,7 @@ The weakest / least finished areas are:
 - guest session persistence via `attendee_sessions`
 - `attendee_profiles` used for both guests and signed-in users
 - signed-in users synchronized into the guest/profile-backed identity model
+- guests can join without email when host settings allow it, then add email later for recovery
 
 ### Backend/data behavior
 

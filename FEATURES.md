@@ -60,6 +60,7 @@ Can:
 - RSVP and have that participation remembered
 - view their guest bookings in `/bookings`
 - restore the guest session through `/recover?token=...`
+- add an email later (optional) to unlock stronger recovery and cross-activity continuity
 
 ## Main Product Areas
 
@@ -161,6 +162,7 @@ Features:
 - timezone select
 - duration select
 - capacity and waitlist settings
+- per-activity setting for requiring guest email before join
 - public vs private summary/location inputs
 - optional Google Maps link
 - explicit `Fill from link` action that can parse a shared Google Maps link and prefill the location fields while keeping them editable
@@ -423,6 +425,7 @@ Lets a person join an activity.
 - page: `EventDetail.tsx`
 - supports signed-in RSVP
 - supports guest RSVP
+- supports host-controlled optional guest email for RSVP/interest/proxy
 - uses a request-aware RSVP path:
   - direct join via `submit_rsvp(...)` when host approval is off
   - pending join request via `request_or_submit_rsvp(...)` when host approval is on
@@ -434,6 +437,8 @@ The app may match the person through:
 - `user_id`
 - `attendee_profile_id`
 - `guest_email`
+
+When guest email is optional for an activity, profile/session identity remains the primary guest handle and email can be added later.
 
 ### Notes
 

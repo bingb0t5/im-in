@@ -69,6 +69,7 @@ Main product areas:
 
 - signed-in RSVP
 - guest RSVP
+- per-activity host setting for whether guest email is required to join
 - waitlist placement when full
 - optional host approval before membership is granted
 - pending-approval attendees appear in `Going` with clear `Pending host approval` labels
@@ -96,6 +97,7 @@ Main product areas:
 - browse public activities on `/calendar`
 - open `/events/:slug`
 - RSVP directly as a signed-in user or guest
+- when guest email is optional for an activity, guests can join with just a name and add email later
 - if host approval is enabled, submit a join request and appear in `Going` as `Pending host approval` until host review
 - if full, join the waitlist when allowed
 - optionally add another person
@@ -129,6 +131,7 @@ Main product areas:
 ### Guest bookings flow
 
 - guest RSVP creates or reuses an `attendee_profiles` row plus `attendee_sessions` token
+- activities can allow guest join without email; those guests still get local guest-session continuity on the same device
 - token is stored locally in the browser
 - `/bookings` reads bookings using that guest session
 - `/recover?token=...` can restore the guest session if a valid token exists
@@ -150,6 +153,7 @@ Current identity model in practice:
 - signed-in users use Supabase Auth
 - guests use `attendee_profiles` + `attendee_sessions`
 - signed-in users are also synchronized into the profile/session-backed attendee model
+- no-email guests can add email later to unlock account recovery and cross-activity identity continuity
 
 This means the app currently has a **dual identity model**, not a fully unified one.
 
