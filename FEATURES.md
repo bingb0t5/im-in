@@ -50,6 +50,7 @@ Can:
 - RSVP using their signed-in identity
 - manage hosted activities if authorized
 - use the signed-in dashboard on `/my-activities`
+- update their profile name/email on `/profile`
 
 ### 3. Guest-session user
 
@@ -157,6 +158,8 @@ Features:
 - create activity
 - edit activity
 - delayed-auth save flow
+- post-magic-link return resumes on Step 3
+- `One Last Step` profile capture is only shown when the account still lacks trusted profile details
 - host name hydration for signed-in hosts
 - visibility controls
 - timezone select
@@ -186,6 +189,17 @@ Features:
 - duplicate activity
 - delete activity
 
+### Profile settings
+
+Implemented in `src/pages/ProfileSettings.tsx`.
+
+Features:
+
+- signed-in profile page at `/profile`
+- locked-by-default name display with an edit toggle
+- email update form for signed-in users
+- name propagation across hosted activities and self-joined records where sync succeeds
+
 ### Guest bookings / recovery
 
 Implemented in:
@@ -199,6 +213,8 @@ Features:
 - guest bookings list
 - guest interests list merged into bookings
 - restore session by token URL
+- optional guest email-upgrade flow
+- guest-email upgrades now use a dedicated SQL merge RPC so attendee ownership, inviter attribution, sessions, interests, and join requests move together
 
 Important caveat:
 

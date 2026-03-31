@@ -76,6 +76,8 @@ The real enforcement model is:
 
 That means frontend changes, SQL changes, and documentation changes should be treated as one unit for high-risk flows.
 
+One important example is `merge_attendee_profiles(...)`, the SQL RPC used when guest/email-upgrade flows need to collapse two attendee identities into one canonical profile without relying on fragile client-side multi-table writes.
+
 ## Route And Page Structure
 
 The route table lives in `src/App.tsx`.
@@ -87,6 +89,7 @@ The route table lives in `src/App.tsx`.
 | `/` | `src/pages/Home.tsx` | Public home page for everyone |
 | `/my-activities` | `src/pages/MyActivities.tsx` | Signed-in hosting/attending dashboard |
 | `/login` | `src/pages/Login.tsx` | Magic-link sign-in; also hosts the "Find my bookings" recovery entry UI |
+| `/profile` | `src/pages/ProfileSettings.tsx` | Signed-in profile management page |
 | `/create-event` | `src/pages/CreateEvent.tsx` | Create flow; signed-out users can still fill the form before auth |
 | `/host/events/:id/edit` | `src/pages/CreateEvent.tsx` | Edit mode; requires signed-in user |
 | `/events/:slug` | `src/pages/EventDetail.tsx` | Attendee-facing activity detail page |
@@ -111,7 +114,7 @@ The route table lives in `src/App.tsx`.
 - `/admin/moderation` requires both a signed-in user and an allowlisted admin email
 - `/admin/feedback` requires both a signed-in user and an allowlisted admin email
 - `/bookings` is not the general signed-in attendee dashboard; it is guest-session driven
-- `/login` redirects authenticated users to `/create-event`, not `/`
+- `/login` redirects authenticated users to `/my-activities`
 - unknown routes redirect to `/`
 
 ## Page Responsibilities
@@ -140,6 +143,14 @@ The route table lives in `src/App.tsx`.
 - magic-link-only sign-in through `signInWithOtp`
 - optional recovery-mode UI when `?recovery=true`
 - recovery mode currently also sends `signInWithOtp`, not a guest-session recovery token
+- redirects already-signed-in users to `/my-activities`
+
+### `ProfileSettings.tsx`
+
+- signed-in profile management page
+- hydrates the canonical attendee profile row for the current auth user
+- updates profile name/email through `guestService.updateSignedInProfile(...)`
+- softens success messaging when downstream name sync is only partially confirmed
 
 ### `CreateEvent.tsx`
 
@@ -157,6 +168,7 @@ The route table lives in `src/App.tsx`.
 - signed-in host-name hydration and normalization
 - host name is treated as public for public and semi-public activities
 - co-host access check for edit mode
+- magic-link return resumes on Step 3 and only opens `One Last Step` when profile details are still missing
 
 ### `EventDetail.tsx`
 
@@ -177,6 +189,7 @@ The route table lives in `src/App.tsx`.
 - calendar exports prefer the Google Maps share URL as the location field when one exists
 - share-link choices
 - host-view detection for semi-public/private access
+- signed-in RSVP now ensures an attendee profile exists before submit, aligning it with the safer signed-in interest flow
 
 ### `HostDashboard.tsx`
 
@@ -229,6 +242,7 @@ The route table lives in `src/App.tsx`.
 - guest-session booking history
 - merges bookings and interests
 - not driven by Supabase auth user state
+- supports guest email upgrade into stronger recovery/cross-activity continuity using the profile-merge RPC when needed
 
 ### `AdminHome.tsx`
 

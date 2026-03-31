@@ -204,6 +204,7 @@ Important behavioral meaning:
 - `status` is currently `confirmed`, `waitlist`, `pending_approval`, or `cancelled`
 - one activity can have both signed-in and guest-backed attendees
 - proxy and host-added attendees are distinguished through `added_by_type`
+- `added_by_attendee_profile_id` preserves guest/proxy attribution and must move when two attendee profiles are merged
 - `pending_approval` rows are used so hosts and attendees can still see pending join requests directly in `Going`
 
 ### `event_hosts`
@@ -325,6 +326,8 @@ Important behavioral meaning:
 - the app uses this table for names, session ownership, and attendee linkage
 - signed-in users are synchronized into this table through `guestService.getOrCreateProfileForUser(...)`
 - some guest profiles may use system placeholder emails until the guest explicitly adds a recovery email later
+- `full_name` is generated from `first_name` / `last_name`, so application code should not write `full_name` directly
+- pending auth-email changes should not blindly overwrite the canonical profile email if the profile row already holds the newer value
 
 ### `attendee_sessions`
 
@@ -344,6 +347,7 @@ Important behavioral meaning:
 - token is stored in local storage
 - token can be restored via `/recover?token=...`
 - guest bookings depend on this table
+- guest-session continuity must move with the profile when two attendee identities are merged
 
 ## Relationships
 
@@ -404,6 +408,10 @@ This is why attendee matching and name resolution are more complex than a typica
 
 Current priority in matching helpers is profile-first when `attendee_profile_id` is available, then email fallback.
 
+Recent hardening note:
+
+- guest/no-email profile upgrades into existing email-backed identities now use `merge_attendee_profiles(...)` so attendee rows, inviter attribution, interests, join requests, and sessions move together
+
 ## Visibility Model In Data Terms
 
 ### `public`
@@ -451,6 +459,7 @@ These RPCs are important to the current app:
 - `cancel_attendee_with_promotion(...)`
 - `add_proxy_attendee(...)`
 - `toggle_event_interest(...)`
+- `merge_attendee_profiles(...)`
 - `get_event_for_view(...)`
 - `list_public_calendar_events(...)`
 - `count_hidden_upcoming_activities(...)`
@@ -460,6 +469,21 @@ These RPCs are important to the current app:
 - `get_guest_interests(...)`
 
 These are the safer paths for fragile operations.
+
+### `merge_attendee_profiles(...)`
+
+This is the canonical merge path when a guest/no-email identity is upgraded into an email-backed profile that already exists.
+
+Behavioral intent:
+
+- authorize the merge through either the current auth user or a valid guest session token
+- collapse a source `attendee_profiles` row into a target canonical row
+- remap `event_attendees.attendee_profile_id`
+- remap `event_attendees.added_by_attendee_profile_id`
+- remap `event_interests.attendee_profile_id`
+- remap `event_join_requests.attendee_profile_id`
+- remap `attendee_sessions.attendee_profile_id`
+- delete duplicate pending interest/join-request rows before remapping when unique indexes would otherwise collide
 
 The newer read-side RPCs matter for privacy as much as convenience:
 

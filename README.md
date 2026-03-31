@@ -27,7 +27,7 @@ What is still rough or partial:
 
 - guest recovery is only partially realized as a product flow
 - schema truth is split across multiple SQL files
-- there is no automated test suite
+- automated verification is still light and focused, not broad regression coverage
 - some older docs/checklists are historical and not the full source of truth
 
 ## Product Overview
@@ -126,7 +126,7 @@ Main product areas:
 - signed-out users can fill the create form before authenticating
 - draft state is stored locally
 - on save, the app prompts for email and sends a magic link
-- after sign-in, the user returns and completes the save
+- after sign-in, the user returns to Step 3 and only sees `One Last Step` name capture when profile details are still missing
 
 ### Guest bookings flow
 
@@ -154,6 +154,13 @@ Current identity model in practice:
 - guests use `attendee_profiles` + `attendee_sessions`
 - signed-in users are also synchronized into the profile/session-backed attendee model
 - no-email guests can add email later to unlock account recovery and cross-activity identity continuity
+- guest-email upgrades now merge identities through a dedicated SQL RPC so attendee ownership, inviter attribution, sessions, interests, and join requests move together
+
+Current hardening notes:
+
+- signed-in profile hydration prefers the canonical `attendee_profiles` row over stale auth-email display during pending email-change confirmation
+- signed-in RSVP now ensures a profile exists before submit, matching the safer signed-in `thinking about it` flow
+- `/login` now redirects authenticated users to `/my-activities`
 
 This means the app currently has a **dual identity model**, not a fully unified one.
 
@@ -182,6 +189,10 @@ Important areas:
 - `supabase_schema.sql`: baseline schema snapshot
 - `supabase_reconcile_live_schema.sql`: reconciliation/RPC-heavy SQL for live environments
 - `supabase_guest_identity_migration.sql`: guest/session bootstrap schema
+
+Identity-sensitive SQL:
+
+- `merge_attendee_profiles(...)`: canonical guest/profile merge RPC used when a no-email or guest profile is upgraded into an existing email-backed identity
 
 ## Environment Variables
 

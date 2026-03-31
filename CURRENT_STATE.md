@@ -29,7 +29,7 @@ The weakest / least finished areas are:
 
 - guest recovery as a polished product flow
 - schema/documentation coherence
-- automated verification
+- broad automated verification
 
 ## Implemented Today
 
@@ -75,6 +75,7 @@ The weakest / least finished areas are:
 - `attendee_profiles` used for both guests and signed-in users
 - signed-in users synchronized into the guest/profile-backed identity model
 - guests can join without email when host settings allow it, then add email later for recovery
+- email upgrades now use a dedicated merge RPC so profile/session references move together instead of relying on fragile client-side multi-table updates
 
 ### Backend/data behavior
 
@@ -110,6 +111,20 @@ What is not fully realized:
 
 - the "Find my bookings" UI in `/login?recovery=true` currently sends a normal Supabase OTP email
 - `guestService.sendRecoveryEmail()` exists but is not wired into the UI and still contains TODO-level email sending scaffolding
+
+### Identity hardening progress
+
+Recent account work improved several previously fragile areas:
+
+- signed-in profile hydration no longer pushes stale auth emails back over canonical profile emails during pending email-confirmation windows
+- signed-in RSVP now creates/loads a profile before submit, aligning with the safer signed-in interest flow
+- post-magic-link create return now only forces `One Last Step` when profile details are genuinely missing
+- profile merges now happen through `merge_attendee_profiles(...)` in SQL so attendee ownership, inviter attribution, sessions, interests, and join requests are moved together
+
+What is still not fully solved:
+
+- `attendee_profiles` policies are still permissive in the guest bootstrap SQL and have not yet been fully tightened around `auth.uid()` ownership
+- the app still uses a dual identity model rather than a fully unified auth/profile model
 
 ### Bookings split
 
@@ -172,7 +187,7 @@ These things are either planned, partial, or explicitly not complete:
 - Google OAuth
 - a polished guest recovery email delivery system
 - a unified guest/auth identity model
-- automated tests
+- broad automated test coverage
 - a clean contributor process backed by migrations/CI
 - a richer moderation operations console
 
