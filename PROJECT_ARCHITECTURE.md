@@ -129,6 +129,7 @@ The route table lives in `src/App.tsx`.
 - feedback success state can link users directly to the public dev board
 - stays the public home page even for signed-in users
 - signed-in users get a CTA into `/my-activities` instead of replacing the page with a dashboard
+- long home-page modals now keep their own internal scroll and use body-scroll locking so the page behind them stays put
 
 ### `MyActivities.tsx`
 
@@ -169,6 +170,7 @@ The route table lives in `src/App.tsx`.
 - host name is treated as public for public and semi-public activities
 - co-host access check for edit mode
 - magic-link return resumes on Step 3 and only opens `One Last Step` when profile details are still missing
+- auth-related modals no longer auto-focus inputs on open, which keeps mobile viewports more stable before the user starts typing
 
 ### `EventDetail.tsx`
 
@@ -190,6 +192,7 @@ The route table lives in `src/App.tsx`.
 - share-link choices
 - host-view detection for semi-public/private access
 - signed-in RSVP now ensures an attendee profile exists before submit, aligning it with the safer signed-in interest flow
+- modal forms avoid automatic keyboard pop on open, and the page behind the modal is now scroll-locked while a modal is active
 
 ### `HostDashboard.tsx`
 
@@ -291,6 +294,7 @@ Important files:
 - `bookings.ts`: booking grouping
 - `interests.ts`: "thinking about it" helpers
 - `rsvp.ts`: shared RSVP decision helpers
+- `useBodyScrollLock.ts`: shared body-scroll locking for modal-heavy pages so sheet scrolling does not move the background document
 
 ### Services
 

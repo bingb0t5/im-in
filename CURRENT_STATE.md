@@ -64,6 +64,7 @@ The weakest / least finished areas are:
 - hidden `/admin/feedback` page for blocked abuse items, failed Trello syncs, unsent submissions, retry-to-board actions, and archive/restore
 - hidden `/admin/feedback` page now also includes a passed-to-Trello bucket and permanent delete actions with typed confirmation
 - feedback submission success now includes a direct link to the public dev board
+- long and form-heavy modals now use cleaner mobile behavior, including sticky headers, internal sheet scrolling, background-page scroll lock, and no forced keyboard pop on open
 - Google Calendar link
 - `.ics` download
 - co-host support
@@ -179,6 +180,14 @@ What is still minimal:
 
 - the reviewer UI is intentionally lightweight and hidden, not a full operations console
 - trust scoring is intentionally simple and based on prior hosted-activity count, not a richer reputation system
+
+### Modal / mobile UX
+
+Recent modal cleanup improved a few previously annoying interaction issues:
+
+- long home-page modals now keep their own scroll instead of asking the browser page behind them to do part of the work
+- the main user-facing modal flows now lock body scroll so closing a modal returns people to the same page position they started from
+- form modals no longer auto-focus the first input on open, which avoids mobile keyboards immediately pushing the sheet upward before the user is ready
 
 ## Not Implemented / Not Production-Ready
 

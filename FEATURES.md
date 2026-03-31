@@ -80,6 +80,7 @@ Features:
 - "Help build it" modal
 - "Send feedback" modal (bug / feature / feedback) with optional screenshot upload
 - feedback success state includes a link to the public dev board
+- long modals keep their own internal scroll and lock the page behind them while open
 - roadmap and email links
 
 ### Admin tooling
@@ -148,6 +149,7 @@ Features:
 - share actions
 - Google Calendar action
 - `.ics` download action
+- modal forms now avoid auto-opening the keyboard on arrival, which keeps the sheet from jumping down on mobile before the user taps a field
 
 ### Create / edit page
 
@@ -169,6 +171,7 @@ Features:
 - public vs private summary/location inputs
 - optional Google Maps link
 - explicit `Fill from link` action that can parse a shared Google Maps link and prefill the location fields while keeping them editable
+- auth/profile modals now open without auto-focusing inputs so the mobile keyboard does not immediately shove the sheet upward
 
 ### Host dashboard
 
@@ -429,6 +432,7 @@ Host side:
 
 - pending requests show in the host UI
 - approved and declined requests are archived into separate views/tallies
+- request-to-view modal now opens without auto-launching the keyboard, reducing mobile viewport jumpiness
 
 ## 7. RSVP
 
