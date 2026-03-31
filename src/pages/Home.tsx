@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { guestService } from '../services/guestService';
 import { invokePublicFunction } from '../lib/functions';
 import { feedbackTypeOptions, fileToDataUrl } from '../lib/feedback';
+import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { FeedbackSubmissionPayload, FeedbackSubmissionResult, FeedbackSubmissionType } from '../types';
 
 const emptyFeedbackForm = {
@@ -29,6 +30,8 @@ export default function Home({ user }: { user: User | null }) {
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
   const [screenshotName, setScreenshotName] = useState<string | null>(null);
+
+  useBodyScrollLock(showWhyModal || showBuildModal || showFeedbackModal);
 
   useEffect(() => {
     setHasGuestSession(!!guestService.getStoredSession());
@@ -237,7 +240,7 @@ export default function Home({ user }: { user: User | null }) {
         {/* Feedback Modal */}
         <AnimatePresence>
           {showFeedbackModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-6 text-left overflow-y-auto overscroll-contain">
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 text-left overflow-hidden overscroll-contain">
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -249,16 +252,16 @@ export default function Home({ user }: { user: User | null }) {
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="relative w-full max-w-sm bg-white rounded-[2rem] p-8 shadow-2xl overflow-y-auto max-h-[85vh] sm:max-h-[80vh] my-auto"
+                className="relative w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto flex min-h-0 flex-col"
               >
-                <div className="flex items-center justify-between mb-5">
+                <div className="shrink-0 px-8 py-5 bg-white border-b border-slate-100 flex items-center justify-between">
                   <h2 className="text-xl font-black text-slate-900 tracking-tight">Share feedback</h2>
                   <button onClick={closeFeedbackModal} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
                     <X className="w-6 h-6 text-slate-300" />
                   </button>
                 </div>
-
-                <form className="space-y-3.5" onSubmit={handleSubmitFeedback}>
+                <div className="min-h-0 overflow-y-auto px-8 pb-8">
+                <form className="space-y-3.5 pt-5" onSubmit={handleSubmitFeedback}>
                   <label className="block">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</span>
                     <select
@@ -359,6 +362,7 @@ export default function Home({ user }: { user: User | null }) {
                     {feedbackSubmitting ? 'Sending...' : 'Send feedback'}
                   </button>
                 </form>
+                </div>
               </motion.div>
             </div>
           )}
@@ -367,7 +371,7 @@ export default function Home({ user }: { user: User | null }) {
         {/* Why this exists Modal */}
         <AnimatePresence>
           {showWhyModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-6 text-left overflow-y-auto overscroll-contain">
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 text-left overflow-hidden overscroll-contain">
               <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -379,16 +383,16 @@ export default function Home({ user }: { user: User | null }) {
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="relative w-full max-w-sm bg-white rounded-[2rem] p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
+                className="relative w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto flex min-h-0 flex-col"
               >
-                <div className="flex items-center justify-between mb-6">
+                <div className="shrink-0 px-8 py-6 bg-white border-b border-slate-100 flex items-center justify-between">
                   <h2 className="text-xl font-black text-slate-900 tracking-tight">Why <span className="italic">I&apos;m In</span> exists</h2>
                   <button onClick={() => setShowWhyModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
                     <X className="w-6 h-6 text-slate-300" />
                   </button>
                 </div>
-                
-                <div className="space-y-4 text-slate-600 text-sm font-medium leading-relaxed">
+                <div className="min-h-0 overflow-y-auto px-8 pb-8">
+                <div className="space-y-4 pt-6 text-slate-600 text-sm font-medium leading-relaxed">
                   <p><span className="italic">I&apos;m In</span> is a simple way to organise real-life plans, activities, and events without replacing the WhatsApp groups people already use.</p>
                   <p>You still share and chat in your groups. <span className="italic">I&apos;m In</span> just makes it easier to see what&apos;s on, manage who&apos;s coming, and keep things organised.</p>
                   <p>It works alongside the groups and communities people already use, not inside a new one. In places like Hoi An, there are often overlapping groups with similar people and activities, but not always much visibility between them.</p>
@@ -456,6 +460,7 @@ export default function Home({ user }: { user: User | null }) {
                     Send feedback
                   </button>
                 </div>
+                </div>
               </motion.div>
             </div>
           )}
@@ -464,7 +469,7 @@ export default function Home({ user }: { user: User | null }) {
         {/* Help build it Modal */}
         <AnimatePresence>
           {showBuildModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-6 text-left overflow-y-auto overscroll-contain">
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 text-left overflow-hidden overscroll-contain">
               <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -476,16 +481,16 @@ export default function Home({ user }: { user: User | null }) {
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="relative w-full max-w-sm bg-white rounded-[2rem] p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
+                className="relative w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto flex min-h-0 flex-col"
               >
-                <div className="flex items-center justify-between mb-6">
+                <div className="shrink-0 px-8 py-6 bg-white border-b border-slate-100 flex items-center justify-between">
                   <h2 className="text-xl font-black text-slate-900 tracking-tight">Help build <span className="italic">I&apos;m In</span></h2>
                   <button onClick={() => setShowBuildModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
                     <X className="w-6 h-6 text-slate-300" />
                   </button>
                 </div>
-                
-                <div className="space-y-4 text-slate-600 text-sm font-medium leading-relaxed">
+                <div className="min-h-0 overflow-y-auto px-8 pb-8">
+                <div className="space-y-4 pt-6 text-slate-600 text-sm font-medium leading-relaxed">
                   <p><span className="italic">I&apos;m In</span> is still early, and evolving as people use it.</p>
                   <p>The aim is simple: make organising things easier for real-world communities.</p>
                   <p>It&apos;s being shaped by the people who organise and join activities, not just built in isolation.</p>
@@ -507,8 +512,8 @@ export default function Home({ user }: { user: User | null }) {
                         'contribute design, copy, or code',
                         'suggest ideas and vote on what would be most useful'
                       ].map((item, i) => (
-                        <li key={i} className="flex items-center gap-2">
-                          <div className="w-1.5 h-1.5 bg-brand-600 rounded-full" />
+                        <li key={i} className="flex items-start gap-2">
+                          <div className="w-1.5 h-1.5 bg-brand-600 rounded-full mt-2 shrink-0" />
                           {item}
                         </li>
                       ))}
@@ -535,6 +540,7 @@ export default function Home({ user }: { user: User | null }) {
                   >
                     See what&apos;s being worked on
                   </a>
+                </div>
                 </div>
               </motion.div>
             </div>

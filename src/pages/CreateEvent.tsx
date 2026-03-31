@@ -19,6 +19,7 @@ import { invokeAuthedFunction, invokePublicFunction } from '../lib/functions';
 import { goBackOr } from '../lib/navigation';
 import { applyGoogleMapsAutofill, isGoogleMapsShortUrl, parseGoogleMapsLocation } from '../lib/googleMaps';
 import { shouldModerateVisibility } from '../lib/moderation';
+import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
 
 const CREATE_EVENT_DRAFT_KEY = 'im_in_create_event_draft';
@@ -120,6 +121,8 @@ export default function CreateEvent({ user }: { user: User | null }) {
   const [mapsAutofillLoading, setMapsAutofillLoading] = useState(false);
   const [mapsAutofillMessage, setMapsAutofillMessage] = useState<string | null>(null);
   const [mapsAutofillError, setMapsAutofillError] = useState<string | null>(null);
+
+  useBodyScrollLock(showEmailModal || showProfileModal);
 
   const pickHostNameFromProfile = (profile: any) => {
     const first = (profile?.first_name || '').trim();
@@ -1237,7 +1240,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
       <AnimatePresence>
         {showEmailModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-y-auto overscroll-contain">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1249,7 +1252,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
+              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
             >
               <h2 className="text-xl font-black text-slate-900 tracking-tight mb-2">Finish with Magic Link</h2>
               <p className="text-sm text-slate-500 font-medium mb-6">
@@ -1292,7 +1295,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
       <AnimatePresence>
         {showProfileModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-y-auto overscroll-contain">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1304,7 +1307,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
+              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
             >
               <h2 className="text-xl font-black text-slate-900 tracking-tight mb-2">One Last Step</h2>
               <p className="text-sm text-slate-500 font-medium mb-6">

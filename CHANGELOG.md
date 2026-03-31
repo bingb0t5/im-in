@@ -37,6 +37,9 @@
 - updated the hosted `Semi-public` visibility badge in `My Activities` to use the same indigo color family as the public activities page
 - made the top-left `I'm In` brand in `My Activities` clickable so it returns to `Home`
 - updated the browser/app icon assets to use the same green calendar mark as the home-screen logo
+- changed the feedback-to-Trello flow so Trello cards now receive the full submitted title/details message instead of a shortened sanitized summary, while still keeping the abuse check in place
+- tweaked the `Help build it` modal bullet list alignment so wrapped items sit more cleanly beside their bullet dot
+- made the headers in the longer home-page modals sticky so the title and close button stay visible while scrolling
 - updated schema/reconcile docs and project documentation to reflect the new identity and host-setting behavior
 
 ### Documentation
