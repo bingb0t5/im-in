@@ -211,6 +211,27 @@ export default function MyActivities({ user }: { user: User | null }) {
     navigate(nextPath);
   };
 
+  const getVisibilityBadge = (visibility?: Event['visibility']) => {
+    if (visibility === 'public') {
+      return {
+        label: 'Public',
+        className: 'bg-emerald-50 text-emerald-700 border border-emerald-100',
+      };
+    }
+
+    if (visibility === 'private') {
+      return {
+        label: 'Private',
+        className: 'bg-slate-100 text-slate-600 border border-slate-200',
+      };
+    }
+
+    return {
+      label: 'Semi-public',
+      className: 'bg-indigo-50 text-indigo-600 border border-indigo-100',
+    };
+  };
+
   const groupedJoinedEvents = groupBookingsByEvent(joinedEvents);
   const upcomingHostedEvents = hostedEvents.filter((event) =>
     isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone),
@@ -229,10 +250,10 @@ export default function MyActivities({ user }: { user: User | null }) {
     <div className="min-h-screen bg-slate-50 pb-32">
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex flex-col">
+          <Link to="/" className="flex flex-col hover:opacity-80 transition-opacity">
             <h1 className="text-lg font-black tracking-tight text-brand-600 leading-none">I'm In</h1>
             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">My Activities</span>
-          </div>
+          </Link>
           <div className="flex items-center gap-4">
             <Link to="/" className="text-slate-600 hover:text-brand-600 text-xs font-black transition-colors">
               Home
@@ -413,7 +434,12 @@ export default function MyActivities({ user }: { user: User | null }) {
                       <p className="text-xs text-slate-400 mt-0.5">{formatDate(event.starts_at, event.timezone)}</p>
                       <p className="text-xs text-slate-400 mt-0.5">{event.location_text || 'No location'} · {(event as any).confirmed_count || 0} going</p>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide whitespace-nowrap ${getVisibilityBadge(event.visibility).className}`}>
+                        {getVisibilityBadge(event.visibility).label}
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
+                    </div>
                   </div>
                 </Link>
               ))}
@@ -490,7 +516,12 @@ export default function MyActivities({ user }: { user: User | null }) {
                         <p className="text-xs text-slate-400 mt-0.5">{formatDate(event.starts_at, event.timezone)}</p>
                         <p className="text-xs text-slate-400 mt-0.5">{event.location_text || 'No location'} · {(event as any).confirmed_count || 0} going</p>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide whitespace-nowrap ${getVisibilityBadge(event.visibility).className}`}>
+                          {getVisibilityBadge(event.visibility).label}
+                        </span>
+                        <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
+                      </div>
                     </div>
                   </Link>
                 ))}

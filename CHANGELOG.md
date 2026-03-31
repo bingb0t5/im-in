@@ -29,7 +29,14 @@
 - refined post-magic-link create behavior so returning users only see `One Last Step` when profile details are actually still missing
 - improved auth-shell resilience so non-config `getSession()` failures no longer leave the app on an endless loading spinner, and signed-in `/login` now returns people to `My Activities`
 - softened profile-save success copy when cross-activity name sync is only partially confirmed and made profile email display prefer the canonical profile record
+- updated the required-email RSVP/signup modal copy to explain that host-required email helps stop spam, confirms the person is real, and is only used for account recovery
 - added a small signed-out `Sign in` link on the home page and fixed the `/login` back/logout history loop by sending login back to `Home` and replacing the logout navigation entry
+- fixed host request-to-view WhatsApp actions so approving/sharing now reliably opens WhatsApp with the prefilled message instead of silently approving when the browser delays popup creation
+- updated approved request-to-view rows so hosts can send the private-link WhatsApp message again after a request has already been approved
+- added public / semi-public / private visibility tags to hosted activity rows in `My Activities`
+- updated the hosted `Semi-public` visibility badge in `My Activities` to use the same indigo color family as the public activities page
+- made the top-left `I'm In` brand in `My Activities` clickable so it returns to `Home`
+- updated the browser/app icon assets to use the same green calendar mark as the home-screen logo
 - updated schema/reconcile docs and project documentation to reflect the new identity and host-setting behavior
 
 ### Documentation

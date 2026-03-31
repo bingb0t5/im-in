@@ -1544,7 +1544,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                     {guestProfile
                       ? "We've remembered you on this device."
                       : isGuestEmailRequired
-                        ? "Enter your details once and we'll remember you on this device."
+                        ? "This host asks people signing up to add an email address to help stop spam and confirm you're a real person. Your email is only used for account recovery."
                         : "Just add your name and you're in."}
                   </p>
                 </div>
