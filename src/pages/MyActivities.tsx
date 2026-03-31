@@ -202,7 +202,7 @@ export default function MyActivities({ user }: { user: User | null }) {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   const handlePublicSearchChange = (value: string) => {

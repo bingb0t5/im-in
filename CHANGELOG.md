@@ -29,6 +29,7 @@
 - refined post-magic-link create behavior so returning users only see `One Last Step` when profile details are actually still missing
 - improved auth-shell resilience so non-config `getSession()` failures no longer leave the app on an endless loading spinner, and signed-in `/login` now returns people to `My Activities`
 - softened profile-save success copy when cross-activity name sync is only partially confirmed and made profile email display prefer the canonical profile record
+- added a small signed-out `Sign in` link on the home page and fixed the `/login` back/logout history loop by sending login back to `Home` and replacing the logout navigation entry
 - updated schema/reconcile docs and project documentation to reflect the new identity and host-setting behavior
 
 ### Documentation
