@@ -272,7 +272,6 @@ export default function HostDashboard({ user }: { user: User | null }) {
           getAccountNameFromUser(user),
           getProfileName(profile),
           data.host_name,
-          getDisplayName('', user.email || ''),
         );
 
         if (preferredHostName && preferredHostName !== (data.host_name || '').trim()) {

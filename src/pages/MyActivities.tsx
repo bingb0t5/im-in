@@ -240,6 +240,9 @@ export default function MyActivities({ user }: { user: User | null }) {
             <Link to="/calendar" className="text-slate-600 hover:text-brand-600 text-xs font-black flex items-center gap-1.5 transition-colors">
               <CalendarIcon className="w-4 h-4" /> What's On
             </Link>
+            <Link to="/profile" className="text-slate-600 hover:text-brand-600 text-xs font-black transition-colors">
+              Profile
+            </Link>
             <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all">
               <LogOut className="w-5 h-5" />
             </button>

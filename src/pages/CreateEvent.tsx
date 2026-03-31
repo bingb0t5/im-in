@@ -122,17 +122,43 @@ export default function CreateEvent({ user }: { user: User | null }) {
   const [mapsAutofillError, setMapsAutofillError] = useState<string | null>(null);
 
   const pickHostNameFromProfile = (profile: any) => {
-    const fullName = (profile?.full_name || '').trim();
-    if (fullName) return fullName;
     const first = (profile?.first_name || '').trim();
     const last = (profile?.last_name || '').trim();
-    return `${first} ${last}`.trim();
+    const composed = `${first} ${last}`.trim();
+    if (composed) return composed;
+    return (profile?.full_name || '').trim();
   };
 
-  const humanizeEmailName = (email?: string | null) =>
-    ((email || '').split('@')[0] || '')
+  const pickFirstNonEmpty = (...values: Array<string | null | undefined>) => {
+    for (const value of values) {
+      const trimmed = (value || '').trim();
+      if (trimmed) return trimmed;
+    }
+    return '';
+  };
+
+  const getEmailLocalPart = (email?: string | null) =>
+    ((email || '').split('@')[0] || '').trim().toLowerCase();
+
+  const normalizeLooseName = (value?: string | null) =>
+    (value || '')
+      .trim()
+      .toLowerCase()
       .replace(/[._-]+/g, ' ')
-      .trim();
+      .replace(/\s+/g, ' ');
+
+  const isNameLikelyFromEmailHandle = (name?: string | null, email?: string | null) => {
+    const normalizedName = normalizeLooseName(name);
+    const localPart = normalizeLooseName(getEmailLocalPart(email));
+    if (!normalizedName || !localPart) return false;
+    return normalizedName === localPart;
+  };
+
+  const isTrustedHumanName = (name?: string | null, email?: string | null) => {
+    const normalizedName = normalizeLooseName(name);
+    if (!normalizedName) return false;
+    return !isNameLikelyFromEmailHandle(normalizedName, email);
+  };
 
   const runModerationForEvent = async (eventId: string, visibility: 'public' | 'semi_public' | 'private') => {
     if (!shouldModerateVisibility(visibility)) return;
@@ -185,19 +211,30 @@ export default function CreateEvent({ user }: { user: User | null }) {
   useEffect(() => {
     if (isEditing || !user) return;
     if (localStorage.getItem(CREATE_EVENT_PENDING_AUTH_KEY) === 'true') {
-      const fallbackName = getAccountNameFromUser(user);
-      if (fallbackName && !formData.host_name.trim()) {
-        setFormData(prev => ({ ...prev, host_name: fallbackName }));
+      setCurrentStep(3);
+      let shouldCollectProfileDetails = true;
+      const draftRaw = localStorage.getItem(CREATE_EVENT_DRAFT_KEY);
+      if (draftRaw) {
+        try {
+          const draft = JSON.parse(draftRaw) as CreateEventDraft;
+          shouldCollectProfileDetails = !!draft.needsProfileDetails;
+        } catch {
+          shouldCollectProfileDetails = true;
+        }
       }
-      if (needsProfileDetails && !fallbackName && !formData.host_name.trim()) {
+
+      setNeedsProfileDetails(shouldCollectProfileDetails);
+      if (shouldCollectProfileDetails) {
+        setProfileName('');
         setShowProfileModal(true);
         setAuthMessage('Welcome! Add your name to finish creating your activity.');
       } else {
-        setAuthMessage("You're signed in. Click Create Activity to finish saving.");
+        setShowProfileModal(false);
+        setAuthMessage('You are signed in. Review your details and click Create Activity.');
       }
       localStorage.removeItem(CREATE_EVENT_PENDING_AUTH_KEY);
     }
-  }, [isEditing, user, needsProfileDetails, formData.host_name]);
+  }, [isEditing, user]);
 
   useEffect(() => {
     if (!user) {
@@ -218,35 +255,24 @@ export default function CreateEvent({ user }: { user: User | null }) {
         .maybeSingle();
 
       let resolvedName = pickHostNameFromProfile(byUserId);
+      if (!isTrustedHumanName(resolvedName, normalizedEmail)) {
+        resolvedName = '';
+      }
       if (!resolvedName && normalizedEmail) {
         const { data: byEmail } = await supabase
           .from('attendee_profiles')
           .select('full_name, first_name, last_name')
           .eq('email', normalizedEmail)
           .maybeSingle();
-        resolvedName = pickHostNameFromProfile(byEmail);
+        const byEmailName = pickHostNameFromProfile(byEmail);
+        if (isTrustedHumanName(byEmailName, normalizedEmail)) {
+          resolvedName = byEmailName;
+        }
       }
 
       const metadataName = getAccountNameFromUser(user);
-      if (!resolvedName && metadataName) {
+      if (!resolvedName && isTrustedHumanName(metadataName, normalizedEmail)) {
         resolvedName = metadataName;
-      }
-
-      if (!resolvedName) {
-        const { data: latestHostedEvent } = await supabase
-          .from('events')
-          .select('host_name, created_at')
-          .eq('host_user_id', user.id)
-          .not('host_name', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        resolvedName = (latestHostedEvent?.host_name || '').trim();
-      }
-
-      if (!resolvedName && normalizedEmail) {
-        resolvedName = humanizeEmailName(normalizedEmail);
       }
 
       if (!cancelled && resolvedName) {
@@ -263,8 +289,10 @@ export default function CreateEvent({ user }: { user: User | null }) {
   useEffect(() => {
     if (!user || !accountHostName) return;
     setFormData((prev) => (prev.host_name === accountHostName ? prev : { ...prev, host_name: accountHostName }));
-    setProfileName((prev) => prev || accountHostName);
-  }, [user, accountHostName]);
+    if (!needsProfileDetails) {
+      setProfileName((prev) => prev || accountHostName);
+    }
+  }, [user, accountHostName, needsProfileDetails]);
 
   const fetchEvent = async () => {
     const { data, error } = await supabase
@@ -298,10 +326,11 @@ export default function CreateEvent({ user }: { user: User | null }) {
     if (data.host_user_id === user.id) {
       const profile = await guestService.getOrCreateProfileForUser(user);
       const preferredHostName =
-        getAccountNameFromUser(user) ||
-        pickHostNameFromProfile(profile) ||
-        (data.host_name || '').trim() ||
-        humanizeEmailName(user.email);
+        pickFirstNonEmpty(
+          isTrustedHumanName(getAccountNameFromUser(user), user.email) ? getAccountNameFromUser(user) : '',
+          isTrustedHumanName(pickHostNameFromProfile(profile), user.email) ? pickHostNameFromProfile(profile) : '',
+          isTrustedHumanName((data.host_name || '').trim(), user.email) ? (data.host_name || '').trim() : '',
+        );
 
       if (preferredHostName && preferredHostName !== (data.host_name || '').trim()) {
         const { error: updateHostNameError } = await supabase
@@ -375,13 +404,20 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
       // Clean up optional fields: convert empty strings to null
       const metadataName = getAccountNameFromUser(user);
-      const emailName = (user.email || '').split('@')[0].replace(/[._-]+/g, ' ').trim();
-      const resolvedHostName = (accountHostName || formData.host_name || metadataName || emailName).trim();
+      const resolvedHostName = pickFirstNonEmpty(
+        isTrustedHumanName(formData.host_name, user.email) ? formData.host_name : '',
+        isTrustedHumanName(accountHostName, user.email) ? accountHostName : '',
+        isTrustedHumanName(metadataName, user.email) ? metadataName : '',
+      ).trim();
       const resolvedHostContact = formData.host_contact_text.trim();
       const resolvedVisibility = formData.visibility || 'semi_public';
       if (!resolvedHostName) {
-        throw new Error('Host name is required to create an activity.');
+        setProfileName('');
+        setNeedsProfileDetails(true);
+        setShowProfileModal(true);
+        throw new Error('Please add your name before creating this activity.');
       }
+      await guestService.getOrCreateProfileForUser(user, resolvedHostName);
       if (!formData.starts_at) {
         throw new Error('Start time is required.');
       }
@@ -529,9 +565,8 @@ export default function CreateEvent({ user }: { user: User | null }) {
       .eq('email', normalizedEmail)
       .maybeSingle();
     if (existingProfile) {
-      const hasProfileName = !!(
-        existingProfile.first_name?.trim() || existingProfile.last_name?.trim()
-      );
+      const profileName = `${existingProfile.first_name || ''} ${existingProfile.last_name || ''}`.trim();
+      const hasProfileName = isTrustedHumanName(profileName, normalizedEmail);
       shouldCollectProfileDetails = !hasProfileName;
     }
 
@@ -567,21 +602,30 @@ export default function CreateEvent({ user }: { user: User | null }) {
     setAuthLoading(false);
   };
 
-  const handleProfileDetailsSubmit = (e: React.FormEvent) => {
+  const handleProfileDetailsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const normalizedName = profileName.trim();
     if (!normalizedName) {
       setError('Please add your name to continue.');
       return;
     }
-    setFormData(prev => ({
-      ...prev,
-      host_name: normalizedName,
-      host_contact_text: profileWhatsapp.trim(),
-    }));
-    setNeedsProfileDetails(false);
-    setShowProfileModal(false);
-    setAuthMessage('Details saved. Click Create Activity to finish.');
+    try {
+      setError(null);
+      if (user) {
+        await guestService.getOrCreateProfileForUser(user, normalizedName);
+      }
+      setAccountHostName(normalizedName);
+      setFormData(prev => ({
+        ...prev,
+        host_name: normalizedName,
+        host_contact_text: profileWhatsapp.trim(),
+      }));
+      setNeedsProfileDetails(false);
+      setShowProfileModal(false);
+      setAuthMessage('Details saved. Click Create Activity to finish.');
+    } catch (profileError) {
+      setError(profileError instanceof Error ? profileError.message : 'Could not save your profile details.');
+    }
   };
 
   const selectedVisibilityOption = VISIBILITY_OPTIONS.find((option) => option.value === formData.visibility);

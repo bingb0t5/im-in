@@ -24,7 +24,7 @@ export default function Login({ user }: { user: User | null }) {
     }
   }, [searchParams]);
 
-  if (user) return <Navigate to="/create-event" replace />;
+  if (user) return <Navigate to="/my-activities" replace />;
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

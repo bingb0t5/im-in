@@ -17,10 +17,21 @@ export interface GuestSession {
   profile: AttendeeProfile;
 }
 
+export interface SignedInProfileUpdateResult {
+  profile: AttendeeProfile;
+  emailChangeRequested: boolean;
+  nameSyncComplete: boolean;
+}
+
 const GUEST_SESSION_KEY = 'im_in_guest_session';
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
+}
+
+function getPreferredProfileEmailForUser(user: User) {
+  const normalizedAuthEmail = normalizeEmail(user.email || '');
+  return normalizedAuthEmail || buildSystemGuestEmail(user.id);
 }
 
 function buildSystemGuestEmail(seed: string) {
@@ -38,6 +49,68 @@ function pickFirstNonEmpty(...values: Array<string | null | undefined>) {
     if (trimmed) return trimmed;
   }
   return '';
+}
+
+function splitNameParts(fullName: string) {
+  const parts = fullName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return {
+    firstName: parts[0] || '',
+    lastName: parts.slice(1).join(' '),
+  };
+}
+
+function normalizeLooseName(value?: string | null) {
+  return (value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+function getProfileDisplayName(profile?: Partial<AttendeeProfile> | null) {
+  return pickFirstNonEmpty(
+    `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim(),
+    profile?.full_name || '',
+  );
+}
+
+function getEmailHandle(email?: string | null) {
+  return normalizeLooseName((email || '').split('@')[0] || '');
+}
+
+function hasMeaningfulProfileName(profile?: Partial<AttendeeProfile> | null) {
+  const name = normalizeLooseName(getProfileDisplayName(profile));
+  if (!name) return false;
+  const emailHandle = getEmailHandle(profile?.email);
+  return !emailHandle || name !== emailHandle;
+}
+
+function scoreProfileCandidate(profile: any, user: User, normalizedEmail: string) {
+  let score = 0;
+  if (hasMeaningfulProfileName(profile)) score += 100;
+  if ((profile?.user_id || '') === user.id) score += 60;
+  if (normalizeEmail(profile?.email || '') === normalizedEmail) score += 30;
+  if (!isSystemGuestEmail(profile?.email || '')) score += 10;
+  return score;
+}
+
+function dedupeProfiles(rows: any[]) {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const id = row?.id || '';
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+function shouldAdoptSignedInEmail(profile: Partial<AttendeeProfile> | null | undefined, normalizedAuthEmail: string) {
+  if (!normalizedAuthEmail) return false;
+  const currentEmail = normalizeEmail(profile?.email || '');
+  return !currentEmail || isSystemGuestEmail(currentEmail);
 }
 
 export function getAccountNameFromUser(user?: User | null) {
@@ -122,11 +195,13 @@ export const guestService = {
     if (existingProfile) {
       profile = existingProfile;
       // Update name if it changed, and user_id if provided.
+      const nextFirstName = firstName || profile.first_name;
+      const nextLastName = lastName || profile.last_name;
       await supabase
         .from('attendee_profiles')
         .update({
-          first_name: firstName || profile.first_name,
-          last_name: lastName || profile.last_name,
+          first_name: nextFirstName,
+          last_name: nextLastName,
           user_id: userId || profile.user_id,
         })
         .eq('id', profile.id);
@@ -244,32 +319,13 @@ export const guestService = {
     if (existingError) throw existingError;
 
     if (existingByEmail && existingByEmail.id !== profileId) {
-      // Merge identity references so the existing email-backed profile becomes canonical.
-      await Promise.all([
-        supabase
-          .from('event_attendees')
-          .update({ attendee_profile_id: existingByEmail.id })
-          .eq('attendee_profile_id', profileId),
-        supabase
-          .from('event_interests')
-          .update({ attendee_profile_id: existingByEmail.id })
-          .eq('attendee_profile_id', profileId),
-        supabase
-          .from('event_join_requests')
-          .update({ attendee_profile_id: existingByEmail.id })
-          .eq('attendee_profile_id', profileId),
-        supabase
-          .from('attendee_sessions')
-          .update({ attendee_profile_id: existingByEmail.id })
-          .eq('attendee_profile_id', profileId),
-      ]);
-
-      await supabase
-        .from('attendee_profiles')
-        .delete()
-        .eq('id', profileId);
-
-      return existingByEmail as AttendeeProfile;
+      const { data: mergedProfile, error: mergeError } = await supabase.rpc('merge_attendee_profiles', {
+        p_source_profile_id: profileId,
+        p_target_profile_id: existingByEmail.id,
+        p_session_token: this.getStoredSession(),
+      });
+      if (mergeError) throw mergeError;
+      return (mergedProfile as AttendeeProfile) || (existingByEmail as AttendeeProfile);
     }
 
     const { data: updated, error } = await supabase
@@ -283,25 +339,67 @@ export const guestService = {
   },
 
   async getOrCreateProfileForUser(user: User, name?: string): Promise<AttendeeProfile> {
-    const email = normalizeEmail(user.email!);
-    const names = (name || getAccountNameFromUser(user) || '').split(' ');
+    const normalizedAuthEmail = normalizeEmail(user.email || '');
+    const preferredEmail = getPreferredProfileEmailForUser(user);
+    const normalizedProvidedName = (name || '').trim();
+    const fallbackMetadataName = getAccountNameFromUser(user) || '';
+    const names = (normalizedProvidedName || fallbackMetadataName).split(' ');
     const firstName = names[0] || '';
     const lastName = names.slice(1).join(' ') || '';
+    const shouldUpdateNameFields = !!normalizedProvidedName;
 
     let profile: AttendeeProfile;
-    const { data: existingProfile } = await supabase
+    const { data: existingByUserId } = await supabase
       .from('attendee_profiles')
       .select('*')
-      .eq('email', email)
-      .maybeSingle();
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false });
+
+    const { data: existingByEmail } = await supabase
+      .from('attendee_profiles')
+      .select('*')
+      .eq('email', normalizedAuthEmail || preferredEmail);
+
+    const profileCandidates = dedupeProfiles([...(existingByUserId || []), ...(existingByEmail || [])]);
+    const existingProfile = (profileCandidates.sort((a, b) => scoreProfileCandidate(b, user, normalizedAuthEmail) - scoreProfileCandidate(a, user, normalizedAuthEmail))[0] ||
+      null) as AttendeeProfile | null;
 
     if (existingProfile) {
       profile = existingProfile;
       // Keep the signed-in profile aligned to the current account identity.
-      const updates: Partial<Pick<AttendeeProfile, 'user_id' | 'first_name' | 'last_name'>> = {};
+      const updates: Partial<Pick<AttendeeProfile, 'user_id' | 'first_name' | 'last_name' | 'email'>> = {};
       if (!profile.user_id) updates.user_id = user.id;
-      if (firstName && firstName !== (profile.first_name || '')) updates.first_name = firstName;
-      if (lastName !== (profile.last_name || '')) updates.last_name = lastName;
+      if (shouldUpdateNameFields) {
+        if (firstName !== (profile.first_name || '')) updates.first_name = firstName;
+        if (lastName !== (profile.last_name || '')) updates.last_name = lastName;
+      }
+      if (!shouldUpdateNameFields && fallbackMetadataName) {
+        const normalizedMetadataName = normalizeLooseName(fallbackMetadataName);
+        const normalizedCurrentName = normalizeLooseName(
+          `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.full_name || ''
+        );
+        const normalizedCurrentFirst = normalizeLooseName(profile.first_name || '');
+        const metadataParts = fallbackMetadataName.trim().split(/\s+/).filter(Boolean);
+        const metadataFirst = metadataParts[0] || '';
+        const metadataLast = metadataParts.slice(1).join(' ');
+        const looksTruncatedToFirstWord =
+          !!metadataLast &&
+          normalizedCurrentName === normalizedCurrentFirst &&
+          normalizedCurrentFirst === normalizeLooseName(metadataFirst);
+
+        if (looksTruncatedToFirstWord || !normalizedCurrentName) {
+          if (metadataFirst !== (profile.first_name || '')) updates.first_name = metadataFirst;
+          if (metadataLast !== (profile.last_name || '')) updates.last_name = metadataLast;
+        } else if (normalizedCurrentName !== normalizedMetadataName) {
+          // Leave deliberate profile names alone when they differ from auth metadata.
+        }
+      }
+      if (
+        shouldAdoptSignedInEmail(profile, normalizedAuthEmail) &&
+        normalizeEmail(profile.email || '') !== normalizedAuthEmail
+      ) {
+        updates.email = normalizedAuthEmail;
+      }
 
       if (Object.keys(updates).length > 0) {
         const { data: updated } = await supabase
@@ -323,7 +421,7 @@ export const guestService = {
       const { data: newProfile, error: profileError } = await supabase
         .from('attendee_profiles')
         .insert([{ 
-          email, 
+          email: preferredEmail, 
           first_name: firstName, 
           last_name: lastName,
           user_id: user.id
@@ -336,5 +434,122 @@ export const guestService = {
     }
 
     return profile;
-  }
+  },
+
+  async getProfileForUser(user: User): Promise<AttendeeProfile | null> {
+    const normalizedEmail = normalizeEmail(user.email || '');
+
+    const { data: byUserId } = await supabase
+      .from('attendee_profiles')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false });
+
+    if (!normalizedEmail && (!byUserId || byUserId.length === 0)) return null;
+    const { data: byEmail } = normalizedEmail
+      ? await supabase
+          .from('attendee_profiles')
+          .select('*')
+          .eq('email', normalizedEmail)
+      : { data: [] };
+
+    const profileCandidates = dedupeProfiles([...(byUserId || []), ...(byEmail || [])]);
+    if (profileCandidates.length === 0) return null;
+    const selected = profileCandidates.sort(
+      (a, b) => scoreProfileCandidate(b, user, normalizedEmail) - scoreProfileCandidate(a, user, normalizedEmail)
+    )[0] as AttendeeProfile;
+
+    if (!selected.user_id) {
+      await supabase
+        .from('attendee_profiles')
+        .update({ user_id: user.id })
+        .eq('id', selected.id);
+      return { ...selected, user_id: user.id } as AttendeeProfile;
+    }
+
+    return selected;
+  },
+
+  async syncNameAcrossUserRecords(user: User, profileId: string, fullName: string): Promise<void> {
+    const normalizedName = fullName.trim();
+    if (!normalizedName) return;
+
+    const results = await Promise.all([
+      supabase
+        .from('events')
+        .update({ host_name: normalizedName })
+        .eq('host_user_id', user.id),
+      supabase
+        .from('event_attendees')
+        .update({ guest_name: normalizedName })
+        .or(`user_id.eq.${user.id},attendee_profile_id.eq.${profileId}`)
+        .eq('added_by_type', 'self'),
+      supabase
+        .from('event_attendees')
+        .update({ guest_name: normalizedName })
+        .or(`user_id.eq.${user.id},attendee_profile_id.eq.${profileId}`)
+        .is('added_by_type', null),
+      supabase
+        .from('event_interests')
+        .update({ guest_name: normalizedName })
+        .or(`user_id.eq.${user.id},attendee_profile_id.eq.${profileId}`),
+      supabase
+        .from('event_join_requests')
+        .update({ guest_name: normalizedName })
+        .or(`user_id.eq.${user.id},attendee_profile_id.eq.${profileId}`),
+    ]);
+
+    const errors = results
+      .map((result) => result.error)
+      .filter((error): error is NonNullable<typeof results[number]['error']> => !!error);
+    if (errors.length > 0) {
+      throw new Error(errors[0].message);
+    }
+  },
+
+  async updateSignedInProfile(user: User, options: { fullName: string; email: string }): Promise<SignedInProfileUpdateResult> {
+    const normalizedName = options.fullName.trim();
+    const normalizedEmail = normalizeEmail(options.email || '');
+    if (!normalizedName) throw new Error('Please provide your name.');
+    if (!normalizedEmail) throw new Error('Please provide your email.');
+
+    const { firstName, lastName } = splitNameParts(normalizedName);
+    let profile = await this.getProfileForUser(user);
+    if (!profile) {
+      profile = await this.getOrCreateProfileForUser(user, normalizedName);
+    }
+    let emailChangeRequested = false;
+    let nameSyncComplete = true;
+
+    const currentProfileEmail = normalizeEmail(profile.email || '');
+    if (normalizedEmail !== currentProfileEmail) {
+      if (normalizedEmail !== normalizeEmail(user.email || '')) {
+        const { error: authUpdateError } = await supabase.auth.updateUser({ email: normalizedEmail });
+        if (authUpdateError) throw authUpdateError;
+        emailChangeRequested = true;
+      }
+      profile = await this.addEmailToProfile(profile.id, normalizedEmail);
+    }
+
+    const { data: updatedProfile, error: updateProfileError } = await supabase
+      .from('attendee_profiles')
+      .update({
+        first_name: firstName,
+        last_name: lastName,
+        user_id: user.id,
+      })
+      .eq('id', profile.id)
+      .select('*')
+      .single();
+    if (updateProfileError) throw updateProfileError;
+
+    profile = updatedProfile as AttendeeProfile;
+    try {
+      await this.syncNameAcrossUserRecords(user, profile.id, normalizedName);
+    } catch (syncError) {
+      nameSyncComplete = false;
+      console.warn('Could not fully sync profile name across records:', syncError);
+    }
+    return { profile, emailChangeRequested, nameSyncComplete };
+  },
 };
