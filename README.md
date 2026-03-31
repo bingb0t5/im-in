@@ -22,6 +22,7 @@ What is solid today:
 - Google Calendar and `.ics` export from joined activities
 - "thinking about it" interest tracking
 - lightweight platform moderation for public-facing activity content, with a hidden admin review queue and a public transparency log
+- mobile modal behavior across the main user flows, including sticky headers, internal modal scrolling, background-page scroll locking, and no forced keyboard pop on open for the main form modals
 
 What is still rough or partial:
 
@@ -44,6 +45,7 @@ Main product areas:
 - a 3-step create/edit flow with visibility first
 - a host dashboard for attendee, host, and access-request management
 - a guest bookings/recovery flow for users operating without a full signed-in account experience
+- shared modal UX patterns that keep long sheets usable on mobile without scrolling the page behind them
 
 ## Key Features
 
@@ -184,7 +186,7 @@ Important areas:
 - `src/App.tsx`: auth bootstrap and route table
 - `src/pages/`: page-level UI and flow logic
 - `src/services/guestService.ts`: guest identity and profile sync
-- `src/lib/`: shared helpers for events, navigation, interests, RSVP, bookings, attendees, auth redirects
+- `src/lib/`: shared helpers for events, navigation, interests, RSVP, bookings, attendees, auth redirects, and modal/body-scroll behavior
 - `src/utils.ts`: shared formatting, timezone, slug, and calendar helpers
 - `supabase_schema.sql`: baseline schema snapshot
 - `supabase_reconcile_live_schema.sql`: reconciliation/RPC-heavy SQL for live environments

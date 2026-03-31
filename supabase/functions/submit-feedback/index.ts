@@ -62,6 +62,10 @@ function normalizeText(value: string | null | undefined) {
   return (value || '').replace(/\s+/g, ' ').trim();
 }
 
+function trimText(value: string | null | undefined) {
+  return (value || '').trim();
+}
+
 function normalizeType(value: string | undefined): SubmissionType {
   if (value === 'bug' || value === 'feature' || value === 'feedback') return value;
   return 'feedback';
@@ -186,7 +190,7 @@ async function createTrelloCard({
   listId,
   submissionType,
   title,
-  sanitizedSummary,
+  details,
   pageUrl,
   submissionId,
 }: {
@@ -195,7 +199,7 @@ async function createTrelloCard({
   listId: string | null;
   submissionType: SubmissionType;
   title: string;
-  sanitizedSummary: string;
+  details: string;
   pageUrl: string;
   submissionId: string;
 }) {
@@ -205,16 +209,18 @@ async function createTrelloCard({
 
   const label =
     submissionType === 'bug' ? 'Bug report' : submissionType === 'feature' ? 'Feature request' : 'General feedback';
-  const cardName = `${label}: ${sanitizeForPublicBoard(title).slice(0, 72)}`;
+  const cardName = `${label}: ${title.slice(0, 72)}`;
   const desc = [
     'Submitted from the public feedback form.',
     '',
     `Type: ${label}`,
-    `Summary: ${sanitizedSummary || '(No safe summary available)'}`,
+    `Title: ${title || '(No title provided)'}`,
+    '',
+    'Details:',
+    details || '(No details provided)',
+    '',
     `Source page: ${sanitizeForPublicBoard(pageUrl || 'unknown')}`,
     `Submission ID: ${submissionId}`,
-    '',
-    'This card intentionally contains sanitized content only.',
   ].join('\n');
 
   const params = new URLSearchParams({
@@ -263,8 +269,8 @@ Deno.serve(async (req) => {
 
     const payload = (await req.json()) as FeedbackPayload;
     const submissionType = normalizeType(payload.submissionType);
-    const title = normalizeText(payload.title);
-    const details = normalizeText(payload.details);
+    const title = trimText(payload.title);
+    const details = trimText(payload.details);
     const reporterName = normalizeText(payload.reporterName);
     const reporterEmail = normalizeText(payload.reporterEmail).toLowerCase();
     const pageUrl = normalizeText(payload.pageUrl);
@@ -351,7 +357,7 @@ Deno.serve(async (req) => {
           listId: Deno.env.get('TRELLO_INTAKE_LIST_ID'),
           submissionType,
           title,
-          sanitizedSummary,
+          details,
           pageUrl,
           submissionId: inserted.id,
         });

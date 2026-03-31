@@ -56,20 +56,6 @@ function parseEmailAllowlist(raw?: string | null) {
     .filter(Boolean);
 }
 
-function sanitizeForPublicBoard(value: string) {
-  return value
-    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[redacted-email]')
-    .replace(/https?:\/\/\S+/gi, '[link]')
-    .replace(/\+?\d[\d\s().-]{7,}\d/g, '[redacted-number]')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function buildSanitizedSummary(title: string, details: string) {
-  const merged = sanitizeForPublicBoard(`${title}. ${details}`);
-  return merged.slice(0, 220);
-}
-
 async function getRequiredUser(supabaseUrl: string, supabaseAnonKey: string, authorizationHeader: string | null) {
   if (!authorizationHeader?.trim()) {
     throw new Error('Missing authorization header.');
@@ -102,16 +88,18 @@ async function createTrelloCard({
 
   const label =
     row.submission_type === 'bug' ? 'Bug report' : row.submission_type === 'feature' ? 'Feature request' : 'General feedback';
-  const cardName = `${label}: ${sanitizeForPublicBoard(row.title).slice(0, 72)}`;
+  const cardName = `${label}: ${row.title.slice(0, 72)}`;
   const desc = [
     'Submitted from the public feedback form.',
     '',
     `Type: ${label}`,
-    `Summary: ${row.public_sanitized_summary || buildSanitizedSummary(row.title, row.details) || '(No safe summary available)'}`,
-    `Source page: ${sanitizeForPublicBoard(row.page_url || 'unknown')}`,
-    `Submission ID: ${row.id}`,
+    `Title: ${row.title || '(No title provided)'}`,
     '',
-    'This card intentionally contains sanitized content only.',
+    'Details:',
+    row.details || '(No details provided)',
+    '',
+    `Source page: ${row.page_url || 'unknown'}`,
+    `Submission ID: ${row.id}`,
   ].join('\n');
 
   const params = new URLSearchParams({

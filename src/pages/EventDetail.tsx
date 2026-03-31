@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
-import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, X, Plus, Download } from 'lucide-react';
+import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, MessageSquare, Mail, Copy, X, Plus, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { buildGoogleCalendarEventUrl, buildIcsEventContent, formatDate, formatDay, formatDurationMinutes, generateSlug } from '../utils';
 import { Event, Attendee, EventInterest } from '../types';
@@ -11,6 +11,7 @@ import { getAttendanceSummary, getMyRsvpBuckets } from '../lib/attendees';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { findMyInterest, getNamedThinkingInterests, getThinkingCount } from '../lib/interests';
 import { goBackOr } from '../lib/navigation';
+import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 
 export default function EventDetail({ user }: { user: User | null }) {
   const { slug } = useParams();
@@ -25,6 +26,8 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showProxyModal, setShowProxyModal] = useState(false);
   const [showShareChoiceModal, setShowShareChoiceModal] = useState(false);
+  const [showManualShareModal, setShowManualShareModal] = useState(false);
+  const [manualShareUrl, setManualShareUrl] = useState('');
   const [proxyName, setProxyName] = useState('');
   const [proxyError, setProxyError] = useState<string | null>(null);
   const [proxyOwnerName, setProxyOwnerName] = useState('');
@@ -58,6 +61,17 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [hasPublicModerationHistory, setHasPublicModerationHistory] = useState(false);
   const [canViewFullDetails, setCanViewFullDetails] = useState(false);
+
+  useBodyScrollLock(
+    showRequestModal
+    || showRsvpModal
+    || showSuccessModal
+    || showCancelModal
+    || showProxyModal
+    || showThinkingModal
+    || showShareChoiceModal
+    || showManualShareModal,
+  );
 
   const getErrorMessage = (error: unknown, fallback: string) => {
     if (error && typeof error === 'object') {
@@ -976,14 +990,69 @@ export default function EventDetail({ user }: { user: User | null }) {
     event.require_guest_email_for_join === false;
   const isGuestEmailRequired = event.require_guest_email_for_join === true;
 
-  const shareInvite = (url: string) => {
-    const text = `${event.title} – ${formatDate(event.starts_at, event.timezone)}\n${spotsRemaining} spots left. Join here:\n${url}`;
-    if (navigator.share) {
-      navigator.share({ title: event.title, text, url });
-    } else {
-      navigator.clipboard.writeText(text);
-      alert('Invite copied to clipboard!');
+  const buildInviteText = (url: string) =>
+    `${event.title} – ${formatDate(event.starts_at, event.timezone)}\n${spotsRemaining} spots left. Join here:\n${url}`;
+
+  const copyInviteFallback = async (text: string) => {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        alert('Invite copied to clipboard!');
+        return;
+      } catch {
+        // Fall through to older copy strategies.
+      }
     }
+
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.setAttribute('readonly', '');
+    textArea.style.position = 'fixed';
+    textArea.style.opacity = '0';
+    textArea.style.pointerEvents = 'none';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+
+    try {
+      const copied = document.execCommand('copy');
+      if (copied) {
+        alert('Invite copied to clipboard!');
+        return;
+      }
+    } catch {
+      // Fall through to prompt.
+    } finally {
+      document.body.removeChild(textArea);
+    }
+
+    window.prompt('Copy this invite', text);
+  };
+
+  const openManualShareModal = (url: string) => {
+    setManualShareUrl(url);
+    setShowManualShareModal(true);
+  };
+
+  const shareInvite = (url: string) => {
+    const nativeText = `${event.title} – ${formatDate(event.starts_at, event.timezone)}\n${spotsRemaining} spots left. Join here:`;
+    const isAppleMobile = /iPhone|iPad|iPod/i.test(window.navigator.userAgent);
+
+    if (navigator.share) {
+      const sharePromise = isAppleMobile
+        ? navigator.share({ url })
+        : navigator.share({ title: event.title, text: nativeText, url });
+
+      sharePromise.catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return;
+        }
+        openManualShareModal(url);
+      });
+      return;
+    }
+
+    openManualShareModal(url);
   };
 
   const openDirections = () => {
@@ -1073,7 +1142,13 @@ export default function EventDetail({ user }: { user: User | null }) {
               <ArrowLeft className="w-5 h-5 text-slate-600" />
             </button>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Activity Preview</span>
-            <div className="w-9" />
+            <button
+              onClick={() => shareInvite(publicEventUrl)}
+              className="px-3 py-2 hover:bg-slate-50 rounded-xl transition-all flex items-center gap-1.5"
+            >
+              <Share2 className="w-5 h-5 text-slate-600" />
+              <span className="text-xs font-bold text-slate-500">Share</span>
+            </button>
           </div>
         </div>
 
@@ -1106,6 +1181,9 @@ export default function EventDetail({ user }: { user: User | null }) {
 
           <button
             onClick={() => {
+              if (document.activeElement instanceof HTMLElement) {
+                document.activeElement.blur();
+              }
               setRequestError(null);
               setRequestSuccess(false);
               setShowRequestModal(true);
@@ -1118,7 +1196,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
         <AnimatePresence>
           {showRequestModal && (
-            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6 overflow-y-auto overscroll-contain">
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -1130,7 +1208,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                 initial={{ y: '100%' }}
                 animate={{ y: 0 }}
                 exit={{ y: '100%' }}
-                className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[85vh] sm:max-h-[80vh] my-auto"
+                className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
               >
                 <div className="flex justify-between items-start mb-6">
                   <div>
@@ -1203,7 +1281,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-40">
+    <div className="min-h-screen bg-slate-50 pb-[calc(env(safe-area-inset-bottom)+19rem)] sm:pb-64">
       {/* Header */}
       <div className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
         <div className="max-w-xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -1402,7 +1480,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       </main>
 
       {/* Fixed CTA */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-lg border-t border-slate-100 z-20">
+      <div className="fixed bottom-0 left-0 right-0 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] bg-white/95 backdrop-blur-lg border-t border-slate-100 z-20">
         <div className="max-w-xl mx-auto space-y-3">
           {approvalRequired && myRsvps.length === 0 ? (
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
@@ -1521,7 +1599,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       {/* RSVP Modal */}
       <AnimatePresence>
         {showRsvpModal && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6 overflow-y-auto overscroll-contain">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1533,7 +1611,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[85vh] sm:max-h-[80vh] my-auto"
+              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
             >
               <div className="flex justify-between items-start mb-6">
                 <div>
@@ -1624,7 +1702,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
       <AnimatePresence>
         {showThinkingModal && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6 overflow-y-auto overscroll-contain">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1636,7 +1714,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              className="relative w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl overflow-y-auto max-h-[85vh] sm:max-h-[80vh] my-auto"
+              className="relative w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
             >
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-black text-slate-900">Thinking about it</h2>
@@ -1665,7 +1743,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       {/* Success Modal */}
       <AnimatePresence>
         {showSuccessModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-y-auto overscroll-contain">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1677,7 +1755,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full max-w-sm bg-white rounded-[2.5rem] p-10 shadow-2xl text-center overflow-y-auto max-h-[80vh] my-auto"
+              className="relative w-full max-w-sm bg-white rounded-[2.5rem] p-10 shadow-2xl text-center overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
             >
               <div className="w-20 h-20 bg-brand-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
                 <CheckCircle2 className="w-10 h-10 text-brand-600" />
@@ -1755,7 +1833,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       {/* Cancel Confirmation Modal */}
       <AnimatePresence>
         {showCancelModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-y-auto overscroll-contain">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1767,7 +1845,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl text-center overflow-y-auto max-h-[80vh] my-auto"
+              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl text-center overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
             >
               <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
                 <AlertCircle className="w-8 h-8 text-red-500" />
@@ -1803,7 +1881,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       {/* Share Choice Modal */}
       <AnimatePresence>
         {showShareChoiceModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 overflow-y-auto overscroll-contain">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1815,7 +1893,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[80vh] my-auto"
+              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
             >
               <div className="flex items-center justify-between mb-5">
                 <h2 className="text-xl font-black text-slate-900 tracking-tight">Share Link</h2>
@@ -1851,10 +1929,83 @@ export default function EventDetail({ user }: { user: User | null }) {
         )}
       </AnimatePresence>
 
+      {/* Manual Share Modal */}
+      <AnimatePresence>
+        {showManualShareModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowManualShareModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-xl font-black text-slate-900 tracking-tight">Share Activity</h2>
+                <button onClick={() => setShowManualShareModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+                  <X className="w-6 h-6 text-slate-400" />
+                </button>
+              </div>
+              <p className="text-sm text-slate-500 font-medium mb-5">
+                This browser is not exposing the native share sheet, so choose how you want to share it.
+              </p>
+              <div className="space-y-3">
+                <button
+                  onClick={() => {
+                    window.location.href = `https://wa.me/?text=${encodeURIComponent(buildInviteText(manualShareUrl))}`;
+                    setShowManualShareModal(false);
+                  }}
+                  className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <MessageCircle className="w-5 h-5" />
+                  Share to WhatsApp
+                </button>
+                <button
+                  onClick={() => {
+                    window.location.href = `sms:&body=${encodeURIComponent(buildInviteText(manualShareUrl))}`;
+                    setShowManualShareModal(false);
+                  }}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <MessageSquare className="w-5 h-5" />
+                  Share by Text
+                </button>
+                <button
+                  onClick={() => {
+                    window.location.href = `mailto:?subject=${encodeURIComponent(event.title)}&body=${encodeURIComponent(buildInviteText(manualShareUrl))}`;
+                    setShowManualShareModal(false);
+                  }}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <Mail className="w-5 h-5" />
+                  Share by Email
+                </button>
+                <button
+                  onClick={() => {
+                    void copyInviteFallback(buildInviteText(manualShareUrl));
+                    setShowManualShareModal(false);
+                  }}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <Copy className="w-5 h-5" />
+                  Copy Invite
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Proxy RSVP Modal */}
       <AnimatePresence>
         {showProxyModal && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-6 overflow-y-auto overscroll-contain">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1866,7 +2017,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[85vh] sm:max-h-[80vh] my-auto"
+              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
             >
               <div className="flex justify-between items-start mb-6">
                 <div>
@@ -1920,7 +2071,6 @@ export default function EventDetail({ user }: { user: User | null }) {
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">Their Name</label>
                   <input
                     required
-                    autoFocus
                     type="text"
                     className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
                     placeholder="e.g. Charlie Smith"

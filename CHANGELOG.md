@@ -37,6 +37,13 @@
 - updated the hosted `Semi-public` visibility badge in `My Activities` to use the same indigo color family as the public activities page
 - made the top-left `I'm In` brand in `My Activities` clickable so it returns to `Home`
 - updated the browser/app icon assets to use the same green calendar mark as the home-screen logo
+- changed the feedback-to-Trello flow so Trello cards now receive the full submitted title/details message instead of a shortened sanitized summary, while still keeping the abuse check in place
+- tweaked the `Help build it` modal bullet list alignment so wrapped items sit more cleanly beside their bullet dot
+- made the headers in the longer home-page modals sticky so the title and close button stay visible while scrolling
+- reworked long modal sheets so they use internal scrolling more reliably on mobile, fit the viewport better, and keep sticky headers flush to the top
+- increased activity-detail bottom spacing and CTA safe-area handling so fixed bottom actions no longer chop off the host/details area on smaller screens
+- stopped the main form modals from auto-opening the keyboard on arrival, which keeps mobile request/join/create sheets from jumping down before the user taps a field
+- added shared body-scroll locking for the main modal-heavy pages so scrolling inside a modal no longer drifts the page behind it or returns people to the wrong scroll position on close
 - updated schema/reconcile docs and project documentation to reflect the new identity and host-setting behavior
 
 ### Documentation
