@@ -68,6 +68,15 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
   const normalizeWhatsapp = (value: string) => value.replace(/[^\d]/g, '');
 
+  const openPendingWhatsappWindow = () => {
+    const popup = window.open('', '_blank');
+    if (!popup) {
+      throw new Error('Could not open WhatsApp. Please allow pop-ups and try again.');
+    }
+    popup.document.write('Opening WhatsApp...');
+    return popup;
+  };
+
   const getPublicPreviewUrl = () => {
     if (!event) return '';
     return `${window.location.origin}/events/${event.slug}`;
@@ -699,14 +708,19 @@ export default function HostDashboard({ user }: { user: User | null }) {
   };
 
   const shareWhatsApp = async () => {
+    const whatsappWindow = openPendingWhatsappWindow();
     try {
       const url = await ensurePrivateAccessUrl();
-      if (!url || !event) return;
+      if (!url || !event) {
+        whatsappWindow.close();
+        return;
+      }
       const confirmedCount = attendees.filter(a => a.status === 'confirmed').length;
       const spotsLeft = Math.max(0, event.capacity - confirmedCount);
       const text = `${event.title}\n${formatDate(event.starts_at, event.timezone)}\n${spotsLeft} spots left.\n\nPrivate activity link:\n${url}`;
-      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+      whatsappWindow.location.href = `https://wa.me/?text=${encodeURIComponent(text)}`;
     } catch (error: any) {
+      whatsappWindow.close();
       alert(error.message || 'Could not prepare WhatsApp share');
     }
   };
@@ -735,6 +749,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       text = `Hi ${request.requester_name}, thanks for requesting access to ${event.title}. Can you please tell me a little more before I share the link?`;
     }
 
+    const whatsappWindow = openPendingWhatsappWindow();
     try {
       setRequestActionLoadingId(request.id);
       if (status) {
@@ -745,9 +760,10 @@ export default function HostDashboard({ user }: { user: User | null }) {
         if (error) throw error;
       }
 
-      window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`, '_blank');
+      whatsappWindow.location.href = `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
       fetchAccessRequests(event.id);
     } catch (error: any) {
+      whatsappWindow.close();
       alert(error.message || 'Could not update request');
     } finally {
       setRequestActionLoadingId(null);
@@ -1192,11 +1208,20 @@ export default function HostDashboard({ user }: { user: User | null }) {
                           Decline
                         </button>
                       </div>
+                    ) : request.status === 'approved' ? (
+                      <div className="flex gap-2 items-center">
+                        <button
+                          onClick={() => openRequestWhatsapp(request, 'approve')}
+                          disabled={requestActionLoadingId === request.id}
+                          className="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold hover:bg-slate-200 transition-all active:scale-95 disabled:opacity-50"
+                        >
+                          Send Again
+                        </button>
+                        <p className="text-xs text-slate-400">Approved and archived.</p>
+                      </div>
                     ) : (
                       <p className="text-xs text-slate-400">
-                        {request.status === 'approved'
-                          ? 'Approved and archived.'
-                          : 'Declined and archived.'}
+                        Declined and archived.
                       </p>
                     )}
                   </div>
