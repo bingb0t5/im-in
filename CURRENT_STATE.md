@@ -65,6 +65,7 @@ The weakest / least finished areas are:
 - hidden `/admin/feedback` page now also includes a passed-to-Trello bucket and permanent delete actions with typed confirmation
 - feedback submission success now includes a direct link to the public dev board
 - long and form-heavy modals now use cleaner mobile behavior, including sticky headers, internal sheet scrolling, background-page scroll lock, and no forced keyboard pop on open
+- host-only email notifications for `request to view` and `request to join`, with default-on account-level toggles on `/profile`
 - Google Calendar link
 - `.ics` download
 - co-host support
@@ -97,6 +98,7 @@ The weakest / least finished areas are:
 - webhook-compatible Trello prompt generation with manual admin fallback support
 - feedback screenshots reviewed privately through signed URLs in admin tooling
 - feedback-item deletion removes the internal row, related prompt-job rows, and stored screenshot object
+- new request events (`event_access_requests`, `event_join_requests`) now queue host/co-host delivery rows server-side via database triggers, with delivery status tracked in `host_notification_deliveries`
 
 ## Partial Or Awkward
 

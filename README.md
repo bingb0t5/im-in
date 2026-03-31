@@ -17,6 +17,7 @@ What is solid today:
 - proxy RSVP / "add another person"
 - guest session persistence and guest bookings
 - host dashboard and co-host support
+- host-only email notifications for new request-to-view and request-to-join activity events, with account-level toggles on `/profile`
 - public browse/search
 - public browse/search with a subtle "other activities this week" count for hidden upcoming activity volume
 - Google Calendar and `.ics` export from joined activities
@@ -87,6 +88,7 @@ Main product areas:
 - manage attendees and waitlist
 - approve/decline/request more info on semi-public access requests
 - review and approve/reject join requests when host approval is enabled
+- control host/co-host request email notifications from `/profile` (`request to view` and `request to join`, both enabled by default)
 - share public and private links
 - add co-hosts
 - see neutral discovery-status messaging when broader public visibility is limited
@@ -220,6 +222,8 @@ Edge function runtime:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY` is provided automatically by Supabase Edge Functions and should not be manually set with `supabase secrets set`
 - `OPENAI_API_KEY`
+- `RESEND_API_KEY`
+- `HOST_NOTIFICATIONS_FROM_EMAIL`
 
 Optional edge function runtime:
 
@@ -243,6 +247,8 @@ Optional edge function runtime:
   - moving any card into this list triggers Codex prompt generation
 - `FEEDBACK_SCREENSHOT_BUCKET`
   - defaults to `feedback-screenshots`
+- `APP_URL` / `VITE_APP_URL`
+  - used by host notification emails to build host-dashboard and public activity links
 
 Legacy optional:
 

@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { ArrowLeft, Pencil } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { guestService, getAccountNameFromUser } from '../services/guestService';
+import { guestService, getAccountNameFromUser, HostNotificationPreferences } from '../services/guestService';
 import { goBackOr } from '../lib/navigation';
 
 export default function ProfileSettings({ user }: { user: User | null }) {
@@ -14,6 +14,14 @@ export default function ProfileSettings({ user }: { user: User | null }) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isEditingName, setIsEditingName] = useState(false);
+  const [notificationPrefs, setNotificationPrefs] = useState<HostNotificationPreferences>({
+    email_on_request_to_view: true,
+    email_on_request_to_join: true,
+  });
+  const [notificationsLoading, setNotificationsLoading] = useState(true);
+  const [notificationsSaving, setNotificationsSaving] = useState(false);
+  const [notificationsMessage, setNotificationsMessage] = useState<string | null>(null);
+  const [notificationsError, setNotificationsError] = useState<string | null>(null);
 
   const hydrateProfile = async (authUser: User) => {
     const profile = await guestService.getProfileForUser(authUser);
@@ -32,11 +40,29 @@ export default function ProfileSettings({ user }: { user: User | null }) {
       try {
         await hydrateProfile(user);
         if (cancelled) return;
+
+        try {
+          const prefs = await guestService.getHostNotificationPreferences(user);
+          if (!cancelled) {
+            setNotificationPrefs(prefs);
+          }
+        } catch (prefsError) {
+          if (!cancelled) {
+            setNotificationsError(
+              prefsError instanceof Error ? prefsError.message : 'Could not load notification preferences.',
+            );
+          }
+        }
+
+        if (cancelled) return;
       } catch (loadError) {
         if (cancelled) return;
         setError(loadError instanceof Error ? loadError.message : 'Could not load profile.');
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setNotificationsLoading(false);
+        }
       }
     };
 
@@ -72,6 +98,23 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     }
   };
 
+  const handleSaveNotifications = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setNotificationsSaving(true);
+    setNotificationsMessage(null);
+    setNotificationsError(null);
+
+    try {
+      const updated = await guestService.updateHostNotificationPreferences(user, notificationPrefs);
+      setNotificationPrefs(updated);
+      setNotificationsMessage('Notification preferences saved.');
+    } catch (saveError) {
+      setNotificationsError(saveError instanceof Error ? saveError.message : 'Could not save notification preferences.');
+    } finally {
+      setNotificationsSaving(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
@@ -84,7 +127,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
         </div>
       </header>
 
-      <main className="max-w-xl mx-auto px-6 pt-8">
+      <main className="max-w-xl mx-auto px-6 pt-8 space-y-6">
         <section className="bg-white rounded-2xl p-6">
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Your profile</h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -143,6 +186,74 @@ export default function ProfileSettings({ user }: { user: User | null }) {
                 className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-base py-4 rounded-2xl transition-all active:scale-95 disabled:opacity-50"
               >
                 {saving ? 'Saving...' : 'Save profile'}
+              </button>
+            </form>
+          )}
+        </section>
+
+        <section className="bg-white rounded-2xl p-6">
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Notifications</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            These email notifications apply only to activities you host or co-host.
+          </p>
+
+          {notificationsLoading ? (
+            <div className="py-10 text-sm text-slate-400">Loading notification settings...</div>
+          ) : (
+            <form onSubmit={handleSaveNotifications} className="mt-5 space-y-4">
+              <label className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={notificationPrefs.email_on_request_to_view}
+                  onChange={(e) =>
+                    setNotificationPrefs((prev) => ({
+                      ...prev,
+                      email_on_request_to_view: e.target.checked,
+                    }))
+                  }
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                />
+                <div>
+                  <p className="text-sm font-bold text-slate-800">Request to view</p>
+                  <p className="text-xs text-slate-500">Email me when someone requests to view one of my activities.</p>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={notificationPrefs.email_on_request_to_join}
+                  onChange={(e) =>
+                    setNotificationPrefs((prev) => ({
+                      ...prev,
+                      email_on_request_to_join: e.target.checked,
+                    }))
+                  }
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                />
+                <div>
+                  <p className="text-sm font-bold text-slate-800">Request to join</p>
+                  <p className="text-xs text-slate-500">Email me when someone requests to join one of my activities.</p>
+                </div>
+              </label>
+
+              {notificationsMessage ? (
+                <p className="text-xs text-brand-700 bg-brand-50 border border-brand-100 rounded-xl px-3 py-2">
+                  {notificationsMessage}
+                </p>
+              ) : null}
+              {notificationsError ? (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                  {notificationsError}
+                </p>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={notificationsSaving}
+                className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-base py-4 rounded-2xl transition-all active:scale-95 disabled:opacity-50"
+              >
+                {notificationsSaving ? 'Saving...' : 'Save notifications'}
               </button>
             </form>
           )}

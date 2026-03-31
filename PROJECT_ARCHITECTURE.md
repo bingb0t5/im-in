@@ -152,6 +152,7 @@ The route table lives in `src/App.tsx`.
 - hydrates the canonical attendee profile row for the current auth user
 - updates profile name/email through `guestService.updateSignedInProfile(...)`
 - softens success messaging when downstream name sync is only partially confirmed
+- loads/saves account-level host notification preferences (`request to view` / `request to join`) through SQL RPCs, defaulting both to enabled
 
 ### `CreateEvent.tsx`
 
@@ -186,6 +187,7 @@ The route table lives in `src/App.tsx`.
 - post-success prompt for no-email guests to optionally add an email for recovery and cross-activity continuity
 - "thinking about it"
 - semi-public request-to-view flow
+- request-to-view and request-to-join writes now trigger server-queued host notification delivery rows, with recipient resolution and send attempts handled by the `host-notifications` edge function
 - Google Calendar + `.ics` actions
 - hosts can access calendar actions even without a self RSVP
 - calendar exports prefer the Google Maps share URL as the location field when one exists

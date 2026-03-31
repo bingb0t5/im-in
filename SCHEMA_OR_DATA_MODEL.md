@@ -305,6 +305,51 @@ Important behavioral note:
 - join requests now create visible attendee rows in `event_attendees` as `pending_approval`
 - host approval promotes those rows to `confirmed` or `waitlist` depending on current capacity and waitlist settings
 
+### `host_notification_preferences`
+
+This table stores signed-in host account notification preferences.
+
+Important fields:
+
+- `user_id`
+- `email_on_request_to_view`
+- `email_on_request_to_join`
+- `created_at`
+- `updated_at`
+
+Important behavioral meaning:
+
+- preferences are account-level (per `auth.users.id`), not per activity
+- both toggles default to `true`
+- `/profile` reads and writes this table through SQL RPCs:
+  - `get_my_host_notification_preferences()`
+  - `upsert_my_host_notification_preferences(...)`
+
+### `host_notification_deliveries`
+
+This table stores queued and processed host/co-host email notification deliveries.
+
+Important fields:
+
+- `id`
+- `event_id`
+- `event_type` (`request_to_view` or `request_to_join`)
+- `source_request_id`
+- `recipient_user_id`
+- `recipient_email`
+- `status` (`pending`, `sent`, `skipped`, `failed`)
+- `provider_message_id`
+- `error_message`
+- `sent_at`
+- `created_at`
+- `updated_at`
+
+Important behavioral meaning:
+
+- rows are queued server-side from successful `event_access_requests` and `event_join_requests` inserts
+- delivery uniqueness is enforced by `(event_type, source_request_id, recipient_user_id)` to prevent duplicate sends
+- the `host-notifications` edge function resolves host/co-host recipients, checks preferences, sends email, and updates delivery status
+
 ### `attendee_profiles`
 
 This is the shared identity bridge between guests and signed-in users.

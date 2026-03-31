@@ -44,6 +44,7 @@
 - increased activity-detail bottom spacing and CTA safe-area handling so fixed bottom actions no longer chop off the host/details area on smaller screens
 - stopped the main form modals from auto-opening the keyboard on arrival, which keeps mobile request/join/create sheets from jumping down before the user taps a field
 - added shared body-scroll locking for the main modal-heavy pages so scrolling inside a modal no longer drifts the page behind it or returns people to the wrong scroll position on close
+- added host-only email notifications for new `request to view` and `request to join` writes, including account-level `/profile` toggles (default on), server-queued delivery rows, and host/co-host dedupe during server-side recipient resolution
 - updated schema/reconcile docs and project documentation to reflect the new identity and host-setting behavior
 
 ### Documentation

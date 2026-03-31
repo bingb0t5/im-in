@@ -23,6 +23,11 @@ export interface SignedInProfileUpdateResult {
   nameSyncComplete: boolean;
 }
 
+export interface HostNotificationPreferences {
+  email_on_request_to_view: boolean;
+  email_on_request_to_join: boolean;
+}
+
 const GUEST_SESSION_KEY = 'im_in_guest_session';
 
 function normalizeEmail(email: string) {
@@ -551,5 +556,39 @@ export const guestService = {
       console.warn('Could not fully sync profile name across records:', syncError);
     }
     return { profile, emailChangeRequested, nameSyncComplete };
+  },
+
+  async getHostNotificationPreferences(user: User): Promise<HostNotificationPreferences> {
+    if (!user?.id) {
+      throw new Error('Missing user context for notification preferences.');
+    }
+
+    const { data, error } = await supabase.rpc('get_my_host_notification_preferences');
+    if (error) throw error;
+
+    return {
+      email_on_request_to_view: data?.email_on_request_to_view !== false,
+      email_on_request_to_join: data?.email_on_request_to_join !== false,
+    };
+  },
+
+  async updateHostNotificationPreferences(
+    user: User,
+    preferences: HostNotificationPreferences,
+  ): Promise<HostNotificationPreferences> {
+    if (!user?.id) {
+      throw new Error('Missing user context for notification preferences.');
+    }
+
+    const { data, error } = await supabase.rpc('upsert_my_host_notification_preferences', {
+      p_email_on_request_to_view: preferences.email_on_request_to_view,
+      p_email_on_request_to_join: preferences.email_on_request_to_join,
+    });
+    if (error) throw error;
+
+    return {
+      email_on_request_to_view: data?.email_on_request_to_view !== false,
+      email_on_request_to_join: data?.email_on_request_to_join !== false,
+    };
   },
 };

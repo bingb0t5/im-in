@@ -252,6 +252,227 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
+-- Host notification preferences (account-level, host-only)
+CREATE TABLE IF NOT EXISTS public.host_notification_preferences (
+    user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    email_on_request_to_view BOOLEAN NOT NULL DEFAULT true,
+    email_on_request_to_join BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Host notification delivery log / queue
+CREATE TABLE IF NOT EXISTS public.host_notification_deliveries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL CHECK (event_type IN ('request_to_view', 'request_to_join')),
+    source_request_id UUID NOT NULL,
+    recipient_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    recipient_email TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'skipped', 'failed')),
+    provider_message_id TEXT,
+    error_message TEXT,
+    sent_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (event_type, source_request_id, recipient_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS host_notification_deliveries_status_idx
+    ON public.host_notification_deliveries (status, created_at);
+
+CREATE INDEX IF NOT EXISTS host_notification_deliveries_event_type_idx
+    ON public.host_notification_deliveries (event_type, source_request_id);
+
+ALTER TABLE public.host_notification_preferences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.host_notification_deliveries ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'host_notification_preferences'
+          AND policyname = 'Users can read own host notification preferences'
+    ) THEN
+        CREATE POLICY "Users can read own host notification preferences"
+            ON public.host_notification_preferences
+            FOR SELECT
+            USING (auth.uid() = user_id);
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'host_notification_preferences'
+          AND policyname = 'Users can insert own host notification preferences'
+    ) THEN
+        CREATE POLICY "Users can insert own host notification preferences"
+            ON public.host_notification_preferences
+            FOR INSERT
+            WITH CHECK (auth.uid() = user_id);
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'host_notification_preferences'
+          AND policyname = 'Users can update own host notification preferences'
+    ) THEN
+        CREATE POLICY "Users can update own host notification preferences"
+            ON public.host_notification_preferences
+            FOR UPDATE
+            USING (auth.uid() = user_id)
+            WITH CHECK (auth.uid() = user_id);
+    END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.get_my_host_notification_preferences()
+RETURNS public.host_notification_preferences AS $$
+DECLARE
+    v_row public.host_notification_preferences%ROWTYPE;
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RAISE EXCEPTION 'Not authenticated';
+    END IF;
+
+    INSERT INTO public.host_notification_preferences (user_id)
+    VALUES (auth.uid())
+    ON CONFLICT (user_id) DO NOTHING;
+
+    SELECT *
+    INTO v_row
+    FROM public.host_notification_preferences
+    WHERE user_id = auth.uid();
+
+    RETURN v_row;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.get_my_host_notification_preferences() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.upsert_my_host_notification_preferences(
+    p_email_on_request_to_view BOOLEAN DEFAULT true,
+    p_email_on_request_to_join BOOLEAN DEFAULT true
+) RETURNS public.host_notification_preferences AS $$
+DECLARE
+    v_row public.host_notification_preferences%ROWTYPE;
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RAISE EXCEPTION 'Not authenticated';
+    END IF;
+
+    INSERT INTO public.host_notification_preferences (
+        user_id,
+        email_on_request_to_view,
+        email_on_request_to_join
+    )
+    VALUES (
+        auth.uid(),
+        coalesce(p_email_on_request_to_view, true),
+        coalesce(p_email_on_request_to_join, true)
+    )
+    ON CONFLICT (user_id) DO UPDATE
+    SET
+        email_on_request_to_view = EXCLUDED.email_on_request_to_view,
+        email_on_request_to_join = EXCLUDED.email_on_request_to_join,
+        updated_at = now()
+    RETURNING * INTO v_row;
+
+    RETURN v_row;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+GRANT EXECUTE ON FUNCTION public.upsert_my_host_notification_preferences(BOOLEAN, BOOLEAN) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.queue_host_notification_deliveries()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_event_type TEXT;
+BEGIN
+    IF NEW.status <> 'pending' THEN
+        RETURN NEW;
+    END IF;
+
+    IF TG_TABLE_NAME = 'event_access_requests' THEN
+        v_event_type := 'request_to_view';
+    ELSIF TG_TABLE_NAME = 'event_join_requests' THEN
+        v_event_type := 'request_to_join';
+    ELSE
+        RETURN NEW;
+    END IF;
+
+    INSERT INTO public.host_notification_deliveries (
+        event_id,
+        event_type,
+        source_request_id,
+        recipient_user_id,
+        status
+    )
+    SELECT
+        NEW.event_id,
+        v_event_type,
+        NEW.id,
+        hosts.user_id,
+        'pending'
+    FROM (
+        SELECT e.host_user_id AS user_id
+        FROM public.events e
+        WHERE e.id = NEW.event_id
+
+        UNION
+
+        SELECT eh.user_id
+        FROM public.event_hosts eh
+        WHERE eh.event_id = NEW.event_id
+    ) hosts
+    WHERE hosts.user_id IS NOT NULL
+    ON CONFLICT (event_type, source_request_id, recipient_user_id) DO NOTHING;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+DO $$
+BEGIN
+    IF to_regclass('public.event_access_requests') IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'event_access_requests_queue_host_notifications'
+          AND tgrelid = to_regclass('public.event_access_requests')
+          AND NOT tgisinternal
+      ) THEN
+        CREATE TRIGGER event_access_requests_queue_host_notifications
+            AFTER INSERT ON public.event_access_requests
+            FOR EACH ROW
+            EXECUTE FUNCTION public.queue_host_notification_deliveries();
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF to_regclass('public.event_join_requests') IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'event_join_requests_queue_host_notifications'
+          AND tgrelid = to_regclass('public.event_join_requests')
+          AND NOT tgisinternal
+      ) THEN
+        CREATE TRIGGER event_join_requests_queue_host_notifications
+            AFTER INSERT ON public.event_join_requests
+            FOR EACH ROW
+            EXECUTE FUNCTION public.queue_host_notification_deliveries();
+    END IF;
+END $$;
+
 -- Shared helper used by multiple updated_at triggers later in the schema.
 CREATE OR REPLACE FUNCTION public.touch_updated_at()
 RETURNS TRIGGER AS $$

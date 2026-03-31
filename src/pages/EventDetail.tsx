@@ -11,6 +11,7 @@ import { getAttendanceSummary, getMyRsvpBuckets } from '../lib/attendees';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { findMyInterest, getNamedThinkingInterests, getThinkingCount } from '../lib/interests';
 import { goBackOr } from '../lib/navigation';
+import { invokePublicFunction } from '../lib/functions';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 
 export default function EventDetail({ user }: { user: User | null }) {
@@ -691,6 +692,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
       const result = data?.result as string | undefined;
       if (result === 'request_pending' || result === 'already_pending') {
+        await triggerHostNotification('request_to_join', data?.request_id || null);
         setMyJoinRequestStatus('pending');
         setShowRsvpModal(false);
         setSelfPendingApproval(true);
@@ -796,6 +798,10 @@ export default function EventDetail({ user }: { user: User | null }) {
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
+      if (data?.result === 'request_pending' || data?.result === 'already_pending') {
+        await triggerHostNotification('request_to_join', data?.request_id || null);
+      }
+
       setShowProxyModal(false);
       setProxyName('');
       setSuccessType('proxy');
@@ -869,7 +875,7 @@ export default function EventDetail({ user }: { user: User | null }) {
         return;
       }
 
-      const { error } = await supabase.from('event_access_requests').insert([
+      const { data: insertedRequest, error } = await supabase.from('event_access_requests').insert([
         {
           event_id: event.id,
           requester_name: name,
@@ -877,9 +883,12 @@ export default function EventDetail({ user }: { user: User | null }) {
           requester_note: requestNote.trim() || null,
           status: 'pending',
         },
-      ]);
+      ])
+        .select('id')
+        .single();
 
       if (error) throw error;
+      await triggerHostNotification('request_to_view', insertedRequest?.id || null);
       setRequestSuccess(true);
       setRequestNote('');
     } catch (error) {
@@ -1053,6 +1062,21 @@ export default function EventDetail({ user }: { user: User | null }) {
     }
 
     openManualShareModal(url);
+  };
+
+  const triggerHostNotification = async (eventType: 'request_to_view' | 'request_to_join', requestId?: string | null) => {
+    const normalizedRequestId = (requestId || '').trim();
+    if (!normalizedRequestId) return;
+
+    try {
+      await invokePublicFunction('host-notifications', {
+        eventType,
+        requestId: normalizedRequestId,
+      });
+    } catch (error) {
+      // Keep UX non-blocking if notification delivery is unavailable.
+      console.warn(`Could not trigger ${eventType} notification`, error);
+    }
   };
 
   const openDirections = () => {

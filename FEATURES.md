@@ -51,6 +51,7 @@ Can:
 - manage hosted activities if authorized
 - use the signed-in dashboard on `/my-activities`
 - update their profile name/email on `/profile`
+- manage host notification email toggles on `/profile` for `request to view` and `request to join` events
 
 ### 3. Guest-session user
 
@@ -202,6 +203,9 @@ Features:
 - locked-by-default name display with an edit toggle
 - email update form for signed-in users
 - name propagation across hosted activities and self-joined records where sync succeeds
+- notifications card with default-on toggles for host/co-host request emails:
+  - `Email me when someone requests to view one of my activities`
+  - `Email me when someone requests to join one of my activities`
 
 ### Guest bookings / recovery
 
