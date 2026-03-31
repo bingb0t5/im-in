@@ -18,6 +18,7 @@ import Calendar from './pages/Calendar';
 import Recovery from './pages/Recovery';
 import Bookings from './pages/Bookings';
 import MyActivities from './pages/MyActivities';
+import ProfileSettings from './pages/ProfileSettings';
 import AdminHome from './pages/AdminHome';
 import AdminModeration from './pages/AdminModeration';
 import AdminFeedback from './pages/AdminFeedback';
@@ -38,23 +39,26 @@ export default function App() {
       }).catch(err => {
         if (err.message.includes('Supabase configuration missing')) {
           setConfigError(err.message);
-          setLoading(false);
+        } else {
+          console.error('Error loading auth session:', err);
         }
+        setLoading(false);
       });
 
       // Listen for changes on auth state (logged in, signed out, etc.)
       const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
         setUser(session?.user ?? null);
+        setLoading(false);
       });
 
       return () => subscription.unsubscribe();
     } catch (err: unknown) {
       if (err instanceof Error && err.message.includes('Supabase configuration missing')) {
         setConfigError(err.message);
-        setLoading(false);
       } else {
         console.error('Unexpected error during initialization:', err);
       }
+      setLoading(false);
     }
   }, []);
 
@@ -115,6 +119,7 @@ export default function App() {
           <Route path="/host/events/:id" element={user ? <HostDashboard user={user} /> : <Navigate to="/login" />} />
           <Route path="/calendar" element={<Calendar user={user} />} />
           <Route path="/my-activities" element={user ? <MyActivities user={user} /> : <Navigate to="/login" />} />
+          <Route path="/profile" element={user ? <ProfileSettings user={user} /> : <Navigate to="/login" />} />
           <Route path="/moderation" element={<ModerationTransparency />} />
           <Route path="/bookings" element={<Bookings />} />
           <Route path="/recover" element={<Recovery />} />

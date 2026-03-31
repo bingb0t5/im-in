@@ -5,7 +5,6 @@ import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { Mail, ArrowRight, CheckCircle2, ArrowLeft, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { buildAuthRedirectUrl } from '../lib/authRedirect';
-import { goBackOr } from '../lib/navigation';
 
 export default function Login({ user }: { user: User | null }) {
   const [searchParams] = useSearchParams();
@@ -24,7 +23,7 @@ export default function Login({ user }: { user: User | null }) {
     }
   }, [searchParams]);
 
-  if (user) return <Navigate to="/create-event" replace />;
+  if (user) return <Navigate to="/my-activities" replace />;
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,7 +71,7 @@ export default function Login({ user }: { user: User | null }) {
     <div className="min-h-screen flex flex-col bg-slate-50">
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10 w-full">
         <div className="max-w-2xl mx-auto px-6 h-16 flex items-center justify-between">
-          <button onClick={() => goBackOr(navigate, '/')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+          <button onClick={() => navigate('/', { replace: true })} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
           <div className="flex flex-col items-center">

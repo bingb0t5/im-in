@@ -16,6 +16,20 @@
 - made calendar actions always available on activity details (even without RSVP) and restyled them as clearer Google/Apple-style action buttons
 - tightened the activity-detail calendar action layout to use smaller, compact white buttons that sit closer to the event details area
 - updated `Your Activities` to show `(Guest account)` next to no-email sessions and added a clear CTA to add email for account recovery/access continuity
+- fixed host-name derivation in create flow so email handles are no longer used as automatic host names
+- updated post-magic-link create flow to force `One Last Step` name capture before creation, with no email-handle prefill
+- added signed-in `/profile` page with editable name/email and profile-name sync across hosted and self-joined activity records
+- aligned magic-link return to land on create Step 3 and updated profile name UX to show current value locked with an edit (pencil) toggle
+- fixed profile-save failures by respecting generated `attendee_profiles.full_name` schema behavior and preventing background metadata sync from overwriting saved multi-word names
+- added safe signed-in profile self-healing so previously truncated first-word names can be restored from trusted auth metadata without overwriting deliberate custom names
+- fixed account-creation flow so the name entered in `One Last Step` is immediately persisted to the canonical signed-in profile instead of only living on the event form
+- hardened guest-email upgrades by moving profile merges into a single database function that remaps attendee ownership, inviter attribution, sessions, interests, and join requests together
+- stopped signed-in profile hydration from overwriting deliberate profile emails with stale auth emails during pending email-change confirmation windows
+- aligned signed-in RSVP with the existing signed-in `thinking about it` path so a missing profile is created before submit instead of relying on race-prone state
+- refined post-magic-link create behavior so returning users only see `One Last Step` when profile details are actually still missing
+- improved auth-shell resilience so non-config `getSession()` failures no longer leave the app on an endless loading spinner, and signed-in `/login` now returns people to `My Activities`
+- softened profile-save success copy when cross-activity name sync is only partially confirmed and made profile email display prefer the canonical profile record
+- added a small signed-out `Sign in` link on the home page and fixed the `/login` back/logout history loop by sending login back to `Home` and replacing the logout navigation entry
 - updated schema/reconcile docs and project documentation to reflect the new identity and host-setting behavior
 
 ### Documentation

@@ -150,6 +150,17 @@ export default function Home({ user }: { user: User | null }) {
           <p className="text-lg text-slate-500 mb-5 font-medium">
             See what's on. Say I'm in.
           </p>
+
+          {!user ? (
+            <div className="w-full flex justify-end mb-4">
+              <Link
+                to="/login"
+                className="text-xs font-black uppercase tracking-widest text-slate-400 hover:text-brand-600 transition-colors"
+              >
+                Sign in
+              </Link>
+            </div>
+          ) : null}
           
           <div className="w-full space-y-4">
             <div className="space-y-3">

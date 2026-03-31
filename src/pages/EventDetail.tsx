@@ -639,7 +639,14 @@ export default function EventDetail({ user }: { user: User | null }) {
     }
 
     try {
-      let currentProfileId = guestProfile?.id;
+      let currentProfileId = guestProfile?.id || signedInProfileId;
+
+      if (user && !currentProfileId) {
+        const profile = await guestService.getOrCreateProfileForUser(user);
+        currentProfileId = profile.id;
+        setGuestProfile(profile);
+        setSignedInProfileId(profile.id);
+      }
 
       // 1. For guests, create a profile/session if missing.
       if (!user && !currentProfileId) {
