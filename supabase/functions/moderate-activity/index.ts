@@ -803,6 +803,8 @@ function buildEffectiveModerationUpdate(
   const reasons = aiResult.reasons || [];
   const shouldRestrictForReason = shouldRestrictForReasons(reasons, policy.rules);
   const onlySoftReasons = reasons.length === 0 || reasons.every((reason) => ['low_detail', 'overly_promotional', 'other'].includes(reason));
+  const hasAnyReasons = reasons.length > 0;
+  const hasOnlyNonRestrictedReasons = hasAnyReasons && !shouldRestrictForReason;
 
   let moderation_status: ModerationStatus = 'approved';
   let public_discovery_enabled = true;
@@ -816,10 +818,10 @@ function buildEffectiveModerationUpdate(
   } else if (aiResult.risk_level === 'high' && policy.rules.high_risk_requires_review) {
     moderation_status = 'review';
     public_discovery_enabled = false;
-  } else if (aiResult.recommended_action === 'require_review') {
+  } else if (aiResult.recommended_action === 'require_review' && !hasOnlyNonRestrictedReasons) {
     moderation_status = 'review';
     public_discovery_enabled = false;
-  } else if (aiResult.recommended_action === 'limit_visibility' || aiResult.risk_level === 'medium') {
+  } else if ((aiResult.recommended_action === 'limit_visibility' || aiResult.risk_level === 'medium') && !hasOnlyNonRestrictedReasons) {
     const canRelaxForTrust = policy.rules.enable_trust_relaxation
       && trustLevel !== 'new'
       && onlySoftReasons
