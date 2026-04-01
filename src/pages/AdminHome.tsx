@@ -1,6 +1,6 @@
 import { Link, Navigate } from 'react-router-dom';
 import { User } from '@supabase/supabase-js';
-import { ArrowLeft, MessageSquare, Shield } from 'lucide-react';
+import { ArrowLeft, MessageSquare, Shield, SlidersHorizontal } from 'lucide-react';
 import { canAccessAnyAdminFrontend, canAccessFeedbackAdminFrontend, canAccessModerationAdminFrontend } from '../lib/admin';
 
 export default function AdminHome({ user }: { user: User | null }) {
@@ -22,6 +22,14 @@ export default function AdminHome({ user }: { user: User | null }) {
           icon: Shield,
           title: 'Moderation',
           description: 'Review public-facing activity moderation, overrides, and queue state.',
+        }
+      : null,
+    canModerate
+      ? {
+          to: '/admin/moderation/settings',
+          icon: SlidersHorizontal,
+          title: 'Moderation settings',
+          description: 'Adjust strictness, trust thresholds, and moderation rules at runtime.',
         }
       : null,
     canReviewFeedback
