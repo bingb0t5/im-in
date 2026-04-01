@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
-import { Users, Share2, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Clock, Edit2, Plus, X, AlertCircle, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
+import { Users, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Clock, Edit2, Plus, X, AlertCircle, Calendar, ChevronDown, ChevronUp, MessageSquare, Mail } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, formatDurationMinutes, generateSlug } from '../utils';
 import { Event, Attendee, EventAccessRequest, EventInterest, EventJoinRequest } from '../types';
@@ -36,6 +36,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [hostActionLoading, setHostActionLoading] = useState(false);
   const [showHostsPanel, setShowHostsPanel] = useState(false);
   const [showCreateSuccessModal, setShowCreateSuccessModal] = useState(false);
+  const [showManualShareModal, setShowManualShareModal] = useState(false);
+  const [manualShareUrl, setManualShareUrl] = useState('');
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
     show: boolean;
@@ -45,7 +47,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   }>({ show: false, type: 'event', id: '' });
   const [confirmText, setConfirmText] = useState('');
 
-  useBodyScrollLock(showAddModal || showCreateSuccessModal || showDeleteModal.show);
+  useBodyScrollLock(showAddModal || showCreateSuccessModal || showDeleteModal.show || showManualShareModal);
 
   const pickFirstNonEmpty = (...values: Array<string | null | undefined>) =>
     values.map((value) => (value || '').trim()).find(Boolean) || '';
@@ -71,18 +73,57 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
   const normalizeWhatsapp = (value: string) => value.replace(/[^\d]/g, '');
 
-  const openPendingWhatsappWindow = () => {
-    const popup = window.open('', '_blank');
-    if (!popup) {
-      throw new Error('Could not open WhatsApp. Please allow pop-ups and try again.');
-    }
-    popup.document.write('Opening WhatsApp...');
-    return popup;
-  };
-
   const getPublicPreviewUrl = () => {
     if (!event) return '';
     return `${window.location.origin}/events/${event.slug}`;
+  };
+
+  const buildInviteText = (url: string) => {
+    if (!event) return url;
+    const confirmedCount = attendees.filter((a) => a.status === 'confirmed').length;
+    const spotsLeft = Math.max(0, event.capacity - confirmedCount);
+    return `${event.title}\n${formatDate(event.starts_at, event.timezone)}\n${spotsLeft} spots left.\n\nPrivate activity link:\n${url}`;
+  };
+
+  const copyInviteFallback = async (text: string) => {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        alert('Invite copied to clipboard!');
+        return;
+      } catch {
+        // Fall through to older copy strategies.
+      }
+    }
+
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.setAttribute('readonly', '');
+    textArea.style.position = 'fixed';
+    textArea.style.opacity = '0';
+    textArea.style.pointerEvents = 'none';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+
+    try {
+      const copied = document.execCommand('copy');
+      if (copied) {
+        alert('Invite copied to clipboard!');
+        return;
+      }
+    } catch {
+      // Fall through to prompt.
+    } finally {
+      document.body.removeChild(textArea);
+    }
+
+    window.prompt('Copy this invite', text);
+  };
+
+  const openManualShareModal = (url: string) => {
+    setManualShareUrl(url);
+    setShowManualShareModal(true);
   };
 
   const generateAccessCode = () => {
@@ -697,34 +738,46 @@ export default function HostDashboard({ user }: { user: User | null }) {
     try {
       const url = await ensurePrivateAccessUrl();
       if (!url) return;
-      navigator.clipboard.writeText(url);
-      alert('Private link copied!');
+      await copyInviteFallback(url);
     } catch (error: any) {
       alert(error.message || 'Could not prepare private link');
     }
   };
 
-  const copyPublicPreviewLink = () => {
+  const copyPublicPreviewLink = async () => {
     const url = getPublicPreviewUrl();
-    navigator.clipboard.writeText(url);
-    alert('Public preview link copied!');
+    await copyInviteFallback(url);
   };
 
   const shareWhatsApp = async () => {
-    const whatsappWindow = openPendingWhatsappWindow();
     try {
       const url = await ensurePrivateAccessUrl();
       if (!url || !event) {
-        whatsappWindow.close();
         return;
       }
-      const confirmedCount = attendees.filter(a => a.status === 'confirmed').length;
-      const spotsLeft = Math.max(0, event.capacity - confirmedCount);
-      const text = `${event.title}\n${formatDate(event.starts_at, event.timezone)}\n${spotsLeft} spots left.\n\nPrivate activity link:\n${url}`;
-      whatsappWindow.location.href = `https://wa.me/?text=${encodeURIComponent(text)}`;
+      const inviteText = buildInviteText(url);
+      const isAppleMobile = /iPhone|iPad|iPod/i.test(window.navigator.userAgent);
+
+      if (navigator.share) {
+        const sharePromise = isAppleMobile
+          ? navigator.share({ url })
+          : navigator.share({ title: event.title, text: inviteText, url });
+
+        sharePromise.catch((error) => {
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            return;
+          }
+          openManualShareModal(url);
+        });
+        return;
+      }
+
+      const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(inviteText)}`;
+      // Use same-tab navigation so returning from WhatsApp lands back on this activity page.
+      window.location.href = whatsappUrl;
     } catch (error: any) {
-      whatsappWindow.close();
-      alert(error.message || 'Could not prepare WhatsApp share');
+      openManualShareModal(getPublicPreviewUrl());
+      alert(error.message || 'Could not prepare share');
     }
   };
 
@@ -752,7 +805,6 @@ export default function HostDashboard({ user }: { user: User | null }) {
       text = `Hi ${request.requester_name}, thanks for requesting access to ${event.title}. Can you please tell me a little more before I share the link?`;
     }
 
-    const whatsappWindow = openPendingWhatsappWindow();
     try {
       setRequestActionLoadingId(request.id);
       if (status) {
@@ -763,10 +815,12 @@ export default function HostDashboard({ user }: { user: User | null }) {
         if (error) throw error;
       }
 
-      whatsappWindow.location.href = `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
+      const whatsappUrl = `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
+      // In-app browsers (like WhatsApp webview) may block async popups;
+      // prefer same-tab navigation for reliability.
+      window.location.href = whatsappUrl;
       fetchAccessRequests(event.id);
     } catch (error: any) {
-      whatsappWindow.close();
       alert(error.message || 'Could not update request');
     } finally {
       setRequestActionLoadingId(null);
@@ -1486,6 +1540,79 @@ export default function HostDashboard({ user }: { user: User | null }) {
             </motion.div>
           </div>
         )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showManualShareModal ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowManualShareModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-xl font-black text-slate-900 tracking-tight">Share Activity</h2>
+                <button onClick={() => setShowManualShareModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+                  <X className="w-6 h-6 text-slate-400" />
+                </button>
+              </div>
+              <p className="text-sm text-slate-500 font-medium mb-5">
+                Choose how you want to share your activity invite.
+              </p>
+              <div className="space-y-3">
+                <button
+                  onClick={() => {
+                    window.location.href = `https://wa.me/?text=${encodeURIComponent(buildInviteText(manualShareUrl))}`;
+                    setShowManualShareModal(false);
+                  }}
+                  className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <MessageCircle className="w-5 h-5" />
+                  Share to WhatsApp
+                </button>
+                <button
+                  onClick={() => {
+                    window.location.href = `sms:&body=${encodeURIComponent(buildInviteText(manualShareUrl))}`;
+                    setShowManualShareModal(false);
+                  }}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <MessageSquare className="w-5 h-5" />
+                  Share by Text
+                </button>
+                <button
+                  onClick={() => {
+                    const eventTitle = event?.title || 'Activity invite';
+                    window.location.href = `mailto:?subject=${encodeURIComponent(eventTitle)}&body=${encodeURIComponent(buildInviteText(manualShareUrl))}`;
+                    setShowManualShareModal(false);
+                  }}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <Mail className="w-5 h-5" />
+                  Share by Email
+                </button>
+                <button
+                  onClick={() => {
+                    void copyInviteFallback(buildInviteText(manualShareUrl));
+                    setShowManualShareModal(false);
+                  }}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <Copy className="w-5 h-5" />
+                  Copy Invite
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        ) : null}
       </AnimatePresence>
 
       <AnimatePresence>
