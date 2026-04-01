@@ -4,7 +4,13 @@ CREATE TABLE IF NOT EXISTS public.moderation_policy_settings (
     rules JSONB NOT NULL DEFAULT '{
       "enable_ai_moderation": true,
       "enable_trust_relaxation": true,
-      "enforce_hard_reason_gate": true,
+      "restrict_for_abuse_or_hate": true,
+      "restrict_for_scam_or_impersonation": true,
+      "restrict_for_mass_posting": true,
+      "restrict_for_not_real_world_activity": true,
+      "restrict_for_low_detail": false,
+      "restrict_for_overly_promotional": false,
+      "restrict_for_other": false,
       "medium_risk_requires_review": false,
       "high_risk_requires_review": true
     }'::jsonb,
@@ -103,7 +109,13 @@ VALUES (
     '{
       "enable_ai_moderation": true,
       "enable_trust_relaxation": true,
-      "enforce_hard_reason_gate": true,
+      "restrict_for_abuse_or_hate": true,
+      "restrict_for_scam_or_impersonation": true,
+      "restrict_for_mass_posting": true,
+      "restrict_for_not_real_world_activity": true,
+      "restrict_for_low_detail": false,
+      "restrict_for_overly_promotional": false,
+      "restrict_for_other": false,
       "medium_risk_requires_review": false,
       "high_risk_requires_review": true
     }'::jsonb,

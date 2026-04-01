@@ -52,7 +52,13 @@ type ModerationStrictnessMode = 'relaxed' | 'balanced' | 'strict';
 type ModerationPolicyRules = {
   enable_ai_moderation: boolean;
   enable_trust_relaxation: boolean;
-  enforce_hard_reason_gate: boolean;
+  restrict_for_abuse_or_hate: boolean;
+  restrict_for_scam_or_impersonation: boolean;
+  restrict_for_mass_posting: boolean;
+  restrict_for_not_real_world_activity: boolean;
+  restrict_for_low_detail: boolean;
+  restrict_for_overly_promotional: boolean;
+  restrict_for_other: boolean;
   medium_risk_requires_review: boolean;
   high_risk_requires_review: boolean;
 };
@@ -157,7 +163,13 @@ const responseSchema = {
 const DEFAULT_MODERATION_RULES: ModerationPolicyRules = {
   enable_ai_moderation: true,
   enable_trust_relaxation: true,
-  enforce_hard_reason_gate: true,
+  restrict_for_abuse_or_hate: true,
+  restrict_for_scam_or_impersonation: true,
+  restrict_for_mass_posting: true,
+  restrict_for_not_real_world_activity: true,
+  restrict_for_low_detail: false,
+  restrict_for_overly_promotional: false,
+  restrict_for_other: false,
   medium_risk_requires_review: false,
   high_risk_requires_review: true,
 };
@@ -175,8 +187,14 @@ const PRESET_MODERATION_POLICIES: Record<ModerationStrictnessMode, {
   relaxed: {
     rules: {
       ...DEFAULT_MODERATION_RULES,
+      restrict_for_scam_or_impersonation: false,
+      restrict_for_mass_posting: false,
+      restrict_for_not_real_world_activity: false,
+      restrict_for_low_detail: false,
+      restrict_for_overly_promotional: false,
+      restrict_for_other: false,
       medium_risk_requires_review: false,
-      high_risk_requires_review: true,
+      high_risk_requires_review: false,
       enable_trust_relaxation: true,
     },
     thresholds: {
@@ -193,6 +211,9 @@ const PRESET_MODERATION_POLICIES: Record<ModerationStrictnessMode, {
     rules: {
       ...DEFAULT_MODERATION_RULES,
       enable_trust_relaxation: false,
+      restrict_for_low_detail: true,
+      restrict_for_overly_promotional: true,
+      restrict_for_other: true,
       medium_risk_requires_review: true,
       high_risk_requires_review: true,
     },
@@ -302,10 +323,34 @@ function normalizeModerationPolicy(
       typeof rawRules.enable_trust_relaxation === 'boolean'
         ? rawRules.enable_trust_relaxation
         : basePolicy.rules.enable_trust_relaxation ?? presetForMode.rules.enable_trust_relaxation,
-    enforce_hard_reason_gate:
-      typeof rawRules.enforce_hard_reason_gate === 'boolean'
-        ? rawRules.enforce_hard_reason_gate
-        : basePolicy.rules.enforce_hard_reason_gate ?? presetForMode.rules.enforce_hard_reason_gate,
+    restrict_for_abuse_or_hate:
+      typeof rawRules.restrict_for_abuse_or_hate === 'boolean'
+        ? rawRules.restrict_for_abuse_or_hate
+        : basePolicy.rules.restrict_for_abuse_or_hate ?? presetForMode.rules.restrict_for_abuse_or_hate,
+    restrict_for_scam_or_impersonation:
+      typeof rawRules.restrict_for_scam_or_impersonation === 'boolean'
+        ? rawRules.restrict_for_scam_or_impersonation
+        : basePolicy.rules.restrict_for_scam_or_impersonation ?? presetForMode.rules.restrict_for_scam_or_impersonation,
+    restrict_for_mass_posting:
+      typeof rawRules.restrict_for_mass_posting === 'boolean'
+        ? rawRules.restrict_for_mass_posting
+        : basePolicy.rules.restrict_for_mass_posting ?? presetForMode.rules.restrict_for_mass_posting,
+    restrict_for_not_real_world_activity:
+      typeof rawRules.restrict_for_not_real_world_activity === 'boolean'
+        ? rawRules.restrict_for_not_real_world_activity
+        : basePolicy.rules.restrict_for_not_real_world_activity ?? presetForMode.rules.restrict_for_not_real_world_activity,
+    restrict_for_low_detail:
+      typeof rawRules.restrict_for_low_detail === 'boolean'
+        ? rawRules.restrict_for_low_detail
+        : basePolicy.rules.restrict_for_low_detail ?? presetForMode.rules.restrict_for_low_detail,
+    restrict_for_overly_promotional:
+      typeof rawRules.restrict_for_overly_promotional === 'boolean'
+        ? rawRules.restrict_for_overly_promotional
+        : basePolicy.rules.restrict_for_overly_promotional ?? presetForMode.rules.restrict_for_overly_promotional,
+    restrict_for_other:
+      typeof rawRules.restrict_for_other === 'boolean'
+        ? rawRules.restrict_for_other
+        : basePolicy.rules.restrict_for_other ?? presetForMode.rules.restrict_for_other,
     medium_risk_requires_review:
       typeof rawRules.medium_risk_requires_review === 'boolean'
         ? rawRules.medium_risk_requires_review
@@ -714,6 +759,40 @@ function hasHardReason(reasons: string[]) {
   );
 }
 
+function shouldRestrictForReasons(reasons: string[], rules: ModerationPolicyRules) {
+  return reasons.some((reason) => {
+    if (reason === 'harassment_or_hate' || reason === 'unsafe_or_illicit' || reason === 'adult_services') {
+      return rules.restrict_for_abuse_or_hate;
+    }
+
+    if (reason === 'possible_scam' || reason === 'impersonation_or_misleading_host' || reason === 'suspicious_contact_or_payment_request') {
+      return rules.restrict_for_scam_or_impersonation;
+    }
+
+    if (reason === 'mass_posting_signals') {
+      return rules.restrict_for_mass_posting;
+    }
+
+    if (reason === 'not_a_real_world_activity') {
+      return rules.restrict_for_not_real_world_activity;
+    }
+
+    if (reason === 'low_detail') {
+      return rules.restrict_for_low_detail;
+    }
+
+    if (reason === 'overly_promotional') {
+      return rules.restrict_for_overly_promotional;
+    }
+
+    if (reason === 'other') {
+      return rules.restrict_for_other;
+    }
+
+    return false;
+  });
+}
+
 function buildEffectiveModerationUpdate(
   aiResult: ActivityModerationResult,
   inputHash: string,
@@ -722,16 +801,19 @@ function buildEffectiveModerationUpdate(
 ): EffectiveModerationUpdate {
   const confidence = clampConfidence(aiResult.confidence);
   const reasons = aiResult.reasons || [];
-  const hardReasonPresent = policy.rules.enforce_hard_reason_gate && hasHardReason(reasons);
+  const shouldRestrictForReason = shouldRestrictForReasons(reasons, policy.rules);
   const onlySoftReasons = reasons.length === 0 || reasons.every((reason) => ['low_detail', 'overly_promotional', 'other'].includes(reason));
 
   let moderation_status: ModerationStatus = 'approved';
   let public_discovery_enabled = true;
 
-  if (aiResult.recommended_action === 'block') {
+  if (shouldRestrictForReason) {
+    moderation_status = aiResult.recommended_action === 'block' ? 'blocked' : 'review';
+    public_discovery_enabled = false;
+  } else if (aiResult.recommended_action === 'block' && hasHardReason(reasons)) {
     moderation_status = 'blocked';
     public_discovery_enabled = false;
-  } else if ((aiResult.risk_level === 'high' && policy.rules.high_risk_requires_review) || hardReasonPresent) {
+  } else if (aiResult.risk_level === 'high' && policy.rules.high_risk_requires_review) {
     moderation_status = 'review';
     public_discovery_enabled = false;
   } else if (aiResult.recommended_action === 'require_review') {

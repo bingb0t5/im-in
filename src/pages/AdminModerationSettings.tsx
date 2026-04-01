@@ -10,7 +10,13 @@ type StrictnessMode = 'relaxed' | 'balanced' | 'strict';
 type ModerationPolicyRules = {
   enable_ai_moderation: boolean;
   enable_trust_relaxation: boolean;
-  enforce_hard_reason_gate: boolean;
+  restrict_for_abuse_or_hate: boolean;
+  restrict_for_scam_or_impersonation: boolean;
+  restrict_for_mass_posting: boolean;
+  restrict_for_not_real_world_activity: boolean;
+  restrict_for_low_detail: boolean;
+  restrict_for_overly_promotional: boolean;
+  restrict_for_other: boolean;
   medium_risk_requires_review: boolean;
   high_risk_requires_review: boolean;
 };
@@ -38,9 +44,33 @@ const RULE_LABELS: Record<keyof ModerationPolicyRules, { title: string; detail: 
     title: 'Allow trust-based relaxation',
     detail: 'Lets established/trusted hosts pass medium/soft flags more easily.',
   },
-  enforce_hard_reason_gate: {
-    title: 'Enforce hard reason gate',
-    detail: 'Keeps known hard-risk reasons from reaching broad discovery.',
+  restrict_for_abuse_or_hate: {
+    title: 'Restrict abuse / hate / foul language',
+    detail: 'Hide listings flagged for abuse, hate, illicit or adult-services content.',
+  },
+  restrict_for_scam_or_impersonation: {
+    title: 'Restrict scam / impersonation',
+    detail: 'Hide listings flagged as scam-like, misleading identity, or suspicious payment/contact requests.',
+  },
+  restrict_for_mass_posting: {
+    title: 'Restrict mass posting signals',
+    detail: 'Hide listings flagged as repeated or bulk posting behavior.',
+  },
+  restrict_for_not_real_world_activity: {
+    title: 'Restrict non-real-world activity',
+    detail: 'Hide listings that look unrelated to genuine in-person activities.',
+  },
+  restrict_for_low_detail: {
+    title: 'Restrict low-info listings',
+    detail: 'Hide listings that do not include enough useful public detail.',
+  },
+  restrict_for_overly_promotional: {
+    title: 'Restrict overly promotional listings',
+    detail: 'Hide listings that read more like promotion than community activities.',
+  },
+  restrict_for_other: {
+    title: 'Restrict generic "other" flags',
+    detail: 'Hide listings when moderation can only classify concern as "other".',
   },
   medium_risk_requires_review: {
     title: 'Medium risk requires manual review',
@@ -82,6 +112,48 @@ const PRESET_THRESHOLDS: Record<StrictnessMode, ModerationPolicyThresholds> = {
     established_host_min_count: 5,
     trusted_host_min_count: 15,
     trust_relax_max_confidence: 0.6,
+  },
+};
+
+const PRESET_RULES: Record<StrictnessMode, ModerationPolicyRules> = {
+  relaxed: {
+    enable_ai_moderation: true,
+    enable_trust_relaxation: true,
+    restrict_for_abuse_or_hate: true,
+    restrict_for_scam_or_impersonation: false,
+    restrict_for_mass_posting: false,
+    restrict_for_not_real_world_activity: false,
+    restrict_for_low_detail: false,
+    restrict_for_overly_promotional: false,
+    restrict_for_other: false,
+    medium_risk_requires_review: false,
+    high_risk_requires_review: false,
+  },
+  balanced: {
+    enable_ai_moderation: true,
+    enable_trust_relaxation: true,
+    restrict_for_abuse_or_hate: true,
+    restrict_for_scam_or_impersonation: true,
+    restrict_for_mass_posting: true,
+    restrict_for_not_real_world_activity: true,
+    restrict_for_low_detail: false,
+    restrict_for_overly_promotional: false,
+    restrict_for_other: false,
+    medium_risk_requires_review: false,
+    high_risk_requires_review: true,
+  },
+  strict: {
+    enable_ai_moderation: true,
+    enable_trust_relaxation: false,
+    restrict_for_abuse_or_hate: true,
+    restrict_for_scam_or_impersonation: true,
+    restrict_for_mass_posting: true,
+    restrict_for_not_real_world_activity: true,
+    restrict_for_low_detail: true,
+    restrict_for_overly_promotional: true,
+    restrict_for_other: true,
+    medium_risk_requires_review: true,
+    high_risk_requires_review: true,
   },
 };
 
@@ -140,17 +212,11 @@ export default function AdminModerationSettings({ user }: { user: User | null })
   const applyPresetLocally = (mode: StrictnessMode) => {
     setDraft((current) => {
       if (!current) return current;
-      const nextRules: ModerationPolicyRules = {
-        ...current.rules,
-        enable_trust_relaxation: mode !== 'strict',
-        medium_risk_requires_review: mode === 'strict',
-        high_risk_requires_review: true,
-      };
 
       return {
         ...current,
         strictness_mode: mode,
-        rules: nextRules,
+        rules: PRESET_RULES[mode],
         thresholds: PRESET_THRESHOLDS[mode],
       };
     });
@@ -270,14 +336,24 @@ export default function AdminModerationSettings({ user }: { user: User | null })
                 ))}
               </div>
               <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => { void savePolicy(true); }}
-                  disabled={saving}
-                  className="px-4 py-2 rounded-full bg-slate-900 text-sm font-bold text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
-                >
-                  {saving ? 'Saving…' : 'Apply selected preset'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => applyPresetLocally('relaxed')}
+                    disabled={saving}
+                    className="px-4 py-2 rounded-full bg-slate-100 text-sm font-bold text-slate-700 hover:bg-slate-200 transition-colors disabled:opacity-50"
+                  >
+                    Open except abuse/hate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { void savePolicy(true); }}
+                    disabled={saving}
+                    className="px-4 py-2 rounded-full bg-slate-900 text-sm font-bold text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+                  >
+                    {saving ? 'Saving…' : 'Apply selected preset'}
+                  </button>
+                </div>
               </div>
             </section>
 
