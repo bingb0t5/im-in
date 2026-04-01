@@ -47,6 +47,30 @@ type ActivityModerationResult = {
   confidence: number;
 };
 
+type ModerationStrictnessMode = 'relaxed' | 'balanced' | 'strict';
+
+type ModerationPolicyRules = {
+  enable_ai_moderation: boolean;
+  enable_trust_relaxation: boolean;
+  enforce_hard_reason_gate: boolean;
+  medium_risk_requires_review: boolean;
+  high_risk_requires_review: boolean;
+};
+
+type ModerationPolicyThresholds = {
+  established_host_min_count: number;
+  trusted_host_min_count: number;
+  trust_relax_max_confidence: number;
+};
+
+type ModerationPolicy = {
+  strictness_mode: ModerationStrictnessMode;
+  rules: ModerationPolicyRules;
+  thresholds: ModerationPolicyThresholds;
+  updated_at: string | null;
+  updated_by_user_id: string | null;
+};
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -130,6 +154,56 @@ const responseSchema = {
   },
 } as const;
 
+const DEFAULT_MODERATION_RULES: ModerationPolicyRules = {
+  enable_ai_moderation: true,
+  enable_trust_relaxation: true,
+  enforce_hard_reason_gate: true,
+  medium_risk_requires_review: false,
+  high_risk_requires_review: true,
+};
+
+const DEFAULT_MODERATION_THRESHOLDS: ModerationPolicyThresholds = {
+  established_host_min_count: 3,
+  trusted_host_min_count: 10,
+  trust_relax_max_confidence: 0.75,
+};
+
+const PRESET_MODERATION_POLICIES: Record<ModerationStrictnessMode, {
+  rules: ModerationPolicyRules;
+  thresholds: ModerationPolicyThresholds;
+}> = {
+  relaxed: {
+    rules: {
+      ...DEFAULT_MODERATION_RULES,
+      medium_risk_requires_review: false,
+      high_risk_requires_review: true,
+      enable_trust_relaxation: true,
+    },
+    thresholds: {
+      established_host_min_count: 2,
+      trusted_host_min_count: 5,
+      trust_relax_max_confidence: 0.9,
+    },
+  },
+  balanced: {
+    rules: { ...DEFAULT_MODERATION_RULES },
+    thresholds: { ...DEFAULT_MODERATION_THRESHOLDS },
+  },
+  strict: {
+    rules: {
+      ...DEFAULT_MODERATION_RULES,
+      enable_trust_relaxation: false,
+      medium_risk_requires_review: true,
+      high_risk_requires_review: true,
+    },
+    thresholds: {
+      established_host_min_count: 5,
+      trusted_host_min_count: 15,
+      trust_relax_max_confidence: 0.6,
+    },
+  },
+};
+
 type MinimalStoredEvent = Pick<
   EventModerationShape,
   | 'visibility'
@@ -174,6 +248,107 @@ function parseEmailAllowlist(raw?: string | null) {
     .split(',')
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeStrictnessMode(value: unknown): ModerationStrictnessMode {
+  return value === 'relaxed' || value === 'strict' || value === 'balanced'
+    ? value
+    : 'balanced';
+}
+
+function clampInteger(value: unknown, min: number, max: number, fallback: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+function clampFloat(value: unknown, min: number, max: number, fallback: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function buildPresetModerationPolicy(mode: ModerationStrictnessMode): ModerationPolicy {
+  const preset = PRESET_MODERATION_POLICIES[mode];
+  return {
+    strictness_mode: mode,
+    rules: { ...preset.rules },
+    thresholds: { ...preset.thresholds },
+    updated_at: null,
+    updated_by_user_id: null,
+  };
+}
+
+function normalizeModerationPolicy(
+  value: unknown,
+  basePolicy: ModerationPolicy = buildPresetModerationPolicy('balanced'),
+): ModerationPolicy {
+  const source = isRecord(value) ? value : {};
+  const strictnessMode = normalizeStrictnessMode(source.strictness_mode ?? basePolicy.strictness_mode);
+  const presetForMode = PRESET_MODERATION_POLICIES[strictnessMode];
+  const rawRules = isRecord(source.rules) ? source.rules : {};
+  const rawThresholds = isRecord(source.thresholds) ? source.thresholds : {};
+
+  const rules: ModerationPolicyRules = {
+    enable_ai_moderation:
+      typeof rawRules.enable_ai_moderation === 'boolean'
+        ? rawRules.enable_ai_moderation
+        : basePolicy.rules.enable_ai_moderation ?? presetForMode.rules.enable_ai_moderation,
+    enable_trust_relaxation:
+      typeof rawRules.enable_trust_relaxation === 'boolean'
+        ? rawRules.enable_trust_relaxation
+        : basePolicy.rules.enable_trust_relaxation ?? presetForMode.rules.enable_trust_relaxation,
+    enforce_hard_reason_gate:
+      typeof rawRules.enforce_hard_reason_gate === 'boolean'
+        ? rawRules.enforce_hard_reason_gate
+        : basePolicy.rules.enforce_hard_reason_gate ?? presetForMode.rules.enforce_hard_reason_gate,
+    medium_risk_requires_review:
+      typeof rawRules.medium_risk_requires_review === 'boolean'
+        ? rawRules.medium_risk_requires_review
+        : basePolicy.rules.medium_risk_requires_review ?? presetForMode.rules.medium_risk_requires_review,
+    high_risk_requires_review:
+      typeof rawRules.high_risk_requires_review === 'boolean'
+        ? rawRules.high_risk_requires_review
+        : basePolicy.rules.high_risk_requires_review ?? presetForMode.rules.high_risk_requires_review,
+  };
+
+  const thresholds: ModerationPolicyThresholds = {
+    established_host_min_count: clampInteger(
+      rawThresholds.established_host_min_count,
+      0,
+      10000,
+      basePolicy.thresholds.established_host_min_count ?? presetForMode.thresholds.established_host_min_count,
+    ),
+    trusted_host_min_count: clampInteger(
+      rawThresholds.trusted_host_min_count,
+      0,
+      10000,
+      basePolicy.thresholds.trusted_host_min_count ?? presetForMode.thresholds.trusted_host_min_count,
+    ),
+    trust_relax_max_confidence: clampFloat(
+      rawThresholds.trust_relax_max_confidence,
+      0,
+      1,
+      basePolicy.thresholds.trust_relax_max_confidence ?? presetForMode.thresholds.trust_relax_max_confidence,
+    ),
+  };
+
+  if (thresholds.trusted_host_min_count < thresholds.established_host_min_count) {
+    thresholds.trusted_host_min_count = thresholds.established_host_min_count;
+  }
+
+  return {
+    strictness_mode: strictnessMode,
+    rules,
+    thresholds,
+    updated_at: typeof source.updated_at === 'string' ? source.updated_at : basePolicy.updated_at,
+    updated_by_user_id:
+      typeof source.updated_by_user_id === 'string' ? source.updated_by_user_id : basePolicy.updated_by_user_id,
+  };
 }
 
 function normalizeVisibility(event: Pick<EventModerationShape, 'visibility' | 'is_public'>): EventVisibility {
@@ -264,9 +439,9 @@ function sanitizeModerationReasons(reasons: unknown, recommendedAction?: Moderat
   return recommendedAction && recommendedAction !== 'allow' ? ['other'] : [];
 }
 
-function getTrustLevel(priorHostedCount: number): HostTrustLevel {
-  if (priorHostedCount >= 10) return 'trusted';
-  if (priorHostedCount >= 3) return 'established';
+function getTrustLevel(priorHostedCount: number, thresholds: ModerationPolicyThresholds): HostTrustLevel {
+  if (priorHostedCount >= thresholds.trusted_host_min_count) return 'trusted';
+  if (priorHostedCount >= thresholds.established_host_min_count) return 'established';
   return 'new';
 }
 
@@ -293,6 +468,104 @@ function getPublicExplanation(action: PublicModerationLogAction, reasonCode: str
     default:
       return 'A moderation action was recorded for this public-facing activity listing.';
   }
+}
+
+async function loadModerationPolicy(admin: ReturnType<typeof createClient>) {
+  const defaultPolicy = buildPresetModerationPolicy('balanced');
+  try {
+    const { error: ensureError } = await admin
+      .from('moderation_policy_settings')
+      .upsert(
+        {
+          id: true,
+          strictness_mode: defaultPolicy.strictness_mode,
+          rules: defaultPolicy.rules,
+          thresholds: defaultPolicy.thresholds,
+        },
+        { onConflict: 'id', ignoreDuplicates: true },
+      );
+
+    if (ensureError) {
+      throw ensureError;
+    }
+
+    const { data, error } = await admin
+      .from('moderation_policy_settings')
+      .select('strictness_mode, rules, thresholds, updated_at, updated_by_user_id')
+      .eq('id', true)
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return normalizeModerationPolicy(data, defaultPolicy);
+  } catch (error) {
+    console.warn('Falling back to default moderation policy.', error);
+    return defaultPolicy;
+  }
+}
+
+type ModerationPolicyUpdatePayload = {
+  strictness_mode?: ModerationStrictnessMode;
+  rules?: Partial<ModerationPolicyRules>;
+  thresholds?: Partial<ModerationPolicyThresholds>;
+  apply_preset?: boolean;
+};
+
+async function updateModerationPolicy(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  payload: ModerationPolicyUpdatePayload,
+) {
+  const currentPolicy = await loadModerationPolicy(admin);
+  const mode = normalizeStrictnessMode(payload.strictness_mode ?? currentPolicy.strictness_mode);
+  const baseForUpdate = payload.apply_preset === true
+    ? buildPresetModerationPolicy(mode)
+    : currentPolicy;
+
+  const nextPolicy = normalizeModerationPolicy(
+    {
+      strictness_mode: mode,
+      rules: {
+        ...baseForUpdate.rules,
+        ...(isRecord(payload.rules) ? payload.rules : {}),
+      },
+      thresholds: {
+        ...baseForUpdate.thresholds,
+        ...(isRecord(payload.thresholds) ? payload.thresholds : {}),
+      },
+      updated_by_user_id: userId,
+    },
+    baseForUpdate,
+  );
+
+  const { error: updateError } = await admin
+    .from('moderation_policy_settings')
+    .upsert(
+      {
+        id: true,
+        strictness_mode: nextPolicy.strictness_mode,
+        rules: nextPolicy.rules,
+        thresholds: nextPolicy.thresholds,
+        updated_by_user_id: userId,
+      },
+      { onConflict: 'id' },
+    );
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  await admin
+    .from('moderation_policy_change_log')
+    .insert({
+      changed_by_user_id: userId,
+      previous_policy: currentPolicy,
+      next_policy: nextPolicy,
+    });
+
+  return loadModerationPolicy(admin);
 }
 
 function derivePublicLogAction(
@@ -445,24 +718,33 @@ function buildEffectiveModerationUpdate(
   aiResult: ActivityModerationResult,
   inputHash: string,
   trustLevel: HostTrustLevel,
+  policy: ModerationPolicy,
 ): EffectiveModerationUpdate {
   const confidence = clampConfidence(aiResult.confidence);
   const reasons = aiResult.reasons || [];
-  const hardReasonPresent = hasHardReason(reasons);
+  const hardReasonPresent = policy.rules.enforce_hard_reason_gate && hasHardReason(reasons);
   const onlySoftReasons = reasons.length === 0 || reasons.every((reason) => ['low_detail', 'overly_promotional', 'other'].includes(reason));
 
   let moderation_status: ModerationStatus = 'approved';
   let public_discovery_enabled = true;
 
-  if (aiResult.recommended_action === 'block' || aiResult.risk_level === 'high' || hardReasonPresent) {
-    moderation_status = aiResult.recommended_action === 'block' ? 'blocked' : 'review';
+  if (aiResult.recommended_action === 'block') {
+    moderation_status = 'blocked';
+    public_discovery_enabled = false;
+  } else if ((aiResult.risk_level === 'high' && policy.rules.high_risk_requires_review) || hardReasonPresent) {
+    moderation_status = 'review';
     public_discovery_enabled = false;
   } else if (aiResult.recommended_action === 'require_review') {
     moderation_status = 'review';
     public_discovery_enabled = false;
   } else if (aiResult.recommended_action === 'limit_visibility' || aiResult.risk_level === 'medium') {
-    const canRelaxForTrust = trustLevel !== 'new' && onlySoftReasons && confidence < 0.75;
-    moderation_status = canRelaxForTrust ? 'approved' : 'limited';
+    const canRelaxForTrust = policy.rules.enable_trust_relaxation
+      && trustLevel !== 'new'
+      && onlySoftReasons
+      && confidence < policy.thresholds.trust_relax_max_confidence;
+    moderation_status = canRelaxForTrust
+      ? 'approved'
+      : (policy.rules.medium_risk_requires_review ? 'review' : 'limited');
     public_discovery_enabled = canRelaxForTrust;
   }
 
@@ -601,9 +883,45 @@ Deno.serve(async (request) => {
   let currentInputHash: string | null = null;
 
   try {
-    const { eventId, override, clearOverride, rerun, archive, unarchive, listQueue, publicExplanation } = await request.json();
+    const requestBody = await request.json();
+    const {
+      eventId,
+      override,
+      clearOverride,
+      rerun,
+      archive,
+      unarchive,
+      listQueue,
+      listPolicy,
+      updatePolicy,
+      publicExplanation,
+    } = isRecord(requestBody) ? requestBody : {};
     const adminEmails = parseEmailAllowlist(Deno.env.get('MODERATION_ADMIN_EMAILS'));
     const isAdmin = !!user.email && adminEmails.includes(user.email.trim().toLowerCase());
+
+    if (listPolicy === true) {
+      if (!isAdmin) {
+        return json({ error: 'Admin permissions are required to view moderation policy settings.' }, { status: 403 });
+      }
+
+      const policy = await loadModerationPolicy(admin);
+      return json({ policy });
+    }
+
+    if (isRecord(updatePolicy)) {
+      if (!isAdmin) {
+        return json({ error: 'Admin permissions are required to update moderation policy settings.' }, { status: 403 });
+      }
+
+      const policy = await updateModerationPolicy(admin, user.id, {
+        strictness_mode: updatePolicy.strictness_mode as ModerationStrictnessMode | undefined,
+        rules: isRecord(updatePolicy.rules) ? updatePolicy.rules as Partial<ModerationPolicyRules> : undefined,
+        thresholds: isRecord(updatePolicy.thresholds) ? updatePolicy.thresholds as Partial<ModerationPolicyThresholds> : undefined,
+        apply_preset: updatePolicy.apply_preset === true,
+      });
+
+      return json({ policy });
+    }
 
     if (listQueue === true) {
       if (!isAdmin) {
@@ -948,11 +1266,54 @@ Deno.serve(async (request) => {
       });
     }
 
+    const moderationPolicy = await loadModerationPolicy(admin);
+
+    if (!moderationPolicy.rules.enable_ai_moderation) {
+      const previousDiscoveryEnabled = !!event.public_discovery_enabled;
+      const policyBypassUpdate: EffectiveModerationUpdate = {
+        public_discovery_enabled: true,
+        moderation_status: 'approved',
+        moderation_risk_level: null,
+        moderation_action: null,
+        moderation_confidence: null,
+        moderation_reasons: [],
+        moderation_input_hash: inputHash,
+        moderated_at: new Date().toISOString(),
+      };
+
+      const { error: bypassError } = await admin
+        .from('events')
+        .update(policyBypassUpdate)
+        .eq('id', event.id);
+
+      if (bypassError) {
+        throw bypassError;
+      }
+
+      await insertPublicModerationLog(
+        admin,
+        event,
+        policyBypassUpdate,
+        {
+          previousDiscoveryEnabled,
+          publicExplanation: typeof publicExplanation === 'string' ? publicExplanation : null,
+          source: 'system',
+        },
+      );
+
+      return json({
+        reused: false,
+        ai_skipped: true,
+        policy_mode: moderationPolicy.strictness_mode,
+        result: policyBypassUpdate,
+      });
+    }
+
     const priorHostedCount = await getPriorHostedCount(admin, event.host_user_id, event.id);
-    const trustLevel = getTrustLevel(priorHostedCount);
+    const trustLevel = getTrustLevel(priorHostedCount, moderationPolicy.thresholds);
     const aiResult = await callModerationModel(moderationInput, trustLevel, priorHostedCount);
     const previousDiscoveryEnabled = !!event.public_discovery_enabled;
-    const effectiveUpdate = buildEffectiveModerationUpdate(aiResult, inputHash, trustLevel);
+    const effectiveUpdate = buildEffectiveModerationUpdate(aiResult, inputHash, trustLevel, moderationPolicy);
 
     const { error: updateError } = await admin
       .from('events')
@@ -976,6 +1337,7 @@ Deno.serve(async (request) => {
 
     return json({
       reused: false,
+      policy_mode: moderationPolicy.strictness_mode,
       trust_level: trustLevel,
       prior_hosted_count: priorHostedCount,
       ai_result: aiResult,
