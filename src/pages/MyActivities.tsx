@@ -7,6 +7,7 @@ import { formatDate, isOnOrAfterTodayInTimeZone } from '../utils';
 import { Event } from '../types';
 import { groupBookingsByEvent } from '../lib/bookings';
 import { withConfirmedCounts, buildEventPath } from '../lib/events';
+import { guestService } from '../services/guestService';
 
 interface PendingAccessRequestRow {
   id: string;
@@ -61,6 +62,7 @@ export default function MyActivities({ user }: { user: User | null }) {
     setLoading(true);
 
     try {
+      const guestSessionToken = guestService.getStoredSession();
       const {
         data: hostedByOwner,
         error: hostedByOwnerError,
@@ -84,6 +86,22 @@ export default function MyActivities({ user }: { user: User | null }) {
         .rpc('list_my_interested_activities');
 
       if (thinkingError) throw thinkingError;
+
+      let guestJoinedRows: any[] = [];
+      let guestThinkingRows: any[] = [];
+
+      if (guestSessionToken) {
+        try {
+          const [guestBookings, guestInterests] = await Promise.all([
+            guestService.getMyBookings(guestSessionToken),
+            guestService.getMyInterests(guestSessionToken),
+          ]);
+          guestJoinedRows = guestBookings;
+          guestThinkingRows = guestInterests;
+        } catch (guestActivityError) {
+          console.warn('Could not load guest session activity for My Activities:', guestActivityError);
+        }
+      }
 
       const hostedById = ((hostedByOwner || []) as any[]).reduce((acc: Record<string, any>, event: any) => {
         if (!event?.id) return acc;
@@ -158,18 +176,37 @@ export default function MyActivities({ user }: { user: User | null }) {
         console.warn('Could not load pending join requests for My Activities:', pendingMembershipRequestsError);
       }
 
-      const normalizedJoinedRows = (joinedRows || [])
+      const normalizedJoinedRows = [...(joinedRows || []), ...guestJoinedRows]
         .filter((row: any) => row.events);
 
-      const normalizedThinkingRows = (thinkingRows || [])
+      const normalizedThinkingRows = [...(thinkingRows || []), ...guestThinkingRows]
         .filter((row: any) => row.events);
 
-      const thinkingRowsWithStatus = normalizedThinkingRows.map((row: any) => ({
+      const dedupeActivityRows = (rows: any[]) => {
+        const seen = new Set<string>();
+        return rows.filter((row: any) => {
+          const key = row?.id
+            || [
+              row?.event_id || row?.events?.id || '',
+              row?.guest_name || '',
+              row?.guest_email || '',
+              row?.status || '',
+            ].join('::');
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      };
+
+      const thinkingRowsWithStatus = dedupeActivityRows(normalizedThinkingRows).map((row: any) => ({
         ...row,
         status: 'thinking',
       }));
 
-      const combinedJoined = [...normalizedJoinedRows, ...thinkingRowsWithStatus];
+      const combinedJoined = dedupeActivityRows([
+        ...normalizedJoinedRows,
+        ...thinkingRowsWithStatus,
+      ]);
 
       setHostedEvents(hostedWithCounts);
       setJoinedEvents(combinedJoined);
