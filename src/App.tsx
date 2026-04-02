@@ -65,9 +65,20 @@ export default function App() {
 
   useEffect(() => {
     if (user) {
-      guestService.getOrCreateProfileForUser(user).catch(err => {
-        console.error('Error syncing profile:', err);
-      });
+      let cancelled = false;
+      void (async () => {
+        try {
+          const profile = await guestService.getOrCreateProfileForUser(user);
+          if (cancelled) return;
+          await guestService.claimStoredGuestSessionForUser(user, profile);
+        } catch (err) {
+          console.error('Error syncing profile:', err);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
     }
   }, [user]);
 

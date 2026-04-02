@@ -125,6 +125,10 @@ export default function EventDetail({ user }: { user: User | null }) {
     return email;
   };
 
+  const getCurrentProfileId = () => {
+    return user ? signedInProfileId || guestProfile?.id || null : guestProfile?.id || signedInProfileId || null;
+  };
+
   const getAddedByLabel = (attendee: Attendee) => {
     if (!attendee.added_by_type || attendee.added_by_type === 'self') return null;
     if (attendee.added_by_type === 'host') return 'added by host';
@@ -401,7 +405,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
   useEffect(() => {
     if (attendees.length > 0) {
-      const currentProfileId = guestProfile?.id || signedInProfileId || undefined;
+      const currentProfileId = getCurrentProfileId() || undefined;
       const { selfRsvps, managedProxyRsvps } = getMyRsvpBuckets(attendees, {
         userId: user?.id,
         userEmail: user?.email,
@@ -579,7 +583,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
     try {
       setThinkingLoading(true);
-      let currentProfileId = guestProfile?.id || signedInProfileId;
+      let currentProfileId = getCurrentProfileId();
 
       if (user && !currentProfileId) {
         const profile = await guestService.getOrCreateProfileForUser(user);
@@ -653,7 +657,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     }
 
     try {
-      let currentProfileId = guestProfile?.id || signedInProfileId;
+      let currentProfileId = getCurrentProfileId();
 
       if (user && !currentProfileId) {
         const profile = await guestService.getOrCreateProfileForUser(user);
@@ -731,7 +735,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
     const rawEmail = (user?.email || proxyOwnerEmail.trim() || guestInfo.email || '').trim().toLowerCase();
     const requireGuestEmail = !user && event.require_guest_email_for_join === true;
-    let currentProfileId = guestProfile?.id;
+    let currentProfileId = getCurrentProfileId();
 
     if (requireGuestEmail && !rawEmail) {
       setProxyError('Email is required to add someone else.');
@@ -967,7 +971,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const myInterest = findMyInterest(interests, {
     userId: user?.id,
     userEmail: user?.email,
-    guestProfileId: guestProfile?.id || signedInProfileId || undefined,
+    guestProfileId: getCurrentProfileId() || undefined,
   });
   const thinkingCount = getThinkingCount(interests);
   const namedThinkingInterests = getNamedThinkingInterests(interests);

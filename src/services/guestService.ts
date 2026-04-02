@@ -338,6 +338,44 @@ export const guestService = {
     return updated as AttendeeProfile;
   },
 
+  async claimStoredGuestSessionForUser(user: User, targetProfile?: AttendeeProfile): Promise<AttendeeProfile> {
+    const guestSession = await this.getStoredGuestSession();
+    const signedInProfile = targetProfile || await this.getOrCreateProfileForUser(user);
+
+    if (!guestSession) {
+      return signedInProfile;
+    }
+
+    if (guestSession.profile.id === signedInProfile.id) {
+      return signedInProfile;
+    }
+
+    if (guestSession.profile.user_id && guestSession.profile.user_id !== user.id) {
+      return signedInProfile;
+    }
+
+    const guestEmail = normalizeEmail(guestSession.profile.email || '');
+    const authEmail = normalizeEmail(user.email || '');
+    const canAutoClaim = !guestSession.profile.user_id && (
+      !guestEmail
+      || isSystemGuestEmail(guestEmail)
+      || guestEmail === authEmail
+    );
+
+    if (!canAutoClaim) {
+      return signedInProfile;
+    }
+
+    const { data: mergedProfile, error } = await supabase.rpc('merge_attendee_profiles', {
+      p_source_profile_id: guestSession.profile.id,
+      p_target_profile_id: signedInProfile.id,
+      p_session_token: guestSession.token,
+    });
+
+    if (error) throw error;
+    return (mergedProfile as AttendeeProfile) || signedInProfile;
+  },
+
   async getOrCreateProfileForUser(user: User, name?: string): Promise<AttendeeProfile> {
     const normalizedAuthEmail = normalizeEmail(user.email || '');
     const preferredEmail = getPreferredProfileEmailForUser(user);
