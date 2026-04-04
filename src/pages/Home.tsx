@@ -129,13 +129,8 @@ export default function Home({ user }: { user: User | null }) {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <main className="mx-auto max-w-2xl px-6 pb-10 pt-4">
+      <main className="mx-auto max-w-2xl px-6 pb-10 pt-2">
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-          <div className="space-y-1">
-            <p className="ui-eyebrow">Home</p>
-            <h1 className="text-3xl font-black tracking-tight text-slate-900">Your dashboard</h1>
-          </div>
-
           <form onSubmit={handleSearchSubmit} className="relative">
             <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-300" />
             <input
@@ -148,10 +143,7 @@ export default function Home({ user }: { user: User | null }) {
           </form>
 
           <Card className="space-y-4">
-            <div className="space-y-1">
-              <p className="ui-eyebrow">My Activities</p>
-              <h2 className="ui-section-title">Your next activity</h2>
-            </div>
+            <h2 className="ui-section-title">Your next activity</h2>
 
             {loadingNext ? (
               <div className="ui-muted-panel text-sm text-slate-500">Loading your activity state...</div>
@@ -187,7 +179,6 @@ export default function Home({ user }: { user: User | null }) {
 
           <Card className="space-y-4">
             <div className="space-y-1">
-              <p className="ui-eyebrow">Join By Code</p>
               <h2 className="ui-section-title">Open a shared activity</h2>
               <p className="text-sm text-slate-500">Enter a code to add an activity to your shared list without joining it.</p>
             </div>
@@ -208,10 +199,7 @@ export default function Home({ user }: { user: User | null }) {
           </Card>
 
           <Card className="space-y-4">
-            <div className="space-y-1">
-              <p className="ui-eyebrow">Updates</p>
-              <h2 className="ui-section-title">What&apos;s new</h2>
-            </div>
+            <h2 className="ui-section-title">What&apos;s new</h2>
             <div className="ui-muted-panel space-y-3">
               <p className="text-sm text-slate-600">App-style navigation and clearer activity states are now being added across the experience.</p>
               <div className="flex items-center gap-2 text-sm font-bold text-brand-700">

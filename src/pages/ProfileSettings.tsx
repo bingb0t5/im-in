@@ -128,12 +128,8 @@ export default function ProfileSettings({ user }: { user: User | null }) {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
-      <main className="max-w-xl mx-auto px-6 pt-4">
+      <main className="max-w-xl mx-auto px-6 pt-2">
         <div className="space-y-5">
-          <div className="space-y-1">
-            <p className="ui-eyebrow">Profile</p>
-            <h1 className="text-3xl font-black tracking-tight text-slate-900">Your account</h1>
-          </div>
           <Card>
             <h2 className="text-2xl font-black text-slate-900 tracking-tight">Your profile</h2>
             <p className="mt-1 text-sm text-slate-500">

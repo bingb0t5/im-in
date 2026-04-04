@@ -148,13 +148,8 @@ export default function MyActivities({ user }: { user: User | null }) {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <main className="mx-auto max-w-2xl px-6 pb-10 pt-4">
+      <main className="mx-auto max-w-2xl px-6 pb-10 pt-2">
         <div className="space-y-6">
-          <div className="space-y-1">
-            <p className="ui-eyebrow">My Activities</p>
-            <h1 className="text-3xl font-black tracking-tight text-slate-900">Activity states</h1>
-          </div>
-
           {loading ? (
             <Card className="space-y-3">
               {[1, 2, 3].map((item) => (

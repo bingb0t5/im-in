@@ -275,11 +275,7 @@ export default function Calendar({ user }: { user: User | null }) {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-32">
-      <main className="max-w-2xl mx-auto px-6 pt-4 space-y-8">
-        <div className="space-y-1">
-          <p className="ui-eyebrow">Explore</p>
-          <h1 className="text-3xl font-black tracking-tight text-slate-900">Search and browse activities</h1>
-        </div>
+      <main className="max-w-2xl mx-auto px-6 pt-2 space-y-6">
         {/* Search Bar */}
         <div className="relative group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-brand-600 transition-colors" />

@@ -87,7 +87,7 @@ export default function Login({ user }: { user: User | null }) {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="ui-page-shell flex min-h-[calc(100svh-8rem)] flex-col justify-center py-6">
+      <div className="ui-page-shell flex min-h-[calc(100svh-8rem)] flex-col justify-center py-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -102,8 +102,7 @@ export default function Login({ user }: { user: User | null }) {
                 />
               </div>
               <div className="space-y-2">
-                <p className="ui-eyebrow">{showRecovery ? 'Recover Access' : 'Sign In'}</p>
-                <h2 className="text-3xl font-black tracking-tight text-slate-900">
+                <h2 className="text-2xl font-black tracking-tight text-slate-900">
                   {showRecovery ? 'Find my bookings' : 'Choose how to continue'}
                 </h2>
                 <p className="text-sm font-medium leading-relaxed text-slate-500">
