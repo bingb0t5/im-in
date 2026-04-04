@@ -27,6 +27,7 @@ import ModerationTransparency from './pages/ModerationTransparency';
 import WhatsAppAuthPrep from './pages/WhatsAppAuthPrep';
 import WhatsAppAuthVerify from './pages/WhatsAppAuthVerify';
 import WhatsAppAuthSuccess from './pages/WhatsAppAuthSuccess';
+import AccountMergeComplete from './pages/AccountMergeComplete';
 import { guestService } from './services/guestService';
 import { MainTabsLayout } from './layouts/MainTabsLayout';
 
@@ -139,6 +140,7 @@ export default function App() {
           <Route path="/auth/whatsapp/prep" element={<WhatsAppAuthPrep />} />
           <Route path="/auth/whatsapp/verify" element={<WhatsAppAuthVerify />} />
           <Route path="/auth/whatsapp/success" element={<WhatsAppAuthSuccess />} />
+          <Route path="/auth/account-merge/complete" element={<AccountMergeComplete user={user} />} />
           <Route path="/host/events/:id/edit" element={user ? <CreateEvent user={user} /> : <Navigate to="/login" />} />
           <Route path="/events/:slug" element={<EventDetail user={user} />} />
           <Route path="/host/events/:id" element={user ? <HostDashboard user={user} /> : <Navigate to="/login" />} />

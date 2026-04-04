@@ -74,6 +74,7 @@ export default function WhatsAppAuthVerify() {
           redirectTo: result.redirectTo,
           isNewUser: result.isNewUser,
           mode: result.mode,
+          merged: !!result.merged,
         },
       });
     } catch (completionError) {

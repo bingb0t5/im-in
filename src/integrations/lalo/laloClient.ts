@@ -30,6 +30,7 @@ export type LaloCompleteResponse = {
 export type LaloLinkResponse = {
   trusted: true;
   linked: true;
+  merged?: boolean;
   lalo_user_id: string;
   whatsapp_number: string | null;
 };

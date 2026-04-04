@@ -39,12 +39,14 @@ type LaloExchangeResponse = {
   is_new_user: boolean;
 };
 
-type AttendeeProfileRow = {
+export type AttendeeProfileRow = {
   id: string;
   email: string | null;
   user_id: string | null;
   lalo_user_id: string | null;
   auth_provider: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   whatsapp_number?: string | null;
   whatsapp_verified_at?: string | null;
 };
@@ -65,7 +67,7 @@ function generatePassword() {
   return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
 }
 
-function normalizeEmail(value: string | null | undefined) {
+export function normalizeEmail(value: string | null | undefined) {
   return (value || '').trim().toLowerCase();
 }
 
@@ -231,6 +233,279 @@ function deriveLinkedAuthProvider(user: SupabaseUser, profile?: AttendeeProfileR
   return currentProvider || 'email';
 }
 
+function hasProfileName(profile?: AttendeeProfileRow | null) {
+  return !!`${profile?.first_name || ''} ${profile?.last_name || ''}`.trim();
+}
+
+function pickMergedProfileEmail(
+  targetProfile: AttendeeProfileRow | null,
+  sourceProfile: AttendeeProfileRow | null,
+  normalizedCurrentEmail: string,
+) {
+  return targetProfile?.email?.trim() || normalizedCurrentEmail || sourceProfile?.email?.trim() || null;
+}
+
+async function deleteEventSharedDuplicates(admin: SupabaseClient, sourceUserId: string, targetUserId: string) {
+  const { data: sourceRows, error: sourceError } = await admin
+    .from('event_shared_with_users')
+    .select('event_id')
+    .eq('user_id', sourceUserId);
+
+  if (sourceError) {
+    throw Object.assign(new Error(sourceError.message), { status: 500 });
+  }
+
+  const { data: targetRows, error: targetError } = await admin
+    .from('event_shared_with_users')
+    .select('event_id')
+    .eq('user_id', targetUserId);
+
+  if (targetError) {
+    throw Object.assign(new Error(targetError.message), { status: 500 });
+  }
+
+  const targetEventIds = new Set((targetRows || []).map((row: { event_id: string }) => row.event_id));
+  const duplicateEventIds = (sourceRows || [])
+    .map((row: { event_id: string }) => row.event_id)
+    .filter((eventId: string) => targetEventIds.has(eventId));
+
+  if (duplicateEventIds.length === 0) return;
+
+  const { error: deleteError } = await admin
+    .from('event_shared_with_users')
+    .delete()
+    .eq('user_id', sourceUserId)
+    .in('event_id', duplicateEventIds);
+
+  if (deleteError) {
+    throw Object.assign(new Error(deleteError.message), { status: 500 });
+  }
+}
+
+async function deleteEventHostDuplicates(admin: SupabaseClient, sourceUserId: string, targetUserId: string) {
+  const { data: sourceRows, error: sourceError } = await admin
+    .from('event_hosts')
+    .select('event_id')
+    .eq('user_id', sourceUserId);
+
+  if (sourceError) {
+    throw Object.assign(new Error(sourceError.message), { status: 500 });
+  }
+
+  const { data: targetRows, error: targetError } = await admin
+    .from('event_hosts')
+    .select('event_id')
+    .eq('user_id', targetUserId);
+
+  if (targetError) {
+    throw Object.assign(new Error(targetError.message), { status: 500 });
+  }
+
+  const targetEventIds = new Set((targetRows || []).map((row: { event_id: string }) => row.event_id));
+  const duplicateEventIds = (sourceRows || [])
+    .map((row: { event_id: string }) => row.event_id)
+    .filter((eventId: string) => targetEventIds.has(eventId));
+
+  if (duplicateEventIds.length === 0) return;
+
+  const { error: deleteError } = await admin
+    .from('event_hosts')
+    .delete()
+    .eq('user_id', sourceUserId)
+    .in('event_id', duplicateEventIds);
+
+  if (deleteError) {
+    throw Object.assign(new Error(deleteError.message), { status: 500 });
+  }
+}
+
+async function mergeProfileRecords(
+  admin: SupabaseClient,
+  sourceProfile: AttendeeProfileRow,
+  targetProfile: AttendeeProfileRow,
+  nextUserId: string,
+  nextAuthProvider: string,
+  laloUserId: string,
+  whatsappNumber: string | null,
+  verifiedAt: string,
+  normalizedCurrentEmail: string,
+) {
+  if (sourceProfile.id !== targetProfile.id) {
+    const operations = await Promise.all([
+      admin
+        .from('event_interests')
+        .delete()
+        .eq('attendee_profile_id', sourceProfile.id)
+        .in(
+          'event_id',
+          (
+            await admin
+              .from('event_interests')
+              .select('event_id')
+              .eq('attendee_profile_id', targetProfile.id)
+          ).data?.map((row: { event_id: string }) => row.event_id) || ['00000000-0000-0000-0000-000000000000'],
+        ),
+      admin
+        .from('event_join_requests')
+        .delete()
+        .eq('attendee_profile_id', sourceProfile.id)
+        .eq('status', 'pending')
+        .in(
+          'event_id',
+          (
+            await admin
+              .from('event_join_requests')
+              .select('event_id')
+              .eq('attendee_profile_id', targetProfile.id)
+              .eq('status', 'pending')
+          ).data?.map((row: { event_id: string }) => row.event_id) || ['00000000-0000-0000-0000-000000000000'],
+        ),
+      admin.from('event_attendees').update({ attendee_profile_id: targetProfile.id }).eq('attendee_profile_id', sourceProfile.id),
+      admin
+        .from('event_attendees')
+        .update({ added_by_attendee_profile_id: targetProfile.id })
+        .eq('added_by_attendee_profile_id', sourceProfile.id),
+      admin.from('event_interests').update({ attendee_profile_id: targetProfile.id }).eq('attendee_profile_id', sourceProfile.id),
+      admin.from('event_join_requests').update({ attendee_profile_id: targetProfile.id }).eq('attendee_profile_id', sourceProfile.id),
+      admin.from('attendee_sessions').update({ attendee_profile_id: targetProfile.id }).eq('attendee_profile_id', sourceProfile.id),
+    ]);
+
+    const failedOperation = operations.find((result) => result.error);
+    if (failedOperation?.error) {
+      throw Object.assign(new Error(failedOperation.error.message), { status: 500 });
+    }
+  }
+
+  const mergedFirstName = hasProfileName(targetProfile) ? targetProfile.first_name : sourceProfile.first_name;
+  const mergedLastName = hasProfileName(targetProfile) ? targetProfile.last_name : sourceProfile.last_name;
+  const mergedEmail = pickMergedProfileEmail(targetProfile, sourceProfile, normalizedCurrentEmail);
+
+  const { error: updateProfileError } = await admin
+    .from('attendee_profiles')
+    .update({
+      user_id: nextUserId,
+      email: mergedEmail,
+      first_name: mergedFirstName,
+      last_name: mergedLastName,
+      auth_provider: nextAuthProvider,
+      lalo_user_id: laloUserId,
+      whatsapp_number: whatsappNumber,
+      whatsapp_verified_at: verifiedAt,
+    })
+    .eq('id', targetProfile.id);
+
+  if (updateProfileError) {
+    throw Object.assign(new Error(updateProfileError.message), { status: 500 });
+  }
+
+  if (sourceProfile.id !== targetProfile.id) {
+    const { error: deleteSourceProfileError } = await admin
+      .from('attendee_profiles')
+      .delete()
+      .eq('id', sourceProfile.id);
+
+    if (deleteSourceProfileError) {
+      throw Object.assign(new Error(deleteSourceProfileError.message), { status: 500 });
+    }
+  }
+}
+
+async function mergeUserLinkedRecords(
+  admin: SupabaseClient,
+  sourceUserId: string,
+  targetUserId: string,
+) {
+  if (!sourceUserId || sourceUserId === targetUserId) return;
+
+  await deleteEventSharedDuplicates(admin, sourceUserId, targetUserId);
+  await deleteEventHostDuplicates(admin, sourceUserId, targetUserId);
+
+  const updates = await Promise.all([
+    admin.from('events').update({ host_user_id: targetUserId }).eq('host_user_id', sourceUserId),
+    admin.from('event_hosts').update({ user_id: targetUserId }).eq('user_id', sourceUserId),
+    admin.from('event_hosts').update({ added_by_user_id: targetUserId }).eq('added_by_user_id', sourceUserId),
+    admin.from('event_attendees').update({ user_id: targetUserId }).eq('user_id', sourceUserId),
+    admin.from('event_interests').update({ user_id: targetUserId }).eq('user_id', sourceUserId),
+    admin.from('event_join_requests').update({ user_id: targetUserId }).eq('user_id', sourceUserId),
+    admin.from('event_join_requests').update({ reviewed_by_user_id: targetUserId }).eq('reviewed_by_user_id', sourceUserId),
+    admin.from('event_shared_with_users').update({ user_id: targetUserId }).eq('user_id', sourceUserId),
+    admin.from('attendee_profiles').update({ user_id: targetUserId }).eq('user_id', sourceUserId),
+  ]);
+
+  const failedUpdate = updates.find((result) => result.error);
+  if (failedUpdate?.error) {
+    throw Object.assign(new Error(failedUpdate.error.message), { status: 500 });
+  }
+}
+
+export async function mergeLaloAccountIntoUser(
+  admin: SupabaseClient,
+  currentUser: SupabaseUser,
+  sourceProfile: AttendeeProfileRow,
+  targetProfile: AttendeeProfileRow | null,
+  laloUserId: string,
+  whatsappNumber: string | null,
+  verifiedAt: string,
+) {
+  const nextAuthProvider = deriveLinkedAuthProvider(currentUser, targetProfile || sourceProfile);
+  const profileToKeep = targetProfile || sourceProfile;
+  const sourceUserId = sourceProfile.user_id;
+
+  await mergeUserLinkedRecords(admin, sourceUserId || '', currentUser.id);
+  await mergeProfileRecords(
+    admin,
+    sourceProfile,
+    profileToKeep,
+    currentUser.id,
+    nextAuthProvider,
+    laloUserId,
+    whatsappNumber,
+    verifiedAt,
+    normalizeEmail(currentUser.email),
+  );
+
+  const providers = Array.from(
+    new Set(
+      [
+        currentUser.app_metadata?.provider,
+        ...(Array.isArray(currentUser.app_metadata?.providers) ? currentUser.app_metadata.providers : []),
+        LALO_PROVIDER,
+      ]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    ),
+  );
+
+  const { error: updateCurrentUserError } = await admin.auth.admin.updateUserById(currentUser.id, {
+    user_metadata: {
+      ...(currentUser.user_metadata || {}),
+      lalo_user_id: laloUserId,
+      whatsapp_number: whatsappNumber,
+      whatsapp_verified_at: verifiedAt,
+    },
+    app_metadata: {
+      ...(currentUser.app_metadata || {}),
+      providers,
+    },
+  });
+
+  if (updateCurrentUserError) {
+    throw Object.assign(new Error(updateCurrentUserError.message), { status: 500 });
+  }
+
+  if (sourceUserId && sourceUserId !== currentUser.id) {
+    const { error: deleteUserError } = await admin.auth.admin.deleteUser(sourceUserId);
+    if (deleteUserError) {
+      throw Object.assign(new Error(deleteUserError.message), { status: 500 });
+    }
+  }
+
+  return {
+    merged: !!sourceUserId && sourceUserId !== currentUser.id,
+    profileId: profileToKeep.id,
+  };
+}
+
 export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: string) {
   const syntheticEmail = buildLaloSyntheticEmail(laloUserId);
   const temporaryPassword = generatePassword();
@@ -360,7 +635,7 @@ export async function linkExistingUserToLaloIdentity(
 
   const { data: existingByLalo, error: existingByLaloError } = await admin
     .from('attendee_profiles')
-    .select('id, email, user_id, lalo_user_id, auth_provider, whatsapp_number, whatsapp_verified_at')
+    .select('id, email, user_id, lalo_user_id, auth_provider, first_name, last_name, whatsapp_number, whatsapp_verified_at')
     .eq('lalo_user_id', laloUserId)
     .maybeSingle();
 
@@ -368,31 +643,25 @@ export async function linkExistingUserToLaloIdentity(
     throw Object.assign(new Error(existingByLaloError.message), { status: 500 });
   }
 
-  if (existingByLalo?.user_id && existingByLalo.user_id !== user.id) {
-    throw Object.assign(new Error('That WhatsApp account is already linked to another profile.'), { status: 409 });
+  let profile: AttendeeProfileRow | null = null;
+
+  const { data: byUserRows, error: byUserError } = await admin
+    .from('attendee_profiles')
+    .select('id, email, user_id, lalo_user_id, auth_provider, whatsapp_number, whatsapp_verified_at, first_name, last_name')
+    .eq('user_id', user.id)
+    .order('updated_at', { ascending: false })
+    .limit(1);
+
+  if (byUserError) {
+    throw Object.assign(new Error(byUserError.message), { status: 500 });
   }
 
-  let profile: AttendeeProfileRow | null = existingByLalo || null;
-
-  if (!profile) {
-    const { data: byUserRows, error: byUserError } = await admin
-      .from('attendee_profiles')
-      .select('id, email, user_id, lalo_user_id, auth_provider, whatsapp_number, whatsapp_verified_at')
-      .eq('user_id', user.id)
-      .order('updated_at', { ascending: false })
-      .limit(1);
-
-    if (byUserError) {
-      throw Object.assign(new Error(byUserError.message), { status: 500 });
-    }
-
-    profile = byUserRows?.[0] || null;
-  }
+  profile = (byUserRows?.[0] as AttendeeProfileRow | null) || null;
 
   if (!profile && normalizedEmail) {
     const { data: byEmailRows, error: byEmailError } = await admin
       .from('attendee_profiles')
-      .select('id, email, user_id, lalo_user_id, auth_provider, whatsapp_number, whatsapp_verified_at')
+      .select('id, email, user_id, lalo_user_id, auth_provider, whatsapp_number, whatsapp_verified_at, first_name, last_name')
       .eq('email', normalizedEmail)
       .order('updated_at', { ascending: false })
       .limit(1);
@@ -401,7 +670,26 @@ export async function linkExistingUserToLaloIdentity(
       throw Object.assign(new Error(byEmailError.message), { status: 500 });
     }
 
-    profile = byEmailRows?.[0] || null;
+    profile = (byEmailRows?.[0] as AttendeeProfileRow | null) || null;
+  }
+
+  if (existingByLalo?.user_id && existingByLalo.user_id !== user.id) {
+    const mergeResult = await mergeLaloAccountIntoUser(
+      admin,
+      user,
+      existingByLalo as AttendeeProfileRow,
+      profile,
+      laloUserId,
+      normalizedWhatsappNumber,
+      verifiedAt,
+    );
+
+    return {
+      linked: true as const,
+      merged: mergeResult.merged,
+      laloUserId,
+      whatsappNumber: normalizedWhatsappNumber,
+    };
   }
 
   const nextAuthProvider = deriveLinkedAuthProvider(user, profile);
@@ -464,6 +752,7 @@ export async function linkExistingUserToLaloIdentity(
 
   return {
     linked: true as const,
+    merged: false,
     laloUserId,
     whatsappNumber: normalizedWhatsappNumber,
   };

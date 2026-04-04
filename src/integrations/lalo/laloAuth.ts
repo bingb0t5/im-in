@@ -29,6 +29,7 @@ type FinalizedLaloAuthResult = {
   redirectTo: string;
   mode: LaloAuthMode;
   linked: boolean;
+  merged?: boolean;
   whatsappNumber?: string | null;
 };
 
@@ -154,6 +155,7 @@ async function linkCurrentAccountWithCompletion(attempt: StoredLaloAuthAttempt):
     redirectTo: attempt.redirectTo,
     mode: attempt.mode,
     linked: true,
+    merged: !!response.merged,
     whatsappNumber: response.whatsapp_number,
   };
 }

@@ -4,12 +4,15 @@ import { MessageCircle, Pencil } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
+import { supabase } from '../supabase';
+import { buildAuthRedirectUrl } from '../lib/authRedirect';
 import {
   clearAllLaloAuthState,
   isLaloWhatsAppAuthEnabled,
   startLaloWhatsAppAuth,
 } from '../integrations/lalo/laloAuth';
-import { guestService, getAccountNameFromUser, type AttendeeProfile } from '../services/guestService';
+import { accountMergeClient } from '../integrations/accountMerge/accountMergeClient';
+import { guestService, getAccountNameFromUser, isSystemGuestEmail, type AttendeeProfile } from '../services/guestService';
 
 export default function ProfileSettings({ user }: { user: User | null }) {
   const navigate = useNavigate();
@@ -23,6 +26,8 @@ export default function ProfileSettings({ user }: { user: User | null }) {
   const [error, setError] = useState<string | null>(null);
   const [isEditingName, setIsEditingName] = useState(false);
   const [whatsappLoading, setWhatsappLoading] = useState(false);
+  const [mergeEmail, setMergeEmail] = useState('');
+  const [mergeLoading, setMergeLoading] = useState(false);
 
   const hydrateProfile = async (authUser: User) => {
     const profile = await guestService.getProfileForUser(authUser);
@@ -119,12 +124,48 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     }
   };
 
+  const handleStartAccountMerge = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const normalizedMergeEmail = mergeEmail.trim().toLowerCase();
+
+    if (!normalizedMergeEmail) {
+      setError('Enter the email account you want to merge into this WhatsApp account.');
+      return;
+    }
+
+    setMergeLoading(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const mergeStart = await accountMergeClient.start(normalizedMergeEmail);
+      const redirectUrl = buildAuthRedirectUrl(`/auth/account-merge/complete?request=${encodeURIComponent(mergeStart.request_id)}`);
+      const { error: authError } = await supabase.auth.signInWithOtp({
+        email: normalizedMergeEmail,
+        options: {
+          emailRedirectTo: redirectUrl,
+        },
+      });
+
+      if (authError) {
+        throw authError;
+      }
+
+      setMessage(`We sent a magic link to ${normalizedMergeEmail}. Open it on this device to finish merging your accounts.`);
+    } catch (mergeError) {
+      setError(mergeError instanceof Error ? mergeError.message : 'Could not start account merge.');
+    } finally {
+      setMergeLoading(false);
+    }
+  };
+
   const hasLinkedWhatsapp = !!profile?.lalo_user_id;
+  const isWhatsappPrimaryAccount = hasLinkedWhatsapp && isSystemGuestEmail(user.email || profile?.email || '');
   const whatsappHelper = hasLinkedWhatsapp
     ? profile?.whatsapp_number
       ? 'Linked and shown on your profile.'
       : 'Linked to your account. Add a number below and verify again if you want it shown here.'
-    : 'Add WhatsApp verification to this account. Your email remains your backup sign-in.';
+    : 'Add WhatsApp verification to this account. Your email remains your backup sign-in, and any older WhatsApp-only account will be merged into this one.';
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
@@ -190,7 +231,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
             <div className="space-y-1">
               <p className="ui-eyebrow">Sign-in methods</p>
               <h2 className="text-xl font-black tracking-tight text-slate-900">Email and WhatsApp</h2>
-              <p className="text-sm text-slate-500">Email stays as your backup sign-in while WhatsApp verification can be linked to this account.</p>
+              <p className="text-sm text-slate-500">Email stays as your backup sign-in while WhatsApp verification can be linked to this account and merged if it already exists elsewhere.</p>
             </div>
 
             <div className="space-y-3">
@@ -228,7 +269,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
                   />
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                  Lalo verifies the WhatsApp identity. The number shown here is the number saved to your profile for display after verification.
+                  Lalo verifies the WhatsApp identity. The number shown here is the number saved to your profile for display after verification. If that WhatsApp was already linked to an older account, it will be moved onto this one.
                 </div>
                 <Button
                   onClick={() => {
@@ -246,6 +287,37 @@ export default function ProfileSettings({ user }: { user: User | null }) {
               </div>
             )}
           </Card>
+
+          {isWhatsappPrimaryAccount ? (
+            <Card className="space-y-4">
+              <div className="space-y-1">
+                <p className="ui-eyebrow">Merge accounts</p>
+                <h2 className="text-xl font-black tracking-tight text-slate-900">Bring in your older email account</h2>
+                <p className="text-sm text-slate-500">
+                  If you first created an account with WhatsApp and already have an older email account, we can merge the WhatsApp account into that email account.
+                </p>
+              </div>
+
+              <form onSubmit={handleStartAccountMerge} className="space-y-4">
+                <div>
+                  <label className="mb-2 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Older account email</label>
+                  <input
+                    type="email"
+                    value={mergeEmail}
+                    onChange={(e) => setMergeEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="w-full rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-bold outline-none transition-all focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
+                  />
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                  We will email a magic link to that address. Open it on this device and we will move your WhatsApp identity and activity data onto the older email account.
+                </div>
+                <Button type="submit" loading={mergeLoading}>
+                  Merge with email account
+                </Button>
+              </form>
+            </Card>
+          ) : null}
 
           {message ? <p className="rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs text-brand-700">{message}</p> : null}
           {error ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p> : null}

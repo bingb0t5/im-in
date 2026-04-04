@@ -44,6 +44,7 @@ Deno.serve(async (request) => {
     return json({
       trusted: true,
       linked: true,
+      merged: !!linkedResult.merged,
       lalo_user_id: linkedResult.laloUserId,
       whatsapp_number: linkedResult.whatsappNumber,
     });
