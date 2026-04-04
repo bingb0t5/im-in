@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Mail, MessageCircle, Search } from 'lucide-react';
+import { CheckCircle2, MessageCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { buildAuthRedirectUrl } from '../lib/authRedirect';
 import { Button } from '../components/ui/Button';
@@ -87,20 +87,7 @@ export default function Login({ user }: { user: User | null }) {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10 w-full">
-        <div className="max-w-2xl mx-auto px-6 h-16 flex items-center justify-between">
-          <button onClick={() => navigate('/', { replace: true })} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
-            <ArrowLeft className="w-5 h-5 text-slate-600" />
-          </button>
-          <div className="flex flex-col items-center">
-            <h1 className="text-base font-black text-slate-900 tracking-tight">Sign in</h1>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Manage your activities</span>
-          </div>
-          <div className="w-10" />
-        </div>
-      </header>
-
-      <div className="ui-page-shell flex min-h-[calc(100svh-4rem)] flex-col justify-center py-8">
+      <div className="ui-page-shell flex min-h-[calc(100svh-8rem)] flex-col justify-center py-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -108,9 +95,11 @@ export default function Login({ user }: { user: User | null }) {
           <Card className="space-y-6">
             <div className="space-y-4 text-center">
               <div className="flex justify-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
-                  {showRecovery ? <Search className="h-8 w-8" /> : <Mail className="h-8 w-8" />}
-                </div>
+                <img
+                  src="/im-in-svg-logo-size.svg"
+                  alt="I'm In"
+                  className="h-12 w-auto"
+                />
               </div>
               <div className="space-y-2">
                 <p className="ui-eyebrow">{showRecovery ? 'Recover Access' : 'Sign In'}</p>

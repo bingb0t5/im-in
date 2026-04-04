@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { ArrowRight, CalendarDays, LogOut, Share2 } from 'lucide-react';
+import { ArrowRight, LogOut, Share2 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { formatDate } from '../utils';
 import { Event } from '../types';
@@ -148,23 +148,12 @@ export default function MyActivities({ user }: { user: User | null }) {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <main className="mx-auto max-w-2xl px-6 pb-10 pt-6">
+      <main className="mx-auto max-w-2xl px-6 pb-10 pt-4">
         <div className="space-y-6">
-          <header className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="ui-eyebrow">My Activities</p>
-              <h1 className="text-3xl font-black tracking-tight text-slate-900">Activity states</h1>
-            </div>
-            <button
-              onClick={async () => {
-                await supabase.auth.signOut();
-                navigate('/login', { replace: true });
-              }}
-              className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:text-slate-700"
-            >
-              <LogOut className="h-5 w-5" />
-            </button>
-          </header>
+          <div className="space-y-1">
+            <p className="ui-eyebrow">My Activities</p>
+            <h1 className="text-3xl font-black tracking-tight text-slate-900">Activity states</h1>
+          </div>
 
           {loading ? (
             <Card className="space-y-3">
@@ -209,9 +198,21 @@ export default function MyActivities({ user }: { user: User | null }) {
                 <p className="text-sm text-slate-500">
                   Shared activities stay separate until you explicitly request or join them.
                 </p>
-                <Button variant="secondary" onClick={() => navigate('/explore')}>
-                  Explore more
-                </Button>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button variant="secondary" onClick={() => navigate('/explore')}>
+                    Explore more
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    leadingIcon={<LogOut className="h-4 w-4" />}
+                    onClick={async () => {
+                      await supabase.auth.signOut();
+                      navigate('/login', { replace: true });
+                    }}
+                  >
+                    Log out
+                  </Button>
+                </div>
               </Card>
             </>
           )}

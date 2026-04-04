@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
-import { ArrowLeft, MessageCircle, Pencil } from 'lucide-react';
+import { MessageCircle, Pencil } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -9,7 +9,6 @@ import {
   isLaloWhatsAppAuthEnabled,
   startLaloWhatsAppAuth,
 } from '../integrations/lalo/laloAuth';
-import { goBackOr } from '../lib/navigation';
 import { guestService, getAccountNameFromUser, type AttendeeProfile } from '../services/guestService';
 
 export default function ProfileSettings({ user }: { user: User | null }) {
@@ -129,20 +128,14 @@ export default function ProfileSettings({ user }: { user: User | null }) {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
-        <div className="max-w-xl mx-auto px-6 h-16 flex items-center justify-between">
-          <button onClick={() => goBackOr(navigate, '/my-activities')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
-            <ArrowLeft className="w-5 h-5 text-slate-600" />
-          </button>
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Profile</span>
-          <div className="w-9" />
-        </div>
-      </header>
-
-      <main className="max-w-xl mx-auto px-6 pt-8">
+      <main className="max-w-xl mx-auto px-6 pt-4">
         <div className="space-y-5">
+          <div className="space-y-1">
+            <p className="ui-eyebrow">Profile</p>
+            <h1 className="text-3xl font-black tracking-tight text-slate-900">Your account</h1>
+          </div>
           <Card>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Your profile</h1>
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight">Your profile</h2>
             <p className="mt-1 text-sm text-slate-500">
               Update your name and email. Your name is used for hosted activities and your own joins.
             </p>

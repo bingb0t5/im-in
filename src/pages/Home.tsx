@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
-import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, CalendarDays, Search, UserCircle2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowRight, CalendarDays, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
 import { Button } from '../components/ui/Button';
@@ -129,20 +129,12 @@ export default function Home({ user }: { user: User | null }) {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <main className="mx-auto max-w-2xl px-6 pb-10 pt-6">
+      <main className="mx-auto max-w-2xl px-6 pb-10 pt-4">
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-          <header className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="ui-eyebrow">I&apos;m In</p>
-              <h1 className="text-3xl font-black tracking-tight text-slate-900">Home</h1>
-            </div>
-            <Link
-              to={user ? '/profile' : '/login'}
-              className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:text-brand-700"
-            >
-              <UserCircle2 className="h-5 w-5" />
-            </Link>
-          </header>
+          <div className="space-y-1">
+            <p className="ui-eyebrow">Home</p>
+            <h1 className="text-3xl font-black tracking-tight text-slate-900">Your dashboard</h1>
+          </div>
 
           <form onSubmit={handleSearchSubmit} className="relative">
             <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-300" />
