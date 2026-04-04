@@ -1049,6 +1049,13 @@ export default function HostDashboard({ user }: { user: User | null }) {
               View Activity
             </button>
           </div>
+          {event.join_code ? (
+            <div className="mb-4 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-brand-700">Join code</p>
+              <p className="mt-1 text-lg font-black tracking-[0.2em] text-slate-900">{event.join_code}</p>
+              <p className="mt-1 text-xs text-slate-500">People can enter this on Home to save the activity under Shared with you.</p>
+            </div>
+          ) : null}
           {(event.visibility || (event.is_public ? 'public' : 'private')) === 'semi_public' ? (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">

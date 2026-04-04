@@ -24,7 +24,11 @@ import AdminModeration from './pages/AdminModeration';
 import AdminModerationSettings from './pages/AdminModerationSettings';
 import AdminFeedback from './pages/AdminFeedback';
 import ModerationTransparency from './pages/ModerationTransparency';
+import WhatsAppAuthPrep from './pages/WhatsAppAuthPrep';
+import WhatsAppAuthVerify from './pages/WhatsAppAuthVerify';
+import WhatsAppAuthSuccess from './pages/WhatsAppAuthSuccess';
 import { guestService } from './services/guestService';
+import { MainTabsLayout } from './layouts/MainTabsLayout';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -123,15 +127,21 @@ export default function App() {
     <Router>
       <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-brand-100">
         <Routes>
-          <Route path="/" element={<Home user={user} />} />
+          <Route element={<MainTabsLayout user={user} />}>
+            <Route path="/" element={<Home user={user} />} />
+            <Route path="/explore" element={<Calendar user={user} />} />
+            <Route path="/calendar" element={<Navigate to="/explore" replace />} />
+            <Route path="/create-event" element={<CreateEvent user={user} />} />
+            <Route path="/my-activities" element={user ? <MyActivities user={user} /> : <Navigate to="/login" />} />
+            <Route path="/profile" element={user ? <ProfileSettings user={user} /> : <Navigate to="/login" />} />
+          </Route>
           <Route path="/login" element={<Login user={user} />} />
-          <Route path="/create-event" element={<CreateEvent user={user} />} />
+          <Route path="/auth/whatsapp/prep" element={<WhatsAppAuthPrep />} />
+          <Route path="/auth/whatsapp/verify" element={<WhatsAppAuthVerify />} />
+          <Route path="/auth/whatsapp/success" element={<WhatsAppAuthSuccess />} />
           <Route path="/host/events/:id/edit" element={user ? <CreateEvent user={user} /> : <Navigate to="/login" />} />
           <Route path="/events/:slug" element={<EventDetail user={user} />} />
           <Route path="/host/events/:id" element={user ? <HostDashboard user={user} /> : <Navigate to="/login" />} />
-          <Route path="/calendar" element={<Calendar user={user} />} />
-          <Route path="/my-activities" element={user ? <MyActivities user={user} /> : <Navigate to="/login" />} />
-          <Route path="/profile" element={user ? <ProfileSettings user={user} /> : <Navigate to="/login" />} />
           <Route path="/moderation" element={<ModerationTransparency />} />
           <Route path="/bookings" element={<Bookings />} />
           <Route path="/recover" element={<Recovery />} />

@@ -21,6 +21,8 @@ import { applyGoogleMapsAutofill, isGoogleMapsShortUrl, parseGoogleMapsLocation 
 import { shouldModerateVisibility } from '../lib/moderation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
+import { Button } from '../components/ui/Button';
+import { StateScreen } from '../components/ui/StateScreen';
 
 const CREATE_EVENT_DRAFT_KEY = 'im_in_create_event_draft';
 const CREATE_EVENT_PENDING_AUTH_KEY = 'im_in_create_event_pending_auth';
@@ -734,9 +736,11 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
   if (initialLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600"></div>
-      </div>
+      <StateScreen
+        status="loading"
+        title={isEditing ? 'Loading activity' : 'Preparing activity'}
+        subtitle="Getting your details ready"
+      />
     );
   }
 
@@ -752,12 +756,12 @@ export default function CreateEvent({ user }: { user: User | null }) {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-6 pt-4">
+      <main className="max-w-2xl mx-auto px-6 pt-6">
         <motion.form 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           onSubmit={handleSubmit} 
-          className="space-y-6"
+          className="space-y-8"
         >
           <div className="space-y-3">
             <p className="text-[11px] font-bold text-brand-600 uppercase tracking-[0.25em]">Step {currentStep} of 3</p>
@@ -774,7 +778,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                   ))}
                 </div>
 
-                <div className="bg-white rounded-2xl px-4 py-3 flex items-center justify-between gap-4">
+                <div className="ui-card px-4 py-3 flex items-center justify-between gap-4">
                   <div>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Visibility</p>
                     <p className="text-base font-black text-slate-900">{selectedVisibilityOption?.label || 'Not selected'}</p>
@@ -798,7 +802,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                 <p className="text-sm text-slate-500 mt-2">Choose the visibility first. You can change it later.</p>
               </div>
 
-              <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white">
+              <div className="ui-card overflow-hidden">
                 {VISIBILITY_OPTIONS.map((option, index) => {
                   const isSelected = visibilitySelected && formData.visibility === option.value;
                   return (
@@ -841,7 +845,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
               {currentStep === 2 ? (
                 <>
-                  <section className="bg-white rounded-3xl overflow-hidden">
+                  <section className="ui-card overflow-hidden">
                     <div className="px-6 py-5 border-b border-slate-100">
                       <h2 className="text-2xl font-black text-slate-900 tracking-tight">{stepTitle}</h2>
                     </div>
@@ -893,7 +897,11 @@ export default function CreateEvent({ user }: { user: User | null }) {
                       </div>
                     </div>
 
-                    <div className="px-6 py-5 border-t border-slate-100">
+                    <div className="px-6 py-5 border-t border-slate-100 space-y-4">
+                      <div className="space-y-1">
+                        <p className="ui-eyebrow">Schedule</p>
+                        <p className="text-sm font-medium text-slate-500">Set when the activity happens and which timezone to use.</p>
+                      </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                           <label className="flex flex-wrap items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
@@ -979,6 +987,10 @@ export default function CreateEvent({ user }: { user: User | null }) {
                     </div>
 
                     <div className="px-6 py-5 border-t border-slate-100 space-y-4">
+                      <div className="space-y-1">
+                        <p className="ui-eyebrow">Location</p>
+                        <p className="text-sm font-medium text-slate-500">Keep the public view simple and add the exact details where appropriate.</p>
+                      </div>
                       <div>
                         <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
                           <span>Google Maps link (optional)</span>
@@ -1059,43 +1071,48 @@ export default function CreateEvent({ user }: { user: User | null }) {
                   </section>
 
                   {authMessage && (
-                    <div className="p-4 bg-brand-50 border border-brand-100 rounded-2xl text-brand-700 text-sm font-medium">
+                    <div className="ui-feedback ui-feedback-info">
                       {authMessage}
                     </div>
                   )}
 
                   {error && (
-                    <div className="p-5 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 animate-in fade-in slide-in-from-top-2">
+                    <div className="ui-feedback ui-feedback-error flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
                       <AlertCircle className="w-5 h-5 shrink-0" />
                       <p className="font-bold text-sm">{error}</p>
                     </div>
                   )}
 
                   <div className="flex flex-col sm:flex-row gap-3">
-                    <button
+                    <Button
                       type="button"
                       onClick={() => goToStep(1)}
-                      className="sm:w-40 bg-white border border-slate-200 text-slate-600 font-bold text-base py-4 rounded-2xl transition-all active:scale-95"
+                      variant="secondary"
+                      className="sm:w-40"
                     >
                       Back
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       onClick={() => goToStep(3)}
-                      className="flex-1 bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all active:scale-95"
+                      className="flex-1"
                     >
                       Next
-                    </button>
+                    </Button>
                   </div>
                 </>
               ) : (
                 <>
-                  <section className="bg-white rounded-3xl overflow-hidden">
+                  <section className="ui-card overflow-hidden">
                     <div className="px-6 py-5 border-b border-slate-100">
                       <h2 className="text-2xl font-black text-slate-900 tracking-tight">{stepTitle}</h2>
                     </div>
 
-                    <div className="px-6 py-5">
+                    <div className="px-6 py-5 space-y-4">
+                      <div className="space-y-1">
+                        <p className="ui-eyebrow">Joining rules</p>
+                        <p className="text-sm font-medium text-slate-500">Set capacity, waitlist behaviour, and how people join.</p>
+                      </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
                         <div>
                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Capacity</label>
@@ -1155,6 +1172,10 @@ export default function CreateEvent({ user }: { user: User | null }) {
                     </div>
 
                     <div className="px-6 py-5 border-t border-slate-100 space-y-4">
+                      <div className="space-y-1">
+                        <p className="ui-eyebrow">Host details</p>
+                        <p className="text-sm font-medium text-slate-500">Keep the organiser details clear and easy to review.</p>
+                      </div>
                       {user ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
@@ -1202,34 +1223,34 @@ export default function CreateEvent({ user }: { user: User | null }) {
                   </section>
 
                   {authMessage && (
-                    <div className="p-4 bg-brand-50 border border-brand-100 rounded-2xl text-brand-700 text-sm font-medium">
+                    <div className="ui-feedback ui-feedback-info">
                       {authMessage}
                     </div>
                   )}
 
                   {error && (
-                    <div className="p-5 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-600 animate-in fade-in slide-in-from-top-2">
+                    <div className="ui-feedback ui-feedback-error flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
                       <AlertCircle className="w-5 h-5 shrink-0" />
                       <p className="font-bold text-sm">{error}</p>
                     </div>
                   )}
 
                   <div className="flex flex-col sm:flex-row gap-3">
-                    <button
+                    <Button
                       type="button"
                       onClick={() => goToStep(2)}
-                      className="sm:w-40 bg-white border border-slate-200 text-slate-600 font-bold text-base py-4 rounded-2xl transition-all active:scale-95"
+                      variant="secondary"
+                      className="sm:w-40"
                     >
                       Back
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="submit"
-                      disabled={loading}
-                      className="flex-1 bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
+                      loading={loading}
+                      className="flex-1"
                     >
-                      {loading ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Activity'}
-                      {!loading && <Save className="w-4 h-4" />}
-                    </button>
+                      {isEditing ? 'Save Changes' : 'Create Activity'}
+                    </Button>
                   </div>
                 </>
               )}
@@ -1268,24 +1289,23 @@ export default function CreateEvent({ user }: { user: User | null }) {
                     value={authEmail}
                     onChange={(e) => setAuthEmail(e.target.value)}
                     placeholder="you@example.com"
-                    className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                    className="ui-input"
                   />
                 </div>
                 <div className="flex gap-3 pt-2">
-                  <button
+                  <Button
                     type="button"
                     onClick={() => setShowEmailModal(false)}
-                    className="flex-1 p-3.5 rounded-xl bg-slate-50 text-slate-500 font-bold hover:bg-slate-100 transition-all active:scale-95"
+                    variant="secondary"
                   >
                     Cancel
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="submit"
-                    disabled={authLoading}
-                    className="flex-1 p-3.5 rounded-xl bg-brand-600 text-white font-bold hover:bg-brand-500 transition-all shadow-lg shadow-brand-600/10 disabled:opacity-50 active:scale-95"
+                    loading={authLoading}
                   >
-                    {authLoading ? 'Sending...' : 'Send Magic Link'}
-                  </button>
+                    Send Magic Link
+                  </Button>
                 </div>
               </form>
             </motion.div>
@@ -1322,7 +1342,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                     value={profileName}
                     onChange={(e) => setProfileName(e.target.value)}
                     placeholder="Your Name"
-                    className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                    className="ui-input"
                   />
                 </div>
                 <div>
@@ -1332,23 +1352,22 @@ export default function CreateEvent({ user }: { user: User | null }) {
                     value={profileWhatsapp}
                     onChange={(e) => setProfileWhatsapp(e.target.value)}
                     placeholder="WhatsApp / Phone"
-                    className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                    className="ui-input"
                   />
                 </div>
                 <div className="flex gap-3 pt-2">
-                  <button
+                  <Button
                     type="button"
                     onClick={() => setShowProfileModal(false)}
-                    className="flex-1 p-3.5 rounded-xl bg-slate-50 text-slate-500 font-bold hover:bg-slate-100 transition-all active:scale-95"
+                    variant="secondary"
                   >
                     Cancel
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="submit"
-                    className="flex-1 p-3.5 rounded-xl bg-brand-600 text-white font-bold hover:bg-brand-500 transition-all shadow-lg shadow-brand-600/10 active:scale-95"
                   >
                     Continue
-                  </button>
+                  </Button>
                 </div>
               </form>
             </motion.div>

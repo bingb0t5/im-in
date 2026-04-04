@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { Calendar as CalendarIcon, ChevronRight, MapPin, Users, ArrowLeft, Search } from 'lucide-react';
+import { Calendar as CalendarIcon, MapPin, Search, Users } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatDay, formatTime } from '../utils';
 import { Event } from '../types';
 import { buildEventPath } from '../lib/events';
-import { goBackOr } from '../lib/navigation';
 import { User } from '@supabase/supabase-js';
+import { BookingRow, groupBookingsByEvent } from '../lib/bookings';
+import { filterEventsForQuery } from '../lib/activityRelations';
+import { Card } from '../components/ui/Card';
 
 type CalendarGroup = {
   key: string;
@@ -85,9 +87,82 @@ function groupCalendarEvents(events: Event[]) {
   return groups;
 }
 
+type JoinedRow = BookingRow & {
+  status: string;
+  events: Event;
+};
+
+function ExploreResultSection({
+  events,
+  label,
+  pathForEvent,
+}: {
+  events: Event[];
+  label: string;
+  pathForEvent: (event: Event) => string;
+}) {
+  if (events.length === 0) return null;
+
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center gap-3 px-1">
+        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{label}</p>
+        <div className="h-px flex-1 bg-slate-200" />
+      </div>
+      <Card className="overflow-hidden p-0">
+        {events.map((event, index) => {
+          const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+          const isSemiPublic = visibility === 'semi_public';
+          const dayOnly = formatDay(event.starts_at, event.timezone);
+          const timeOnly = formatTime(event.starts_at, event.timezone);
+          const previewLocation = isSemiPublic
+            ? event.public_location_text || 'Location shared by host'
+            : event.location_text || event.public_location_text || '';
+
+          return (
+            <Link
+              key={event.id}
+              to={pathForEvent(event)}
+              className={`block px-5 py-4 transition-colors hover:bg-slate-50 ${index < events.length - 1 ? 'border-b border-slate-100' : ''}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-bold text-slate-900 leading-tight">{event.title}</h3>
+                  <div className="mt-1 flex items-center gap-3">
+                    {previewLocation ? (
+                      <span className="flex items-center gap-1 truncate text-xs text-slate-400">
+                        <MapPin className="h-3 w-3 shrink-0" />
+                        {previewLocation}
+                      </span>
+                    ) : null}
+                    <span className="flex items-center gap-1 text-xs text-slate-400 shrink-0">
+                      <Users className="h-3 w-3" />
+                      {event.confirmed_count || 0}/{event.capacity}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs font-bold text-slate-700">{dayOnly}</p>
+                  {!isSemiPublic ? (
+                    <p className="text-xs text-slate-400">{timeOnly}</p>
+                  ) : (
+                    <p className="mt-0.5 text-[9px] font-bold uppercase tracking-widest text-indigo-400">Semi public</p>
+                  )}
+                </div>
+              </div>
+            </Link>
+          );
+        })}
+      </Card>
+    </section>
+  );
+}
+
 export default function Calendar({ user }: { user: User | null }) {
   const [events, setEvents] = useState<Event[]>([]);
-  const [privateAccessByEventId, setPrivateAccessByEventId] = useState<Record<string, string>>({});
+  const [hostingEvents, setHostingEvents] = useState<Event[]>([]);
+  const [attendingEvents, setAttendingEvents] = useState<Event[]>([]);
+  const [sharedEvents, setSharedEvents] = useState<Event[]>([]);
   const [hiddenUpcomingCount, setHiddenUpcomingCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -100,7 +175,7 @@ export default function Calendar({ user }: { user: User | null }) {
   }, []);
 
   useEffect(() => {
-    fetchMyPrivateAccessMap();
+    void fetchRelatedActivitySearchPools();
   }, [user?.id, user?.email]);
 
   useEffect(() => {
@@ -141,42 +216,32 @@ export default function Calendar({ user }: { user: User | null }) {
     setLoading(false);
   };
 
-  const fetchMyPrivateAccessMap = async () => {
-    if (!user?.email) {
-      setPrivateAccessByEventId({});
+  const fetchRelatedActivitySearchPools = async () => {
+    if (!user) {
+      setHostingEvents([]);
+      setAttendingEvents([]);
+      setSharedEvents([]);
       return;
     }
 
-    const { data, error } = await supabase
-      .from('event_attendees')
-      .select(`
-        event_id,
-        events (
-          id,
-          slug,
-          visibility,
-          is_public,
-          access_code
-        )
-      `)
-      .or(`user_id.eq.${user.id},guest_email.eq.${user.email}`)
-      .neq('status', 'cancelled');
+    const [hostedResult, joinedResult, sharedResult] = await Promise.all([
+      supabase.rpc('list_my_hosted_events'),
+      supabase.rpc('list_my_joined_activities'),
+      supabase.rpc('list_my_shared_activities'),
+    ]);
 
-    if (error || !data) {
-      setPrivateAccessByEventId({});
+    if (hostedResult.error || joinedResult.error || sharedResult.error) {
+      console.warn('Could not load related activity search pools.', hostedResult.error || joinedResult.error || sharedResult.error);
       return;
     }
 
-    const map: Record<string, string> = {};
-    (data as any[]).forEach((row) => {
-      const eventRow = row.events;
-      if (!eventRow?.id) return;
-      const path = buildEventPath(eventRow, { preferPrivateAccess: true });
-      if (path.includes('?access=')) {
-        map[eventRow.id] = path;
-      }
-    });
-    setPrivateAccessByEventId(map);
+    const groupedAttending = groupBookingsByEvent(
+      ((joinedResult.data || []) as JoinedRow[]).filter((row) => row.status !== 'pending_approval') as BookingRow[],
+    ).map((row) => row.events as Event);
+
+    setHostingEvents((hostedResult.data || []) as Event[]);
+    setAttendingEvents(groupedAttending);
+    setSharedEvents((sharedResult.data || []) as Event[]);
   };
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
@@ -204,18 +269,26 @@ export default function Calendar({ user }: { user: User | null }) {
     ? 'There is 1 other activity happening this week.'
     : `There are ${hiddenUpcomingCount} other activities happening this week.`;
 
+  const searchedHosting = filterEventsForQuery(hostingEvents, normalizedSearch);
+  const searchedAttending = filterEventsForQuery(attendingEvents, normalizedSearch);
+  const searchedShared = filterEventsForQuery(sharedEvents, normalizedSearch);
+  const ownEventIds = new Set([...searchedHosting, ...searchedAttending, ...searchedShared].map((event) => event.id));
+  const searchedPublic = filteredEvents.filter((event) => !ownEventIds.has(event.id));
+
   return (
     <div className="min-h-screen bg-slate-50 pb-32">
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-6 h-16 flex items-center justify-between">
-          <button onClick={() => goBackOr(navigate, '/')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
-            <ArrowLeft className="w-5 h-5 text-slate-600" />
-          </button>
           <div className="flex flex-col items-center">
-            <h1 className="text-base font-black text-slate-900 tracking-tight">Public Activities</h1>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">See what's on</span>
+            <h1 className="text-base font-black text-slate-900 tracking-tight">Explore</h1>
+            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Search and browse activities</span>
           </div>
-          <div className="w-10" />
+          <button
+            onClick={() => navigate('/create-event')}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 shadow-sm transition-colors hover:text-brand-700"
+          >
+            Create
+          </button>
         </div>
       </header>
 
@@ -244,6 +317,29 @@ export default function Calendar({ user }: { user: User | null }) {
                 <div className="h-3 bg-slate-100 rounded-full w-1/3" />
               </div>
             ))}
+          </div>
+        ) : normalizedSearch && (searchedHosting.length > 0 || searchedAttending.length > 0 || searchedShared.length > 0 || searchedPublic.length > 0) ? (
+          <div className="space-y-4">
+            <ExploreResultSection
+              label="Hosting"
+              events={searchedHosting}
+              pathForEvent={(event) => buildEventPath(event, { preferPrivateAccess: true })}
+            />
+            <ExploreResultSection
+              label="Attending"
+              events={searchedAttending}
+              pathForEvent={(event) => buildEventPath(event, { preferPrivateAccess: true })}
+            />
+            <ExploreResultSection
+              label="Shared with you"
+              events={searchedShared}
+              pathForEvent={(event) => buildEventPath(event)}
+            />
+            <ExploreResultSection
+              label="Public activities"
+              events={searchedPublic}
+              pathForEvent={(event) => buildEventPath(event)}
+            />
           </div>
         ) : filteredEvents.length === 0 ? (
           <div className="text-center py-20">
@@ -296,7 +392,7 @@ export default function Calendar({ user }: { user: User | null }) {
                         const previewLocation = isSemiPublic
                           ? event.public_location_text || 'Location shared by host'
                           : event.location_text || event.public_location_text || '';
-                        const eventPath = privateAccessByEventId[event.id] || buildEventPath(event);
+                        const eventPath = buildEventPath(event);
 
                         return (
                           <Link 

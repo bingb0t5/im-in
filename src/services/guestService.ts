@@ -10,6 +10,10 @@ export interface AttendeeProfile {
   last_name: string;
   full_name: string;
   user_id?: string | null;
+  lalo_user_id?: string | null;
+  auth_provider?: 'email' | 'google' | 'lalo_whatsapp' | null;
+  whatsapp_number?: string | null;
+  whatsapp_verified_at?: string | null;
 }
 
 export interface GuestSession {
@@ -40,7 +44,11 @@ function buildSystemGuestEmail(seed: string) {
 
 export function isSystemGuestEmail(email?: string | null) {
   const normalized = normalizeEmail(email || '');
-  return normalized.endsWith('@guest.im-in.local') || normalized.endsWith('@proxy.im-in.local');
+  return (
+    normalized.endsWith('@guest.im-in.local') ||
+    normalized.endsWith('@proxy.im-in.local') ||
+    normalized.endsWith('@auth.im-in.local')
+  );
 }
 
 function pickFirstNonEmpty(...values: Array<string | null | undefined>) {

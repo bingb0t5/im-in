@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { Mail, ArrowRight, CheckCircle2, ArrowLeft, Search } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Mail, MessageCircle, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { buildAuthRedirectUrl } from '../lib/authRedirect';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
+import { clearAllLaloAuthState, isLaloWhatsAppAuthEnabled } from '../integrations/lalo/laloAuth';
 
 export default function Login({ user }: { user: User | null }) {
   const [searchParams] = useSearchParams();
@@ -15,13 +18,28 @@ export default function Login({ user }: { user: User | null }) {
   const [showRecovery, setShowRecovery] = useState(searchParams.get('recovery') === 'true');
   const [recoveryEmail, setRecoveryEmail] = useState('');
   const [recoverySent, setRecoverySent] = useState(false);
+  const [showEmailLogin, setShowEmailLogin] = useState(false);
   const navigate = useNavigate();
+  const laloEnabled = isLaloWhatsAppAuthEnabled();
 
   useEffect(() => {
     if (searchParams.get('recovery') === 'true') {
       setShowRecovery(true);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (showRecovery) {
+      setShowEmailLogin(false);
+    }
+  }, [showRecovery]);
+
+  useEffect(() => {
+    if (!laloEnabled) {
+      setShowEmailLogin(true);
+      clearAllLaloAuthState();
+    }
+  }, [laloEnabled]);
 
   if (user) return <Navigate to="/my-activities" replace />;
 
@@ -68,161 +86,178 @@ export default function Login({ user }: { user: User | null }) {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
+    <div className="min-h-screen bg-slate-50">
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10 w-full">
         <div className="max-w-2xl mx-auto px-6 h-16 flex items-center justify-between">
           <button onClick={() => navigate('/', { replace: true })} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
           <div className="flex flex-col items-center">
-            <h1 className="text-base font-black text-slate-900 tracking-tight">Sign In</h1>
+            <h1 className="text-base font-black text-slate-900 tracking-tight">Sign in</h1>
             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Manage your activities</span>
           </div>
           <div className="w-10" />
         </div>
       </header>
 
-      <div className="flex-1 flex flex-col items-center justify-center p-6">
-        <motion.div 
+      <div className="ui-page-shell flex min-h-[calc(100svh-4rem)] flex-col justify-center py-8">
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md bg-white rounded-3xl shadow-sm p-8 border border-slate-100"
-      >
-        <div className="mb-8 text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-brand-50 rounded-2xl mb-4">
-            {showRecovery ? <Search className="w-8 h-8 text-brand-600" /> : <Mail className="w-8 h-8 text-brand-600" />}
-          </div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900">
-            {showRecovery ? 'Find my bookings' : 'Welcome Back'}
-          </h1>
-          <p className="text-slate-500 mt-2 font-medium text-sm">
-            {showRecovery ? 'Enter your email to get a recovery link.' : 'Sign in to manage your activities.'}
-          </p>
-        </div>
-
-        {showRecovery ? (
-          <div className="space-y-6">
-            {recoverySent ? (
-              <div className="text-center space-y-4">
-                <div className="flex justify-center">
-                  <CheckCircle2 className="w-12 h-12 text-brand-600" />
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <Card className="space-y-6">
+            <div className="space-y-4 text-center">
+              <div className="flex justify-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
+                  {showRecovery ? <Search className="h-8 w-8" /> : <Mail className="h-8 w-8" />}
                 </div>
-                <h2 className="text-lg font-black text-slate-900">Link Sent</h2>
-                <p className="text-slate-600 text-sm font-medium">
-                  If an account exists for <span className="font-black text-slate-900">{recoveryEmail}</span>, recovery has been requested.
+              </div>
+              <div className="space-y-2">
+                <p className="ui-eyebrow">{showRecovery ? 'Recover Access' : 'Sign In'}</p>
+                <h2 className="text-3xl font-black tracking-tight text-slate-900">
+                  {showRecovery ? 'Find my bookings' : 'Choose how to continue'}
+                </h2>
+                <p className="text-sm font-medium leading-relaxed text-slate-500">
+                  {showRecovery
+                    ? 'Enter your email to get a recovery link.'
+                    : 'Use the main sign-in option below, or choose another method if needed.'}
                 </p>
-                <button 
-                  onClick={() => setShowRecovery(false)}
-                  className="text-brand-600 font-black text-sm hover:underline"
-                >
-                  Back to Login
-                </button>
+              </div>
+            </div>
+
+            {showRecovery ? (
+              recoverySent ? (
+                <div className="space-y-5 text-center">
+                  <div className="flex justify-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-700">
+                      <CheckCircle2 className="h-7 w-7" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-black text-slate-900">Link sent</h3>
+                    <p className="text-sm font-medium leading-relaxed text-slate-600">
+                      If an account exists for <span className="font-black text-slate-900">{recoveryEmail}</span>, recovery has
+                      been requested.
+                    </p>
+                  </div>
+                  <Button variant="secondary" onClick={() => setShowRecovery(false)}>
+                    Back to login
+                  </Button>
+                </div>
+              ) : (
+                <form onSubmit={handleRecovery} className="space-y-5">
+                  <div>
+                    <label htmlFor="recovery-email" className="ui-label">
+                      Email address
+                    </label>
+                    <input
+                      id="recovery-email"
+                      type="email"
+                      required
+                      value={recoveryEmail}
+                      onChange={(e) => setRecoveryEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      className="ui-input"
+                    />
+                  </div>
+                  {error ? <p className="ui-feedback ui-feedback-error">{error}</p> : null}
+                  <div className="space-y-3">
+                    <Button type="submit" loading={loading}>
+                      Send recovery link
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={() => setShowRecovery(false)}>
+                      Back to login
+                    </Button>
+                  </div>
+                </form>
+              )
+            ) : sent ? (
+              <div className="space-y-5 text-center">
+                <div className="flex justify-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-700">
+                    <CheckCircle2 className="h-7 w-7" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-black text-slate-900">Check your email</h3>
+                  <p className="text-sm font-medium leading-relaxed text-slate-600">
+                    We&apos;ve sent a magic link to <span className="font-black text-slate-900">{email}</span>. Click the link to
+                    finish signing in.
+                  </p>
+                </div>
+                <Button variant="secondary" onClick={() => setSent(false)}>
+                  Try another email
+                </Button>
               </div>
             ) : (
-              <form onSubmit={handleRecovery} className="space-y-6">
-                <div>
-                  <label htmlFor="recovery-email" className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">
-                    Email Address
-                  </label>
-                  <input
-                    id="recovery-email"
-                    type="email"
-                    required
-                    value={recoveryEmail}
-                    onChange={(e) => setRecoveryEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 outline-none transition-all font-bold text-sm"
-                  />
+              <div className="space-y-5">
+                <div className="space-y-3">
+                  {laloEnabled ? (
+                    <>
+                      <Button
+                        leadingIcon={<MessageCircle className="h-4 w-4" />}
+                        onClick={() => navigate('/auth/whatsapp/prep?from=/my-activities')}
+                      >
+                        Continue with WhatsApp
+                      </Button>
+                      <p className="text-center text-xs font-medium text-slate-400">Powered by Lalo</p>
+                    </>
+                  ) : null}
+
+                  <Button variant="secondary" disabled title="Google sign-in will be connected soon.">
+                    Continue with Google
+                  </Button>
+
+                  <Button variant={laloEnabled ? 'ghost' : 'primary'} onClick={() => setShowEmailLogin((prev) => !prev)}>
+                    Continue with email
+                  </Button>
                 </div>
-                {error && (
-                  <p className="text-red-500 text-xs font-bold bg-red-50 p-3 rounded-xl border border-red-100">
-                    {error}
-                  </p>
-                )}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-xl shadow-lg shadow-brand-600/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
-                >
-                  {loading ? 'Sending...' : 'Send Recovery Link'}
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setShowRecovery(false)}
-                  className="w-full text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-slate-600 transition-colors"
-                >
-                  Back to Login
-                </button>
-              </form>
-            )}
-          </div>
-        ) : sent ? (
-          <div className="text-center space-y-4">
-            <div className="flex justify-center">
-              <CheckCircle2 className="w-12 h-12 text-brand-600" />
-            </div>
-            <h2 className="text-lg font-black text-slate-900">Check your email</h2>
-            <p className="text-slate-600 text-sm font-medium">
-              We've sent a magic link to <span className="font-black text-slate-900">{email}</span>. 
-              Click the link to sign in instantly.
-            </p>
-            <button 
-              onClick={() => setSent(false)}
-              className="text-brand-600 font-black text-sm hover:underline"
-            >
-              Try another email
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            <form onSubmit={handleLogin} className="space-y-6">
-              <div>
-                <label htmlFor="email" className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">
-                  Email Address
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 outline-none transition-all font-bold text-sm"
-                />
+
+                {showEmailLogin ? (
+                  <Card className="space-y-4 border-slate-200 bg-slate-50/70">
+                    <div className="space-y-1">
+                      <h3 className="text-base font-black text-slate-900">Email sign-in</h3>
+                      <p className="text-sm font-medium text-slate-500">Use a magic link if you prefer email.</p>
+                    </div>
+                    <form onSubmit={handleLogin} className="space-y-4">
+                      <div>
+                        <label htmlFor="email" className="ui-label">
+                          Email address
+                        </label>
+                        <input
+                          id="email"
+                          type="email"
+                          required
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="you@example.com"
+                          className="ui-input"
+                        />
+                      </div>
+
+                      {error ? <p className="ui-feedback ui-feedback-error">{error}</p> : null}
+
+                      <Button type="submit" loading={loading}>
+                        Send magic link
+                      </Button>
+                    </form>
+                  </Card>
+                ) : null}
               </div>
+            )}
+          </Card>
 
-              {error && (
-                <p className="text-red-500 text-xs font-bold bg-red-50 p-3 rounded-xl border border-red-100">
-                  {error}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-xl shadow-lg shadow-brand-600/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
-              >
-                {loading ? 'Sending...' : 'Send Magic Link'}
-                {!loading && <ArrowRight className="w-5 h-5" />}
-              </button>
-            </form>
+          <div className="mt-6 space-y-3 text-center">
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+              No account? One will be created for you.
+            </p>
+            {!showRecovery ? (
+              <Button variant="ghost" onClick={() => setShowRecovery(true)}>
+                Lost your guest bookings?
+              </Button>
+            ) : null}
           </div>
-        )}
-      </motion.div>
-      
-      <div className="mt-8 flex flex-col items-center gap-4">
-        <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">
-          No account? One will be created for you.
-        </p>
-        {!showRecovery && (
-          <button 
-            onClick={() => setShowRecovery(true)}
-            className="text-brand-600 font-black text-xs uppercase tracking-widest hover:bg-brand-50 px-4 py-2 rounded-lg transition-all"
-          >
-            Lost your guest bookings?
-          </button>
-        )}
-      </div>
+        </motion.div>
       </div>
     </div>
   );

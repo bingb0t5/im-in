@@ -17,6 +17,7 @@ export interface Event {
   host_contact_text?: string;
   show_host_publicly?: boolean;
   access_code?: string;
+  join_code?: string;
   visibility?: 'public' | 'semi_public' | 'private';
   allow_waitlist: boolean;
   require_host_approval_for_join?: boolean;
@@ -37,6 +38,16 @@ export interface Event {
   updated_at: string;
   confirmed_count?: number;
   thinking_count?: number;
+}
+
+export type ActivityRelationshipState =
+  | 'SHARED_WITH_USER'
+  | 'REQUESTED'
+  | 'ATTENDING'
+  | 'HOSTING';
+
+export interface ActivityWithRelationship extends Event {
+  relationship_state: ActivityRelationshipState;
 }
 
 export interface PublicModerationLogEntry {

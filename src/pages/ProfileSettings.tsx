@@ -1,9 +1,16 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
-import { ArrowLeft, Pencil } from 'lucide-react';
+import { ArrowLeft, MessageCircle, Pencil } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { guestService, getAccountNameFromUser } from '../services/guestService';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
+import {
+  clearAllLaloAuthState,
+  isLaloWhatsAppAuthEnabled,
+  startLaloWhatsAppAuth,
+} from '../integrations/lalo/laloAuth';
 import { goBackOr } from '../lib/navigation';
+import { guestService, getAccountNameFromUser, type AttendeeProfile } from '../services/guestService';
 
 export default function ProfileSettings({ user }: { user: User | null }) {
   const navigate = useNavigate();
@@ -11,16 +18,21 @@ export default function ProfileSettings({ user }: { user: User | null }) {
   const [saving, setSaving] = useState(false);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [whatsappNumber, setWhatsappNumber] = useState('');
+  const [profile, setProfile] = useState<AttendeeProfile | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isEditingName, setIsEditingName] = useState(false);
+  const [whatsappLoading, setWhatsappLoading] = useState(false);
 
   const hydrateProfile = async (authUser: User) => {
     const profile = await guestService.getProfileForUser(authUser);
     const composedName = `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim();
     const profileName = composedName || profile?.full_name || '';
+    setProfile(profile);
     setFullName(profileName || getAccountNameFromUser(authUser) || '');
     setEmail(profile?.email || authUser.email || '');
+    setWhatsappNumber(profile?.whatsapp_number || '');
     return profile;
   };
 
@@ -72,6 +84,49 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     }
   };
 
+  const handleStartWhatsappVerification = async () => {
+    if (!isLaloWhatsAppAuthEnabled()) {
+      setError('WhatsApp verification is not enabled yet.');
+      return;
+    }
+
+    const normalizedWhatsapp = whatsappNumber.trim();
+    if (!normalizedWhatsapp) {
+      setError('Enter the WhatsApp number you want shown on your profile before verifying.');
+      return;
+    }
+
+    setWhatsappLoading(true);
+    setError(null);
+    setMessage(null);
+    clearAllLaloAuthState();
+
+    try {
+      const attempt = await startLaloWhatsAppAuth('/profile', {
+        mode: 'link_account',
+        whatsappNumber: normalizedWhatsapp,
+      });
+
+      navigate('/auth/whatsapp/verify', { replace: true });
+      window.setTimeout(() => {
+        const popup = window.open(attempt.whatsappUrl, '_blank', 'noopener,noreferrer');
+        if (!popup) {
+          window.location.href = attempt.whatsappUrl;
+        }
+      }, 50);
+    } catch (startError) {
+      setError(startError instanceof Error ? startError.message : 'Could not start WhatsApp verification.');
+      setWhatsappLoading(false);
+    }
+  };
+
+  const hasLinkedWhatsapp = !!profile?.lalo_user_id;
+  const whatsappHelper = hasLinkedWhatsapp
+    ? profile?.whatsapp_number
+      ? 'Linked and shown on your profile.'
+      : 'Linked to your account. Add a number below and verify again if you want it shown here.'
+    : 'Add WhatsApp verification to this account. Your email remains your backup sign-in.';
+
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
@@ -85,68 +140,127 @@ export default function ProfileSettings({ user }: { user: User | null }) {
       </header>
 
       <main className="max-w-xl mx-auto px-6 pt-8">
-        <section className="bg-white rounded-2xl p-6">
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Your profile</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Update your name and email. Your name is used for hosted activities and your own joins.
-          </p>
+        <div className="space-y-5">
+          <Card>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Your profile</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Update your name and email. Your name is used for hosted activities and your own joins.
+            </p>
 
-          {loading ? (
-            <div className="py-12 text-sm text-slate-400">Loading profile...</div>
-          ) : (
-            <form onSubmit={handleSave} className="mt-5 space-y-4">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Name</label>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingName((prev) => !prev)}
-                    className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-brand-600 hover:text-brand-500 transition-colors"
-                  >
-                    <Pencil className="w-3 h-3" />
-                    {isEditingName ? 'Lock' : 'Edit'}
-                  </button>
+            {loading ? (
+              <div className="py-12 text-sm text-slate-400">Loading profile...</div>
+            ) : (
+              <form onSubmit={handleSave} className="mt-5 space-y-4">
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">Name</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingName((prev) => !prev)}
+                      className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-brand-600 transition-colors hover:text-brand-500"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      {isEditingName ? 'Lock' : 'Edit'}
+                    </button>
+                  </div>
+                  <input
+                    required
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Your name"
+                    readOnly={!isEditingName}
+                    className={`w-full rounded-2xl border p-4 text-sm font-bold outline-none transition-all ${
+                      isEditingName
+                        ? 'border-slate-100 bg-slate-50 focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10'
+                        : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-600'
+                    }`}
+                  />
                 </div>
-                <input
-                  required
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Your name"
-                  readOnly={!isEditingName}
-                  className={`w-full p-4 rounded-2xl border outline-none transition-all font-bold text-sm ${
-                    isEditingName
-                      ? 'bg-slate-50 border-slate-100 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600'
-                      : 'bg-slate-100 border-slate-200 text-slate-600 cursor-not-allowed'
-                  }`}
-                />
+
+                <div>
+                  <label className="mb-2 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Email</label>
+                  <input
+                    required
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="w-full rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-bold outline-none transition-all focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
+                  />
+                </div>
+
+                <Button type="submit" loading={saving}>
+                  Save profile
+                </Button>
+              </form>
+            )}
+          </Card>
+
+          <Card className="space-y-4">
+            <div className="space-y-1">
+              <p className="ui-eyebrow">Sign-in methods</p>
+              <h2 className="text-xl font-black tracking-tight text-slate-900">Email and WhatsApp</h2>
+              <p className="text-sm text-slate-500">Email stays as your backup sign-in while WhatsApp verification can be linked to this account.</p>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Email backup</p>
+                <p className="mt-1 text-base font-bold text-slate-900">{email || 'No email on file'}</p>
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Email</label>
-                <input
-                  required
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
-                />
+              <div className={`rounded-2xl border p-4 ${hasLinkedWhatsapp ? 'border-brand-200 bg-brand-50' : 'border-slate-200 bg-slate-50'}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">WhatsApp verification</p>
+                    <p className="mt-1 text-base font-bold text-slate-900">
+                      {profile?.whatsapp_number || (hasLinkedWhatsapp ? 'WhatsApp linked' : 'Not linked yet')}
+                    </p>
+                  </div>
+                  <span className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${hasLinkedWhatsapp ? 'bg-white text-brand-700' : 'bg-white text-slate-500'}`}>
+                    {hasLinkedWhatsapp ? 'Verified' : 'Available'}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-slate-500">{whatsappHelper}</p>
               </div>
+            </div>
 
-              {message ? <p className="text-xs text-brand-700 bg-brand-50 border border-brand-100 rounded-xl px-3 py-2">{message}</p> : null}
-              {error ? <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{error}</p> : null}
+            {isLaloWhatsAppAuthEnabled() ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-2 block text-[10px] font-bold uppercase tracking-widest text-slate-400">WhatsApp number</label>
+                  <input
+                    type="text"
+                    value={whatsappNumber}
+                    onChange={(e) => setWhatsappNumber(e.target.value)}
+                    placeholder="+44 7..."
+                    className="w-full rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-bold outline-none transition-all focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
+                  />
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                  Lalo verifies the WhatsApp identity. The number shown here is the number saved to your profile for display after verification.
+                </div>
+                <Button
+                  onClick={() => {
+                    void handleStartWhatsappVerification();
+                  }}
+                  loading={whatsappLoading}
+                  leadingIcon={<MessageCircle className="h-4 w-4" />}
+                >
+                  {hasLinkedWhatsapp ? 'Refresh WhatsApp verification' : 'Verify with WhatsApp'}
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                WhatsApp verification is not enabled in this environment yet.
+              </div>
+            )}
+          </Card>
 
-              <button
-                type="submit"
-                disabled={saving}
-                className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-base py-4 rounded-2xl transition-all active:scale-95 disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : 'Save profile'}
-              </button>
-            </form>
-          )}
-        </section>
+          {message ? <p className="rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs text-brand-700">{message}</p> : null}
+          {error ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p> : null}
+        </div>
       </main>
     </div>
   );
