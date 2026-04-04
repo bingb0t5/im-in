@@ -129,13 +129,13 @@ export default function App() {
         <Routes>
           <Route element={<MainTabsLayout user={user} />}>
             <Route path="/" element={<Home user={user} />} />
+            <Route path="/login" element={<Login user={user} />} />
             <Route path="/explore" element={<Calendar user={user} />} />
             <Route path="/calendar" element={<Navigate to="/explore" replace />} />
             <Route path="/create-event" element={<CreateEvent user={user} />} />
             <Route path="/my-activities" element={user ? <MyActivities user={user} /> : <Navigate to="/login" />} />
             <Route path="/profile" element={user ? <ProfileSettings user={user} /> : <Navigate to="/login" />} />
           </Route>
-          <Route path="/login" element={<Login user={user} />} />
           <Route path="/auth/whatsapp/prep" element={<WhatsAppAuthPrep />} />
           <Route path="/auth/whatsapp/verify" element={<WhatsAppAuthVerify />} />
           <Route path="/auth/whatsapp/success" element={<WhatsAppAuthSuccess />} />
