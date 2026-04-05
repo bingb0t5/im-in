@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, AlertCircle, Mail } from 'lucide-react';
 import { LaloVerifyPanel } from 'lalo-verify/react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -157,38 +157,9 @@ async function resolveHostDisplayNameAfterWhatsAppSignIn(sessionUser: User): Pro
   return '';
 }
 
-type CreateEventAuthDebugSnap = {
-  at: string;
-  reason: string;
-  propUserId: string | null;
-  mirrorUserId: string | null;
-  mergedUserId: string | null;
-  getSessionUserId: string | null;
-  getUserId: string | null;
-  sessionMatchesGetUser: boolean | null;
-  propEmail: string | null;
-  draftNeedsProfileDetails: string | null;
-  currentStep: number;
-  needsProfileDetails: boolean;
-  showEmailModal: boolean;
-  showProfileModal: boolean;
-};
-
-function readCreateEventAuthDebugEnabled(searchParams: URLSearchParams) {
-  if (typeof window === 'undefined') return false;
-  try {
-    if (searchParams.get('debugAuth') === '1') return true;
-    if (window.localStorage.getItem('im_in_debug_create_auth') === '1') return true;
-  } catch {
-    /* noop */
-  }
-  return import.meta.env.DEV === true;
-}
-
 export default function CreateEvent({ user: userFromApp }: { user: User | null }) {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const isEditing = !!id;
   /**
    * After WhatsApp sign-in, `navigate` can re-render this page before App's `onAuthStateChange`
@@ -202,13 +173,6 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   const sessionMirrorUserRef = useRef<User | null>(sessionMirrorUser);
   userFromAppRef.current = userFromApp;
   sessionMirrorUserRef.current = sessionMirrorUser;
-
-  const createEventAuthDebugEnabled = useMemo(
-    () => readCreateEventAuthDebugEnabled(searchParams),
-    [searchParams],
-  );
-  const [createEventAuthDebugSnap, setCreateEventAuthDebugSnap] = useState<CreateEventAuthDebugSnap | null>(null);
-  const [createEventAuthDebugOpen, setCreateEventAuthDebugOpen] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -281,82 +245,6 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   useEffect(() => {
     currentStepRef.current = currentStep;
   }, [currentStep]);
-
-  useEffect(() => {
-    if (!createEventAuthDebugEnabled) {
-      setCreateEventAuthDebugSnap(null);
-      return;
-    }
-
-    let cancelled = false;
-
-    const snap = async (reason: string) => {
-      const prop = userFromAppRef.current;
-      const mirror = sessionMirrorUserRef.current;
-      const merged = prop ?? mirror;
-
-      const { data: sessionData } = await supabase.auth.getSession();
-      const { data: userData } = await supabase.auth.getUser();
-      const sessionUser = sessionData.session?.user ?? null;
-      const getUser = userData.user ?? null;
-
-      let draftNeeds: string | null = null;
-      try {
-        const raw = localStorage.getItem(CREATE_EVENT_DRAFT_KEY);
-        if (raw) {
-          const d = JSON.parse(raw) as CreateEventDraft;
-          draftNeeds = String(!!d.needsProfileDetails);
-        }
-      } catch {
-        draftNeeds = 'parse_error';
-      }
-
-      if (cancelled) return;
-
-      const row: CreateEventAuthDebugSnap = {
-        at: new Date().toISOString(),
-        reason,
-        propUserId: prop?.id ?? null,
-        mirrorUserId: mirror?.id ?? null,
-        mergedUserId: merged?.id ?? null,
-        getSessionUserId: sessionUser?.id ?? null,
-        getUserId: getUser?.id ?? null,
-        sessionMatchesGetUser:
-          !sessionUser && !getUser ? true : sessionUser?.id === getUser?.id,
-        propEmail: prop?.email ?? null,
-        draftNeedsProfileDetails: draftNeeds,
-        currentStep,
-        needsProfileDetails,
-        showEmailModal,
-        showProfileModal,
-      };
-
-      setCreateEventAuthDebugSnap(row);
-      console.log('[im-in CreateEvent auth debug]', reason, row);
-    };
-
-    void snap('effect-initial');
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
-      void snap(`onAuthStateChange:${event}`);
-    });
-
-    return () => {
-      cancelled = true;
-      subscription.unsubscribe();
-    };
-  }, [
-    createEventAuthDebugEnabled,
-    currentStep,
-    needsProfileDetails,
-    showEmailModal,
-    showProfileModal,
-    userFromApp?.id,
-    sessionMirrorUser?.id,
-    user?.id,
-  ]);
 
   const laloAuthEnabled = isLaloWhatsAppAuthEnabled();
 
@@ -1984,44 +1872,6 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         )}
       </AnimatePresence>
 
-      {createEventAuthDebugEnabled ? (
-        <div className="fixed bottom-3 left-3 right-3 z-[100] max-w-md mx-auto pointer-events-auto">
-          <div className="rounded-xl border border-amber-300 bg-amber-50/95 shadow-lg text-left text-[10px] font-mono text-slate-800">
-            <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b border-amber-200 bg-amber-100/80">
-              <span className="font-bold text-amber-900">CreateEvent auth debug</span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  className="rounded-md px-2 py-0.5 font-bold text-amber-900 hover:bg-amber-200/80"
-                  onClick={() => setCreateEventAuthDebugOpen((o) => !o)}
-                >
-                  {createEventAuthDebugOpen ? 'Hide' : 'Show'}
-                </button>
-                {createEventAuthDebugSnap ? (
-                  <button
-                    type="button"
-                    className="rounded-md px-2 py-0.5 font-bold text-amber-900 hover:bg-amber-200/80"
-                    onClick={() => {
-                      void navigator.clipboard?.writeText(JSON.stringify(createEventAuthDebugSnap, null, 2));
-                    }}
-                  >
-                    Copy
-                  </button>
-                ) : null}
-              </div>
-            </div>
-            {createEventAuthDebugOpen ? (
-              createEventAuthDebugSnap ? (
-                <pre className="max-h-40 overflow-auto p-2 whitespace-pre-wrap break-all">
-                  {JSON.stringify(createEventAuthDebugSnap, null, 2)}
-                </pre>
-              ) : (
-                <p className="p-2 text-amber-800">Waiting for snapshot…</p>
-              )
-            ) : null}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
