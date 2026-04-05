@@ -80,6 +80,23 @@ function buildLaloSyntheticEmail(laloUserId: string) {
   return `lalo+${laloUserId.toLowerCase()}@auth.im-in.local`;
 }
 
+function isSystemProfileEmail(value: string | null | undefined) {
+  const email = normalizeEmail(value);
+  return email.endsWith('@guest.im-in.local') || email.endsWith('@proxy.im-in.local') || email.endsWith('@auth.im-in.local');
+}
+
+function scoreAuthProfileCandidate(profile: AttendeeProfileRow, preferredEmail: string) {
+  let score = 0;
+  const email = normalizeEmail(profile.email);
+
+  if (preferredEmail && email === preferredEmail) score += 100;
+  if (email && !isSystemProfileEmail(email)) score += 50;
+  if (`${profile.first_name || ''} ${profile.last_name || ''}`.trim()) score += 10;
+  if (!profile.lalo_user_id) score += 5;
+
+  return score;
+}
+
 export function json(data: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(data), {
     ...init,
@@ -540,9 +557,9 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
   }
 
   let userId = profile?.user_id || null;
-  const nextAuthProvider =
+  let nextAuthProvider =
     profile?.auth_provider?.trim() && profile.auth_provider !== LALO_PROVIDER ? profile.auth_provider : LALO_PROVIDER;
-  const metadata = {
+  let metadata = {
     auth_provider: nextAuthProvider,
     lalo_user_id: laloUserId,
   };
@@ -557,6 +574,52 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
     }
 
     const existingUser = existingUserData.user;
+    const preferredEmail = normalizeEmail(existingUser?.email || '');
+    const { data: byUserRows, error: byUserError } = await admin
+      .from('attendee_profiles')
+      .select('id, email, user_id, lalo_user_id, auth_provider, first_name, last_name, whatsapp_number, whatsapp_verified_at')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false });
+
+    if (byUserError) {
+      throw Object.assign(new Error(byUserError.message), { status: 500 });
+    }
+
+    const canonicalProfile =
+      ((byUserRows || []) as AttendeeProfileRow[])
+        .sort((a, b) => scoreAuthProfileCandidate(b, preferredEmail) - scoreAuthProfileCandidate(a, preferredEmail))[0] || profile;
+
+    if (profile?.id && canonicalProfile?.id && canonicalProfile.id !== profile.id) {
+      nextAuthProvider = deriveLinkedAuthProvider(existingUser, canonicalProfile);
+      metadata = {
+        auth_provider: nextAuthProvider,
+        lalo_user_id: laloUserId,
+      };
+      await mergeProfileRecords(
+        admin,
+        profile,
+        canonicalProfile,
+        userId,
+        nextAuthProvider,
+        laloUserId,
+        canonicalProfile.whatsapp_number || null,
+        canonicalProfile.whatsapp_verified_at || verifiedAt,
+        preferredEmail || normalizeEmail(canonicalProfile.email) || syntheticEmail,
+      );
+
+      profile = {
+        ...canonicalProfile,
+        auth_provider: nextAuthProvider,
+        email: preferredEmail || canonicalProfile.email,
+        lalo_user_id: laloUserId,
+        user_id: userId,
+        whatsapp_verified_at: canonicalProfile.whatsapp_verified_at || verifiedAt,
+      };
+    }
+
+    const resolvedProfileEmail = profile?.email?.trim() || existingUser?.email?.trim() || syntheticEmail;
+    const shouldUseSyntheticCredentials = isSystemProfileEmail(existingUser?.email || resolvedProfileEmail);
+    signInEmail = shouldUseSyntheticCredentials ? syntheticEmail : normalizeEmail(existingUser?.email || resolvedProfileEmail);
     const providers = Array.from(
       new Set(
         [existingUser?.app_metadata?.provider, ...(Array.isArray(existingUser?.app_metadata?.providers) ? existingUser.app_metadata.providers : []), LALO_PROVIDER]
@@ -624,7 +687,7 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
         lalo_user_id: laloUserId,
         whatsapp_verified_at: verifiedAt,
         user_id: userId,
-        email: profileEmail,
+        email: signInEmail,
       })
       .eq('id', profile.id);
 
@@ -639,7 +702,7 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
         lalo_user_id: laloUserId,
         whatsapp_verified_at: verifiedAt,
         user_id: userId,
-        email: profileEmail,
+        email: signInEmail,
         first_name: '',
         last_name: '',
       });
