@@ -190,6 +190,25 @@ Detection caveat:
 
 - In-app-browser/webview detection uses user-agent heuristics and is intentionally best-effort. It may have occasional false positives/negatives across app/browser versions, so the prompts are non-blocking and fully dismissible.
 
+## In-App Notifications
+
+The app includes a Supabase-backed in-app notification system for signed-in users.
+
+- Notification UX is mounted in the main top header (`AppTopBar`) with bell + unread badge (capped at `9+`), bottom-sheet inbox, and detail modal.
+- Client state and live updates are handled in `src/hooks/useNotifications.ts`.
+- Notification UI components live in `src/components/system/NotificationBell.tsx`, `src/components/system/NotificationsSheet.tsx`, and `src/components/system/NotificationDetailModal.tsx`.
+- Notification schema, RLS, host-send RPCs, and automatic notification triggers are defined in `supabase/migrations/20260406113000_add_in_app_notifications.sql`.
+
+Current behavior:
+
+- Users can only read or mark read their own notifications.
+- Hosts can send notifications to valid, event-related users from `HostDashboard`.
+- Automatic notifications are generated for:
+  - activity shared
+  - important activity updates (title/time/timezone/duration/location/description/public summary)
+  - waitlist and attendance status transitions
+- Realtime updates are used for inbox/unread count while the app is open.
+
 ## Stack
 
 - Frontend: React 19 + TypeScript + Vite 6

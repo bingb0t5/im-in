@@ -180,6 +180,30 @@ export interface EventInterest {
   updated_at: string;
 }
 
+export type NotificationType =
+  | 'activity_shared'
+  | 'activity_updated'
+  | 'waitlist_added'
+  | 'waitlist_promoted'
+  | 'attendance_changed'
+  | 'host_message'
+  | 'system';
+
+export interface NotificationItem {
+  id: string;
+  recipient_user_id: string;
+  actor_user_id?: string | null;
+  event_id?: string | null;
+  type: NotificationType | string;
+  title: string;
+  message: string;
+  metadata: Record<string, unknown>;
+  action_url?: string | null;
+  action_label?: string | null;
+  read_at?: string | null;
+  created_at: string;
+}
+
 export interface WaitlistPosition {
   id: string;
   event_id: string;

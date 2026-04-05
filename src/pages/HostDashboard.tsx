@@ -33,6 +33,14 @@ type EventAccessLogEntry = {
   view_count: number;
 };
 
+type NotificationRecipient = {
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  source: string;
+  attendee_status: string | null;
+};
+
 export default function HostDashboard({ user }: { user: User | null }) {
   const CREATE_EVENT_SUCCESS_KEY = 'im_in_recently_created_event_id';
   const { id } = useParams();
@@ -73,6 +81,15 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [eventAccessLog, setEventAccessLog] = useState<EventAccessLogEntry[]>([]);
   const [eventAccessLogLoading, setEventAccessLogLoading] = useState(false);
   const [eventAccessLogError, setEventAccessLogError] = useState<string | null>(null);
+  const [notificationRecipients, setNotificationRecipients] = useState<NotificationRecipient[]>([]);
+  const [notificationRecipientsLoading, setNotificationRecipientsLoading] = useState(false);
+  const [notificationTarget, setNotificationTarget] = useState<'all_access' | 'confirmed' | 'waitlist' | 'selected'>('all_access');
+  const [selectedNotificationUserIds, setSelectedNotificationUserIds] = useState<string[]>([]);
+  const [notificationTitle, setNotificationTitle] = useState('');
+  const [notificationMessage, setNotificationMessage] = useState('');
+  const [notificationActionUrl, setNotificationActionUrl] = useState('');
+  const [notificationSending, setNotificationSending] = useState(false);
+  const [notificationSendMessage, setNotificationSendMessage] = useState<string | null>(null);
   const inAppShareSectionRef = useRef<HTMLElement | null>(null);
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
@@ -231,6 +248,25 @@ export default function HostDashboard({ user }: { user: User | null }) {
       setEventAccessLogError(error?.message || 'Could not load access log right now.');
     } finally {
       setEventAccessLogLoading(false);
+    }
+  };
+
+  const fetchNotificationRecipients = async (eventId: string) => {
+    setNotificationRecipientsLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('host_list_notification_recipients', {
+        p_event_id: eventId,
+      });
+      if (error) throw error;
+      const recipients = (data || []) as NotificationRecipient[];
+      setNotificationRecipients(recipients);
+      setSelectedNotificationUserIds((prev) => prev.filter((id) => recipients.some((recipient) => recipient.user_id === id)));
+    } catch (error) {
+      console.warn('Could not load notification recipients:', error);
+      setNotificationRecipients([]);
+      setSelectedNotificationUserIds([]);
+    } finally {
+      setNotificationRecipientsLoading(false);
     }
   };
 
@@ -504,6 +540,48 @@ export default function HostDashboard({ user }: { user: User | null }) {
       fetchHosts(normalizedEvent.id, normalizedEvent.host_user_id || null, normalizedEvent.host_name || null);
       fetchInAppShareCandidates(normalizedEvent.id);
       fetchEventAccessLog(normalizedEvent.id);
+      fetchNotificationRecipients(normalizedEvent.id);
+    }
+  };
+
+  const sendHostNotification = async () => {
+    if (!event) return;
+    if (!notificationMessage.trim()) {
+      setNotificationSendMessage('Write a message first.');
+      return;
+    }
+    if (notificationTarget === 'selected' && selectedNotificationUserIds.length === 0) {
+      setNotificationSendMessage('Select at least one recipient.');
+      return;
+    }
+
+    try {
+      setNotificationSending(true);
+      setNotificationSendMessage(null);
+      const { data, error } = await supabase.rpc('host_send_activity_notification', {
+        p_event_id: event.id,
+        p_target: notificationTarget,
+        p_user_ids: notificationTarget === 'selected' ? selectedNotificationUserIds : [],
+        p_title: notificationTitle.trim() || null,
+        p_message: notificationMessage.trim(),
+        p_action_url: notificationActionUrl.trim() || null,
+        p_action_label: notificationActionUrl.trim() ? 'Open activity' : null,
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error as string);
+
+      const sentCount = Number(data?.sent_count || 0);
+      setNotificationSendMessage(`Notification sent to ${sentCount} account${sentCount === 1 ? '' : 's'}.`);
+      setNotificationTitle('');
+      setNotificationMessage('');
+      setNotificationActionUrl('');
+      if (notificationTarget === 'selected') {
+        setSelectedNotificationUserIds([]);
+      }
+    } catch (error: any) {
+      setNotificationSendMessage(error?.message || 'Could not send notification right now.');
+    } finally {
+      setNotificationSending(false);
     }
   };
 
@@ -1362,6 +1440,153 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
           {inAppShareMessage ? (
             <p className="mt-3 text-xs font-bold text-slate-500">{inAppShareMessage}</p>
+          ) : null}
+        </section>
+
+        <section className="bg-white rounded-2xl p-5">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Send Notification</p>
+            <button
+              type="button"
+              onClick={() => {
+                if (!event) return;
+                void fetchNotificationRecipients(event.id);
+              }}
+              disabled={notificationRecipientsLoading}
+              className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
+            >
+              Refresh audience
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Send an in-app update to people who are related to this activity.
+          </p>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Audience</span>
+              <select
+                value={notificationTarget}
+                onChange={(evt) => setNotificationTarget(evt.target.value as 'all_access' | 'confirmed' | 'waitlist' | 'selected')}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
+              >
+                <option value="all_access">Everyone with access</option>
+                <option value="confirmed">Confirmed attendees</option>
+                <option value="waitlist">Waitlisted users</option>
+                <option value="selected">Selected users</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Optional title</span>
+              <input
+                type="text"
+                value={notificationTitle}
+                onChange={(evt) => setNotificationTitle(evt.target.value)}
+                placeholder={`Message from host: ${event.title}`}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
+              />
+            </label>
+          </div>
+
+          <label className="mt-3 block">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Message</span>
+            <textarea
+              value={notificationMessage}
+              onChange={(evt) => setNotificationMessage(evt.target.value)}
+              rows={3}
+              placeholder="Write a short message..."
+              className="mt-1 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
+            />
+          </label>
+
+          <label className="mt-3 block">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Optional action URL</span>
+            <input
+              type="text"
+              value={notificationActionUrl}
+              onChange={(evt) => setNotificationActionUrl(evt.target.value)}
+              placeholder={`/events/${event.private_slug || event.slug}`}
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
+            />
+          </label>
+
+          {notificationTarget === 'selected' ? (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              {notificationRecipientsLoading ? (
+                <p className="text-sm text-slate-500">Loading recipients...</p>
+              ) : notificationRecipients.length === 0 ? (
+                <p className="text-sm text-slate-500">No eligible recipients found yet.</p>
+              ) : (
+                <>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Select recipients</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedNotificationUserIds(notificationRecipients.map((recipient) => recipient.user_id))}
+                        className="rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-100"
+                      >
+                        All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedNotificationUserIds([])}
+                        className="rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-100"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-52 space-y-2 overflow-y-auto">
+                    {notificationRecipients.map((recipient) => {
+                      const checked = selectedNotificationUserIds.includes(recipient.user_id);
+                      return (
+                        <label key={recipient.user_id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(evt) => {
+                              setSelectedNotificationUserIds((prev) => {
+                                if (evt.target.checked) return prev.includes(recipient.user_id) ? prev : [...prev, recipient.user_id];
+                                return prev.filter((id) => id !== recipient.user_id);
+                              });
+                            }}
+                            className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-bold text-slate-800">{recipient.display_name}</p>
+                            <p className="truncate text-xs text-slate-500">{recipient.email || 'No email'}</p>
+                            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.11em] text-slate-400">
+                              {recipient.attendee_status || recipient.source}
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-xs text-slate-500">
+              {notificationTarget === 'selected'
+                ? `${selectedNotificationUserIds.length} selected`
+                : `${notificationRecipients.length} eligible recipients`}
+            </p>
+            <button
+              type="button"
+              onClick={() => void sendHostNotification()}
+              disabled={notificationSending || !notificationMessage.trim()}
+              className="rounded-xl bg-brand-600 px-4 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
+            >
+              {notificationSending ? 'Sending...' : 'Send notification'}
+            </button>
+          </div>
+
+          {notificationSendMessage ? (
+            <p className="mt-2 text-xs font-bold text-slate-500">{notificationSendMessage}</p>
           ) : null}
         </section>
 

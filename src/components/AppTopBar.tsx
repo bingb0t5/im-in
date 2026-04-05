@@ -4,6 +4,11 @@ import { Menu, Search, X } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { cn } from '../utils';
+import { useNotifications } from '../hooks/useNotifications';
+import { NotificationItem } from '../types';
+import { NotificationBell } from './system/NotificationBell';
+import { NotificationsSheet } from './system/NotificationsSheet';
+import { NotificationDetailModal } from './system/NotificationDetailModal';
 
 type AppTopBarProps = {
   user: User | null;
@@ -14,7 +19,19 @@ export function AppTopBar({ user }: AppTopBarProps) {
   const navigate = useNavigate();
   const [searchValue, setSearchValue] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [selectedNotification, setSelectedNotification] = useState<NotificationItem | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const {
+    notifications,
+    unreadCount,
+    loading: notificationsLoading,
+    error: notificationsError,
+    refresh: refreshNotifications,
+    markRead,
+    markAllRead,
+  } = useNotifications(user);
+
   const isHome = location.pathname === '/';
   const isExplore = location.pathname === '/explore' || location.pathname === '/calendar';
   const showHeaderSearch = isHome || isExplore;
@@ -28,6 +45,11 @@ export function AppTopBar({ user }: AppTopBarProps) {
 
   useEffect(() => {
     setMenuOpen(false);
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    setNotificationsOpen(false);
+    setSelectedNotification(null);
   }, [location.pathname, location.search]);
 
   useEffect(() => {
@@ -83,6 +105,17 @@ export function AppTopBar({ user }: AppTopBarProps) {
     navigate(to);
   };
 
+  const handleOpenNotification = async (notification: NotificationItem) => {
+    const readAt = notification.read_at || new Date().toISOString();
+    if (!notification.read_at) {
+      await markRead(notification.id);
+    }
+    setSelectedNotification({
+      ...notification,
+      read_at: readAt,
+    });
+  };
+
   const handleMenuSignOut = async () => {
     setMenuOpen(false);
     await supabase.auth.signOut();
@@ -121,15 +154,25 @@ export function AppTopBar({ user }: AppTopBarProps) {
               )}
             </div>
           ) : null}
-          <div className="relative" ref={menuRef}>
-            <button
-              type="button"
-              aria-label="Open menu"
-              onClick={() => setMenuOpen((open) => !open)}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:text-brand-700"
-            >
-              {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </button>
+          <div className="flex items-center gap-2">
+            {user ? (
+              <NotificationBell
+                unreadCount={unreadCount}
+                onClick={() => {
+                  setNotificationsOpen(true);
+                  void refreshNotifications();
+                }}
+              />
+            ) : null}
+            <div className="relative" ref={menuRef}>
+              <button
+                type="button"
+                aria-label="Open menu"
+                onClick={() => setMenuOpen((open) => !open)}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:text-brand-700"
+              >
+                {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              </button>
             {menuOpen ? (
               <div className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[250px] overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
                 {!user ? (
@@ -192,6 +235,7 @@ export function AppTopBar({ user }: AppTopBarProps) {
                 ) : null}
               </div>
             ) : null}
+            </div>
           </div>
         </div>
         {showHeaderSearch ? (
@@ -212,6 +256,36 @@ export function AppTopBar({ user }: AppTopBarProps) {
           </div>
         ) : null}
       </div>
+      <NotificationsSheet
+        open={notificationsOpen}
+        notifications={notifications}
+        loading={notificationsLoading}
+        error={notificationsError}
+        onClose={() => {
+          setNotificationsOpen(false);
+          setSelectedNotification(null);
+        }}
+        onRefresh={() => void refreshNotifications()}
+        onOpenNotification={(notification) => {
+          void handleOpenNotification(notification);
+        }}
+        onMarkAllRead={() => void markAllRead()}
+      />
+      <NotificationDetailModal
+        open={!!selectedNotification}
+        notification={selectedNotification}
+        onClose={() => setSelectedNotification(null)}
+        onAction={(notification) => {
+          if (!notification.action_url) return;
+          if (notification.action_url.startsWith('/')) {
+            navigate(notification.action_url);
+          } else {
+            window.location.href = notification.action_url;
+          }
+          setSelectedNotification(null);
+          setNotificationsOpen(false);
+        }}
+      />
     </header>
   );
 }
