@@ -20,7 +20,6 @@ export default function ProfileSettings({ user }: { user: User | null }) {
   const [saving, setSaving] = useState(false);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [whatsappNumber, setWhatsappNumber] = useState('');
   const [profile, setProfile] = useState<AttendeeProfile | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +35,6 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     setProfile(profile);
     setFullName(profileName || getAccountNameFromUser(authUser) || '');
     setEmail(profile?.email || authUser.email || '');
-    setWhatsappNumber(profile?.whatsapp_number || '');
     return profile;
   };
 
@@ -94,12 +92,6 @@ export default function ProfileSettings({ user }: { user: User | null }) {
       return;
     }
 
-    const normalizedWhatsapp = whatsappNumber.trim();
-    if (!normalizedWhatsapp) {
-      setError('Enter the WhatsApp number you want shown on your profile before verifying.');
-      return;
-    }
-
     setWhatsappLoading(true);
     setError(null);
     setMessage(null);
@@ -108,7 +100,6 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     try {
       const attempt = await startLaloWhatsAppAuth('/profile', {
         mode: 'link_account',
-        whatsappNumber: normalizedWhatsapp,
       });
 
       navigate('/auth/whatsapp/verify', { replace: true });
@@ -163,9 +154,9 @@ export default function ProfileSettings({ user }: { user: User | null }) {
   const isWhatsappPrimaryAccount = hasLinkedWhatsapp && isSystemGuestEmail(user.email || profile?.email || '');
   const whatsappHelper = hasLinkedWhatsapp
     ? profile?.whatsapp_number
-      ? 'Linked and shown on your profile.'
-      : 'Linked to your account. Add a number below and verify again if you want it shown here.'
-    : 'Add WhatsApp verification to this account. Your email remains your backup sign-in, and any older WhatsApp-only account will be merged into this one.';
+      ? 'Verified and linked to this account.'
+      : 'Verified and linked to this account. If Lalo returns your WhatsApp number, it will appear here automatically.'
+    : 'Add WhatsApp to this account through verification. Your email remains your backup sign-in, and any older WhatsApp-only account will be merged into this one.';
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
@@ -258,18 +249,8 @@ export default function ProfileSettings({ user }: { user: User | null }) {
 
             {isLaloWhatsAppAuthEnabled() ? (
               <div className="space-y-3">
-                <div>
-                  <label className="mb-2 block text-[10px] font-bold uppercase tracking-widest text-slate-400">WhatsApp number</label>
-                  <input
-                    type="text"
-                    value={whatsappNumber}
-                    onChange={(e) => setWhatsappNumber(e.target.value)}
-                    placeholder="+44 7..."
-                    className="w-full rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-bold outline-none transition-all focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
-                  />
-                </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                  Lalo verifies the WhatsApp identity. The number shown here is the number saved to your profile for display after verification. If that WhatsApp was already linked to an older account, it will be moved onto this one.
+                  Lalo verifies the WhatsApp identity from your WhatsApp account. If that WhatsApp was already linked to an older account, it will be moved onto this one.
                 </div>
                 <Button
                   onClick={() => {
@@ -278,7 +259,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
                   loading={whatsappLoading}
                   leadingIcon={<MessageCircle className="h-4 w-4" />}
                 >
-                  {hasLinkedWhatsapp ? 'Refresh WhatsApp verification' : 'Verify with WhatsApp'}
+                  {hasLinkedWhatsapp ? 'Re-verify WhatsApp' : 'Add WhatsApp to this account'}
                 </Button>
               </div>
             ) : (
