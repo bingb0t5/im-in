@@ -59,6 +59,16 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
     }
   }, [env.isStandalone]);
 
+  const debugPromptOverride = useMemo(() => {
+    if (!import.meta.env.DEV) return null;
+    const params = new URLSearchParams(location.search);
+    const value = params.get('webviewPrompt');
+    if (value === 'verify' || value === 'install' || value === 'success') {
+      return value;
+    }
+    return null;
+  }, [location.search]);
+
   const hiddenRoutes = location.pathname.startsWith('/auth/whatsapp/');
   const verifyDismissed = isPromptDismissed('verify_whatsapp');
   const addToHomeDismissed = isPromptDismissed('add_to_home_screen');
@@ -69,16 +79,22 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
     verifyDismissed,
     addToHomeDismissed,
   });
+  const effectivePromptDecision =
+    debugPromptOverride === 'verify'
+      ? 'verify_whatsapp'
+      : debugPromptOverride === 'install'
+        ? 'add_to_home_screen'
+        : promptDecision;
 
   const bannerVisible =
     !hiddenRoutes
-    && !showPostVerifySuccess
-    && promptDecision !== 'none'
-    && (promptDecision !== 'verify_whatsapp' || laloEnabled);
+    && !(showPostVerifySuccess || debugPromptOverride === 'success')
+    && effectivePromptDecision !== 'none'
+    && (effectivePromptDecision !== 'verify_whatsapp' || laloEnabled);
 
   const dismissBanner = () => {
-    if (promptDecision === 'none') return;
-    dismissPromptForDays(promptDecision, 7);
+    if (effectivePromptDecision === 'none') return;
+    dismissPromptForDays(effectivePromptDecision, 7);
     setStorageVersion((prev) => prev + 1);
   };
 
@@ -126,7 +142,7 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
           }}
         >
           <div className="pointer-events-auto rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-xl backdrop-blur">
-            {promptDecision === 'verify_whatsapp' ? (
+            {effectivePromptDecision === 'verify_whatsapp' ? (
               <>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -183,7 +199,7 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
         </div>
       ) : null}
 
-      {showPostVerifySuccess && env.isInAppBrowser && !env.isStandalone ? (
+      {(showPostVerifySuccess || debugPromptOverride === 'success') && (env.isInAppBrowser || debugPromptOverride === 'success') && !env.isStandalone ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-6">
           <button
             type="button"

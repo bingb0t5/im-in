@@ -38,6 +38,12 @@ export default defineConfig(({mode}) => {
     server: {
       // Optional: disable HMR in constrained environments.
       hmr: process.env.DISABLE_HMR !== 'true',
+      fs: {
+        allow: [
+          path.resolve(__dirname, '.'),
+          ...(useLocalLaloSource ? [localLaloPackagePath] : []),
+        ],
+      },
     },
   };
 });
