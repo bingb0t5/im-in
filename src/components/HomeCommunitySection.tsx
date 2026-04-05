@@ -151,7 +151,7 @@ export function HomeCommunitySection({ user }: { user: User | null }) {
   };
 
   return (
-    <section className="pb-14">
+    <section>
       <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5.2rem)] z-10 px-6 text-center">
         <p className="text-[10px] font-bold uppercase leading-relaxed tracking-widest text-slate-400">
           Built for real communities.

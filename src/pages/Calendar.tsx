@@ -3,7 +3,7 @@ import { supabase } from '../supabase';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Calendar as CalendarIcon, MapPin, Users } from 'lucide-react';
 import { motion } from 'motion/react';
-import { formatDay, formatTime } from '../utils';
+import { formatDay, formatTime, isOnOrAfterTodayInTimeZone } from '../utils';
 import { Event } from '../types';
 import { buildEventPath } from '../lib/events';
 import { User } from '@supabase/supabase-js';
@@ -28,6 +28,10 @@ function getDayDifference(from: Date, to: Date) {
 
 function getWeekdayLabel(date: Date) {
   return new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(date);
+}
+
+function upcomingOnly(events: Event[]) {
+  return events.filter((event) => isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone));
 }
 
 function groupCalendarEvents(events: Event[]) {
@@ -251,11 +255,11 @@ export default function Calendar({ user }: { user: User | null }) {
     ? 'There is 1 other activity happening this week.'
     : `There are ${hiddenUpcomingCount} other activities happening this week.`;
 
-  const searchedHosting = filterEventsForQuery(hostingEvents, normalizedSearch);
-  const searchedAttending = filterEventsForQuery(attendingEvents, normalizedSearch);
-  const searchedShared = filterEventsForQuery(sharedEvents, normalizedSearch);
+  const searchedHosting = filterEventsForQuery(upcomingOnly(hostingEvents), normalizedSearch);
+  const searchedAttending = filterEventsForQuery(upcomingOnly(attendingEvents), normalizedSearch);
+  const searchedShared = filterEventsForQuery(upcomingOnly(sharedEvents), normalizedSearch);
   const ownEventIds = new Set([...searchedHosting, ...searchedAttending, ...searchedShared].map((event) => event.id));
-  const searchedPublic = filteredEvents.filter((event) => !ownEventIds.has(event.id));
+  const searchedPublic = upcomingOnly(filteredEvents).filter((event) => !ownEventIds.has(event.id));
 
   return (
     <div className="min-h-screen bg-slate-50 pb-32">

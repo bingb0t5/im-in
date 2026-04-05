@@ -132,8 +132,8 @@ export default function Home({ user }: { user: User | null }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <main className={`mx-auto max-w-2xl px-6 pb-10 ${topSpacingClass}`}>
+    <div className="bg-slate-50">
+      <main className={`mx-auto max-w-2xl px-6 pb-2 ${topSpacingClass}`}>
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
           {user ? (
             <Card className="space-y-2 pt-3">
@@ -179,7 +179,7 @@ export default function Home({ user }: { user: User | null }) {
 
           <Card className="space-y-3 pt-4">
             <div className="space-y-0.5">
-              <h2 className="ui-section-title">Receive a join code?</h2>
+              <h2 className="ui-section-title">Received a join code?</h2>
               <p className="text-xs text-slate-500">Enter your code below to view the activity.</p>
             </div>
 
