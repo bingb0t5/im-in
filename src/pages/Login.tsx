@@ -41,7 +41,7 @@ export default function Login({ user }: { user: User | null }) {
     }
   }, [laloEnabled]);
 
-  if (user) return <Navigate to="/my-activities" replace />;
+  if (user) return <Navigate to="/" replace />;
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -184,7 +184,7 @@ export default function Login({ user }: { user: User | null }) {
                     <>
                       <Button
                         leadingIcon={<MessageCircle className="h-4 w-4" />}
-                        onClick={() => navigate('/auth/whatsapp/prep?from=/my-activities')}
+                        onClick={() => navigate('/auth/whatsapp/prep?from=/')}
                       >
                         Continue with WhatsApp
                       </Button>

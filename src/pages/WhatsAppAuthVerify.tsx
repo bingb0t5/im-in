@@ -29,6 +29,44 @@ export default function WhatsAppAuthVerify() {
   const [expired, setExpired] = useState(false);
   const [cancelled, setCancelled] = useState(false);
   const isBusyRef = useRef(false);
+  const parsedWhatsapp = (() => {
+    const url = attempt?.whatsappUrl || '';
+    if (!url) return { phone: '', text: '', code: '' };
+    try {
+      const parsed = new URL(url);
+      const host = parsed.hostname.toLowerCase();
+      const phoneFromQuery = parsed.searchParams.get('phone') || '';
+      const phoneFromPath = host === 'wa.me'
+        ? parsed.pathname.replace(/\//g, '').trim()
+        : '';
+      const phone = phoneFromQuery || phoneFromPath;
+      const text = parsed.searchParams.get('text') || '';
+      const codeMatch = text.match(/LALO\s+VERIFY:\s*([A-Z0-9-]+)/i);
+      return {
+        phone,
+        text,
+        code: codeMatch?.[1] || '',
+      };
+    } catch {
+      return { phone: '', text: '', code: '' };
+    }
+  })();
+
+  const openWhatsAppApp = () => {
+    if (!attempt?.whatsappUrl) return;
+    const deepLink = new URL('whatsapp://send');
+    if (parsedWhatsapp.phone) deepLink.searchParams.set('phone', parsedWhatsapp.phone);
+    if (parsedWhatsapp.text) deepLink.searchParams.set('text', parsedWhatsapp.text);
+    // If parsing didn't produce useful fields, fallback to provided URL.
+    window.location.href = parsedWhatsapp.phone || parsedWhatsapp.text
+      ? deepLink.toString()
+      : attempt.whatsappUrl;
+  };
+
+  const openWhatsAppWebFallback = () => {
+    if (!attempt?.whatsappUrl) return;
+    window.open(attempt.whatsappUrl, '_blank', 'noopener,noreferrer');
+  };
 
   useEffect(() => {
     if (!isLaloWhatsAppAuthEnabled()) {
@@ -103,8 +141,8 @@ export default function WhatsAppAuthVerify() {
     isBusyRef.current = true;
     if (manual) {
       setChecking(true);
+      setError(null);
     }
-    setError(null);
 
     try {
       const status = await getLaloWhatsAppStatus(attempt.attemptId);
@@ -132,7 +170,15 @@ export default function WhatsAppAuthVerify() {
 
       await finishSignIn(attempt);
     } catch (statusError) {
-      setError(statusError instanceof Error ? statusError.message : 'Could not check WhatsApp sign in.');
+      const message = statusError instanceof Error ? statusError.message : 'Could not check WhatsApp sign in.';
+      // Auto polling should not hard-fail the screen on transient edge/network errors.
+      // Keep polling and only surface the error when the user explicitly retries.
+      if (manual) {
+        setError(message);
+      } else {
+        setError(null);
+        setMessage(mapLaloStatusToMessage('pending'));
+      }
     } finally {
       if (manual) {
         setChecking(false);
@@ -142,16 +188,21 @@ export default function WhatsAppAuthVerify() {
   };
 
   useEffect(() => {
-    if (!attempt || expired || cancelled || error || completing) return;
+    if (!attempt || expired || cancelled || completing) return;
 
-    void runStatusCheck(false);
+    const initialCheckTimeout = window.setTimeout(() => {
+      void runStatusCheck(false);
+    }, 900);
 
     const intervalId = window.setInterval(() => {
       void runStatusCheck(false);
     }, LALO_AUTH_POLL_INTERVAL_MS);
 
-    return () => window.clearInterval(intervalId);
-  }, [attempt, expired, cancelled, error, completing]);
+    return () => {
+      window.clearTimeout(initialCheckTimeout);
+      window.clearInterval(intervalId);
+    };
+  }, [attempt, expired, cancelled, completing]);
 
   if (expired) {
     return (
@@ -230,6 +281,21 @@ export default function WhatsAppAuthVerify() {
           {message ? (
             <Card className="ui-feedback ui-feedback-info text-left">
               <p>{message}</p>
+            </Card>
+          ) : null}
+          {!completing ? (
+            <Card className="ui-feedback ui-feedback-info text-left">
+              <p className="font-bold text-slate-700">Step 1: Open WhatsApp and send the message.</p>
+              {parsedWhatsapp.phone ? <p className="mt-1 text-xs text-slate-500">To: {parsedWhatsapp.phone}</p> : null}
+              {parsedWhatsapp.code ? <p className="mt-1 text-xs text-slate-500">Code: {parsedWhatsapp.code}</p> : null}
+              <div className="mt-3 space-y-2">
+                <Button variant="secondary" onClick={openWhatsAppApp}>
+                  Open WhatsApp app
+                </Button>
+                <Button variant="ghost" onClick={openWhatsAppWebFallback}>
+                  Open WhatsApp web fallback
+                </Button>
+              </div>
             </Card>
           ) : null}
           <Button loading={checking || completing} onClick={() => void runStatusCheck(true)}>

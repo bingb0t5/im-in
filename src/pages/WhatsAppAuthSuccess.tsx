@@ -6,7 +6,7 @@ import { StateScreen } from '../components/ui/StateScreen';
 export default function WhatsAppAuthSuccess() {
   const navigate = useNavigate();
   const location = useLocation();
-  const redirectTo = typeof location.state?.redirectTo === 'string' ? location.state.redirectTo : '/my-activities';
+  const redirectTo = typeof location.state?.redirectTo === 'string' ? location.state.redirectTo : '/';
   const mode = location.state?.mode === 'link_account' ? 'link_account' : 'sign_in';
   const merged = !!location.state?.merged;
 

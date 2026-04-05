@@ -8,7 +8,7 @@ export default function WhatsAppAuthPrep() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
-  const redirectTo = searchParams.get('from') || '/my-activities';
+  const redirectTo = searchParams.get('from') || '/';
 
   useEffect(() => {
     if (!isLaloWhatsAppAuthEnabled()) {
@@ -27,12 +27,6 @@ export default function WhatsAppAuthPrep() {
         if (cancelled) return;
 
         navigate('/auth/whatsapp/verify', { replace: true });
-        window.setTimeout(() => {
-          const popup = window.open(attempt.whatsappUrl, '_blank', 'noopener,noreferrer');
-          if (!popup) {
-            window.location.href = attempt.whatsappUrl;
-          }
-        }, 50);
       } catch (startError) {
         if (cancelled) return;
         setError(startError instanceof Error ? startError.message : 'Could not start WhatsApp sign in.');
