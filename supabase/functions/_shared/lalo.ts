@@ -391,6 +391,19 @@ async function mergeProfileRecords(
     if (failedOperation?.error) {
       throw Object.assign(new Error(failedOperation.error.message), { status: 500 });
     }
+
+    const { error: releaseSourceIdentityError } = await admin
+      .from('attendee_profiles')
+      .update({
+        lalo_user_id: null,
+        whatsapp_number: null,
+        whatsapp_verified_at: null,
+      })
+      .eq('id', sourceProfile.id);
+
+    if (releaseSourceIdentityError) {
+      throw Object.assign(new Error(releaseSourceIdentityError.message), { status: 500 });
+    }
   }
 
   const mergedFirstName = hasProfileName(targetProfile) ? targetProfile.first_name : sourceProfile.first_name;
