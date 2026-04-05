@@ -540,21 +540,58 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
   }
 
   let userId = profile?.user_id || null;
+  const nextAuthProvider =
+    profile?.auth_provider?.trim() && profile.auth_provider !== LALO_PROVIDER ? profile.auth_provider : LALO_PROVIDER;
   const metadata = {
-    auth_provider: LALO_PROVIDER,
+    auth_provider: nextAuthProvider,
     lalo_user_id: laloUserId,
   };
+  const profileEmail = profile?.email?.trim() || syntheticEmail;
+  const shouldUseSyntheticCredentials = normalizeEmail(profileEmail) === normalizeEmail(syntheticEmail);
+  let signInEmail = shouldUseSyntheticCredentials ? syntheticEmail : profileEmail;
 
   if (userId) {
-    const { error: updateUserError } = await admin.auth.admin.updateUserById(userId, {
-      email: syntheticEmail,
+    const { data: existingUserData, error: getUserError } = await admin.auth.admin.getUserById(userId);
+    if (getUserError) {
+      throw Object.assign(new Error(getUserError.message), { status: 500 });
+    }
+
+    const existingUser = existingUserData.user;
+    const providers = Array.from(
+      new Set(
+        [existingUser?.app_metadata?.provider, ...(Array.isArray(existingUser?.app_metadata?.providers) ? existingUser.app_metadata.providers : []), LALO_PROVIDER]
+          .map((value) => String(value || '').trim())
+          .filter(Boolean),
+      ),
+    );
+
+    const nextUserPayload: Parameters<typeof admin.auth.admin.updateUserById>[1] = {
       password: temporaryPassword,
-      email_confirm: true,
-      user_metadata: metadata,
-      app_metadata: {
-        provider: LALO_PROVIDER,
-        providers: [LALO_PROVIDER],
+      user_metadata: {
+        ...(existingUser?.user_metadata || {}),
+        ...metadata,
+        whatsapp_verified_at: verifiedAt,
       },
+      app_metadata: {
+        ...(existingUser?.app_metadata || {}),
+        provider: String(existingUser?.app_metadata?.provider || '').trim() || nextAuthProvider,
+        providers,
+      },
+    };
+
+    if (shouldUseSyntheticCredentials) {
+      nextUserPayload.email = syntheticEmail;
+      nextUserPayload.email_confirm = true;
+      nextUserPayload.app_metadata = {
+        ...(nextUserPayload.app_metadata || {}),
+        provider: LALO_PROVIDER,
+        providers,
+      };
+      signInEmail = syntheticEmail;
+    }
+
+    const { error: updateUserError } = await admin.auth.admin.updateUserById(userId, {
+      ...nextUserPayload,
     });
 
     if (updateUserError) {
@@ -579,13 +616,11 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
     userId = createdUser.user.id;
   }
 
-  const profileEmail = profile?.email?.trim() || syntheticEmail;
-
   if (profile?.id) {
     const { error: updateProfileError } = await admin
       .from('attendee_profiles')
       .update({
-        auth_provider: LALO_PROVIDER,
+        auth_provider: nextAuthProvider,
         lalo_user_id: laloUserId,
         whatsapp_verified_at: verifiedAt,
         user_id: userId,
@@ -600,7 +635,7 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
     const { error: insertProfileError } = await admin
       .from('attendee_profiles')
       .insert({
-        auth_provider: LALO_PROVIDER,
+        auth_provider: nextAuthProvider,
         lalo_user_id: laloUserId,
         whatsapp_verified_at: verifiedAt,
         user_id: userId,
@@ -615,9 +650,9 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
   }
 
   return {
-    authProvider: LALO_PROVIDER,
+    authProvider: nextAuthProvider,
     isNewProfile: !profile,
-    signInEmail: syntheticEmail,
+    signInEmail,
     signInPassword: temporaryPassword,
     userId,
   };
