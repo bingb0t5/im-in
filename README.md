@@ -168,6 +168,28 @@ This means the app currently has a **dual identity model**, not a fully unified 
 
 For the longer-term migration direction, see `AUTH_UNIFICATION_PLAN.md`.
 
+## Webview Guidance Prompts
+
+The app includes a global, lightweight prompt system for users who open links inside in-app browsers/webviews.
+
+- Runtime detection lives in `src/utils/runtimeEnvironment.ts`.
+- Prompt eligibility logic lives in `src/utils/installPromptEligibility.ts`.
+- Local prompt persistence (dismiss timers + one-time post-verify follow-up) lives in `src/utils/inAppBrowserPromptState.ts`.
+- Global UI/controller lives in `src/components/system/InAppBrowserPrompt.tsx`.
+
+Current behavior:
+
+- Prompts are only considered on mobile webview/in-app-browser environments.
+- Prompts are suppressed in standalone/installed PWA display mode.
+- If not WhatsApp-verified, users see the Verify prompt.
+- If WhatsApp-verified, users see the Add to Home Screen prompt.
+- After successful WhatsApp verification, a one-time install follow-up can appear.
+- Banner dismissals are stored locally with a 7-day cooldown.
+
+Detection caveat:
+
+- In-app-browser/webview detection uses user-agent heuristics and is intentionally best-effort. It may have occasional false positives/negatives across app/browser versions, so the prompts are non-blocking and fully dismissible.
+
 ## Stack
 
 - Frontend: React 19 + TypeScript + Vite 6

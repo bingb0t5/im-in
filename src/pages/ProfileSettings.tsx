@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { LogOut, MessageCircle, Pencil } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -29,6 +29,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
   const [whatsappLoading, setWhatsappLoading] = useState(false);
   const [mergeEmail, setMergeEmail] = useState('');
   const [mergeLoading, setMergeLoading] = useState(false);
+  const autoStartAttemptedRef = useRef(false);
 
   const hydrateProfile = async (authUser: User) => {
     const profile = await guestService.getProfileForUser(authUser);
@@ -196,6 +197,18 @@ export default function ProfileSettings({ user }: { user: User | null }) {
       ? 'Verified and linked to this account.'
       : 'Verified and linked to this account. If Lalo returns your WhatsApp number, it will appear here automatically.'
     : 'Add WhatsApp to this account through verification. Your email remains your backup sign-in, and any older WhatsApp-only account will be merged into this one.';
+
+  useEffect(() => {
+    if (!user || loading || autoStartAttemptedRef.current) return;
+    if (!isLaloWhatsAppAuthEnabled()) return;
+    if (hasLinkedWhatsapp) return;
+
+    const shouldStart = searchParams.get('startWhatsapp') === '1';
+    if (!shouldStart) return;
+
+    autoStartAttemptedRef.current = true;
+    void handleStartWhatsappVerification();
+  }, [user, loading, hasLinkedWhatsapp, searchParams]);
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20">

@@ -14,6 +14,7 @@ import {
 } from '../integrations/lalo/laloAuth';
 import { createImInLaloVerifyClient } from '../integrations/lalo/laloVerifyImInClient';
 import { supabase } from '../supabase';
+import { markPostVerifySuccessPending } from '../utils/inAppBrowserPromptState';
 
 export default function Login({ user }: { user: User | null }) {
   const [searchParams] = useSearchParams();
@@ -41,6 +42,7 @@ export default function Login({ user }: { user: User | null }) {
         return;
       }
       const result = await finalizeLaloWhatsAppAuth(attempt);
+      markPostVerifySuccessPending();
       navigate(result.redirectTo || '/', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not finish signing in.');

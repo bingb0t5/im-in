@@ -13,6 +13,7 @@ import {
   isStoredLaloAttemptExpired,
   type StoredLaloAuthAttempt,
 } from '../integrations/lalo/laloAuth';
+import { markPostVerifySuccessPending } from '../utils/inAppBrowserPromptState';
 
 type ParsedWhatsAppLinks = {
   appLink: string;
@@ -137,6 +138,7 @@ export default function WhatsAppAuthVerify() {
 
     try {
       const result = await finalizeLaloWhatsAppAuth(activeAttempt);
+      markPostVerifySuccessPending();
       navigate('/auth/whatsapp/success', {
         replace: true,
         state: {

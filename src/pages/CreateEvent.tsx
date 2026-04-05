@@ -29,6 +29,7 @@ import {
   isLaloWhatsAppAuthEnabled,
 } from '../integrations/lalo/laloAuth';
 import { createImInLaloVerifyClient } from '../integrations/lalo/laloVerifyImInClient';
+import { markPostVerifySuccessPending } from '../utils/inAppBrowserPromptState';
 
 const CREATE_EVENT_DRAFT_KEY = 'im_in_create_event_draft';
 const CREATE_EVENT_PENDING_AUTH_KEY = 'im_in_create_event_pending_auth';
@@ -392,6 +393,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         return;
       }
       const result = await finalizeLaloWhatsAppAuth(attempt);
+      markPostVerifySuccessPending();
       await supabase.auth.refreshSession().catch(() => null);
 
       /** Mobile WebViews sometimes persist the session a tick after signInWithPassword; avoid a false "still logged out" pass. */
