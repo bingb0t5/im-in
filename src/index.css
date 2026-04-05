@@ -1,6 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
+/* Ensure Tailwind sees `lalo-verify` source when linked from ../lalo (arbitrary utilities in panel). */
+@source "../lalo/packages/lalo-verify/src/**/*.tsx";
+
 @theme {
   --color-brand-50: #f0fdfa;
   --color-brand-100: #ccfbf1;
@@ -13,6 +16,20 @@
   --color-accent: #F59E0B;
   --radius-3xl: 1.5rem;
   --radius-4xl: 2rem;
+}
+
+:root {
+  --lalo-primary: #6b4da3;
+  --lalo-accent-lavender: #e9e2f5;
+  --lalo-page-tint: #faf7ff;
+  --lalo-text-dark: #1a1a1a;
+  --lalo-action-gradient: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 52%, #5b21b6 100%);
+  --lalo-action-shadow: 0 14px 34px rgba(109, 40, 217, 0.28);
+  --lalo-verify-overlay:
+    radial-gradient(circle at top, rgba(139, 92, 246, 0.18), transparent 32%),
+    linear-gradient(180deg, rgba(28, 25, 36, 0.78), rgba(17, 24, 39, 0.86));
+  --lalo-login-hero-glow:
+    radial-gradient(circle at center, rgba(243, 237, 255, 0.95) 0%, rgba(243, 237, 255, 0.72) 35%, rgba(255, 255, 255, 0) 72%);
 }
 
 html {
@@ -36,6 +53,30 @@ body {
 }
 
 @layer components {
+  .page-tint {
+    background:
+      radial-gradient(circle at top, rgba(233, 226, 245, 0.78), transparent 42%),
+      linear-gradient(180deg, #ffffff 0%, var(--lalo-page-tint) 100%);
+  }
+
+  .login-hero-glow {
+    background: var(--lalo-login-hero-glow);
+  }
+
+  .verify-overlay-gradient {
+    background: var(--lalo-verify-overlay);
+  }
+
+  .btn-primary-action {
+    @apply relative overflow-hidden rounded-[2rem] text-left text-white transition-all duration-150;
+    background: var(--lalo-action-gradient);
+    box-shadow: var(--lalo-action-shadow);
+  }
+
+  .btn-primary-action:hover {
+    transform: translateY(-1px);
+  }
+
   .ui-page-shell {
     @apply mx-auto w-full max-w-md px-6;
   }

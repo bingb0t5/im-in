@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
-import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, AlertCircle } from 'lucide-react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, Save, AlertCircle, Mail } from 'lucide-react';
+import { LaloVerifyPanel } from 'lalo-verify/react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   buildDurationOptions,
@@ -19,13 +20,20 @@ import { goBackOr } from '../lib/navigation';
 import { applyGoogleMapsAutofill, isGoogleMapsShortUrl, parseGoogleMapsLocation } from '../lib/googleMaps';
 import { shouldModerateVisibility } from '../lib/moderation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
-import { guestService, getAccountNameFromUser } from '../services/guestService';
+import { guestService, getAccountNameFromUser, isSystemGuestEmail } from '../services/guestService';
 import { Button } from '../components/ui/Button';
 import { StateScreen } from '../components/ui/StateScreen';
+import {
+  finalizeLaloWhatsAppAuth,
+  getStoredLaloAuthAttempt,
+  isLaloWhatsAppAuthEnabled,
+} from '../integrations/lalo/laloAuth';
+import { createImInLaloVerifyClient } from '../integrations/lalo/laloVerifyImInClient';
 
 const CREATE_EVENT_DRAFT_KEY = 'im_in_create_event_draft';
 const CREATE_EVENT_PENDING_AUTH_KEY = 'im_in_create_event_pending_auth';
 const CREATE_EVENT_SUCCESS_KEY = 'im_in_recently_created_event_id';
+const CREATE_EVENT_AUTO_SUBMIT_AFTER_WHATSAPP_KEY = 'im_in_create_event_auto_submit_after_whatsapp';
 const DETECTED_EVENT_TIMEZONE = (() => {
   const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return EVENT_TIMEZONE_OPTIONS.some((option) => option.value === browserTimezone)
@@ -75,14 +83,153 @@ type CreateEventDraft = {
   authEmail: string;
   needsProfileDetails: boolean;
   pendingAuth: boolean;
+  /** True when the user just signed up via Lalo WhatsApp — only collect display name, not WhatsApp again. */
+  laloNewUser?: boolean;
+  /** Restore wizard step after auth (email magic link return or post–WhatsApp navigation). */
+  resumeAfterAuthStep?: 1 | 2 | 3;
 };
 
-export default function CreateEvent({ user }: { user: User | null }) {
+function pickDisplayNameFromProfileRow(profile: {
+  first_name?: string | null;
+  last_name?: string | null;
+  full_name?: string | null;
+} | null): string {
+  if (!profile) return '';
+  const composed = `${profile.first_name || ''} ${profile.last_name || ''}`.trim();
+  if (composed) return composed;
+  return (profile.full_name || '').trim();
+}
+
+function normalizeLooseNameForEmailHandle(value?: string | null) {
+  return (value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+function getEmailLocalPartRaw(email?: string | null) {
+  return ((email || '').split('@')[0] || '').trim().toLowerCase();
+}
+
+function isDisplayNameJustAuthEmailHandle(name: string, authEmail?: string | null) {
+  const normalizedName = normalizeLooseNameForEmailHandle(name);
+  const localPart = normalizeLooseNameForEmailHandle(getEmailLocalPartRaw(authEmail));
+  if (!normalizedName || !localPart) return false;
+  return normalizedName === localPart;
+}
+
+/**
+ * Single path after Lalo WhatsApp sign-in: use the same profile merge as the rest of the app
+ * (user_id, email, linking), then decide if "One Last Step" is needed.
+ *
+ * Any non-empty name on `attendee_profiles` counts as "already has host identity" — even when it
+ * matches the email local part — so we do not force the modal for long-time users who chose that name.
+ * For metadata-only names (OAuth, etc.), we still filter out email-handle-only labels unless guest email.
+ */
+async function resolveHostDisplayNameAfterWhatsAppSignIn(sessionUser: User): Promise<string> {
+  let profile: Awaited<ReturnType<typeof guestService.getOrCreateProfileForUser>> | null = null;
+  try {
+    profile = await guestService.getOrCreateProfileForUser(sessionUser);
+  } catch {
+    profile = null;
+  }
+
+  const fromProfile = pickDisplayNameFromProfileRow(profile).trim();
+  const fromMetadata = (getAccountNameFromUser(sessionUser) || '').trim();
+  const authEmail = sessionUser.email || '';
+
+  if (fromProfile) {
+    return fromProfile;
+  }
+
+  if (!fromMetadata) return '';
+
+  if (isSystemGuestEmail(authEmail)) {
+    return fromMetadata;
+  }
+
+  if (!isDisplayNameJustAuthEmailHandle(fromMetadata, authEmail)) {
+    return fromMetadata;
+  }
+
+  return '';
+}
+
+type CreateEventAuthDebugSnap = {
+  at: string;
+  reason: string;
+  propUserId: string | null;
+  mirrorUserId: string | null;
+  mergedUserId: string | null;
+  getSessionUserId: string | null;
+  getUserId: string | null;
+  sessionMatchesGetUser: boolean | null;
+  propEmail: string | null;
+  draftNeedsProfileDetails: string | null;
+  currentStep: number;
+  needsProfileDetails: boolean;
+  showEmailModal: boolean;
+  showProfileModal: boolean;
+};
+
+function readCreateEventAuthDebugEnabled(searchParams: URLSearchParams) {
+  if (typeof window === 'undefined') return false;
+  try {
+    if (searchParams.get('debugAuth') === '1') return true;
+    if (window.localStorage.getItem('im_in_debug_create_auth') === '1') return true;
+  } catch {
+    /* noop */
+  }
+  return import.meta.env.DEV === true;
+}
+
+export default function CreateEvent({ user: userFromApp }: { user: User | null }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const isEditing = !!id;
+  /**
+   * After WhatsApp sign-in, `navigate` can re-render this page before App's `onAuthStateChange`
+   * updates the `user` prop — the UI would still show the logged-out host copy. Mirror the
+   * Supabase session here so step 3 matches reality as soon as the session exists.
+   */
+  const [sessionMirrorUser, setSessionMirrorUser] = useState<User | null>(null);
+  const user = userFromApp ?? sessionMirrorUser;
+
+  const userFromAppRef = useRef<User | null>(userFromApp);
+  const sessionMirrorUserRef = useRef<User | null>(sessionMirrorUser);
+  userFromAppRef.current = userFromApp;
+  sessionMirrorUserRef.current = sessionMirrorUser;
+
+  const createEventAuthDebugEnabled = useMemo(
+    () => readCreateEventAuthDebugEnabled(searchParams),
+    [searchParams],
+  );
+  const [createEventAuthDebugSnap, setCreateEventAuthDebugSnap] = useState<CreateEventAuthDebugSnap | null>(null);
+  const [createEventAuthDebugOpen, setCreateEventAuthDebugOpen] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!cancelled) setSessionMirrorUser(session?.user ?? null);
+    });
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSessionMirrorUser(session?.user ?? null);
+    });
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, []);
+
   const hasHydratedDraft = useRef(false);
+  const currentStepRef = useRef<1 | 2 | 3>(1);
   const step3EnteredAtRef = useRef(0);
+  /** Prevents overlapping finalize if Lalo fires completion more than once. */
+  const createEventWhatsAppOnCompleteInFlightRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(isEditing);
   const [formData, setFormData] = useState({
@@ -122,6 +269,231 @@ export default function CreateEvent({ user }: { user: User | null }) {
   const [mapsAutofillLoading, setMapsAutofillLoading] = useState(false);
   const [mapsAutofillMessage, setMapsAutofillMessage] = useState<string | null>(null);
   const [mapsAutofillError, setMapsAutofillError] = useState<string | null>(null);
+  const [createEventAuthStep, setCreateEventAuthStep] = useState<'choose' | 'email'>('choose');
+  const [profileModalShowWhatsappField, setProfileModalShowWhatsappField] = useState(true);
+  const formDataRef = useRef(formData);
+
+  useEffect(() => {
+    formDataRef.current = formData;
+  }, [formData]);
+
+  useEffect(() => {
+    currentStepRef.current = currentStep;
+  }, [currentStep]);
+
+  useEffect(() => {
+    if (!createEventAuthDebugEnabled) {
+      setCreateEventAuthDebugSnap(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const snap = async (reason: string) => {
+      const prop = userFromAppRef.current;
+      const mirror = sessionMirrorUserRef.current;
+      const merged = prop ?? mirror;
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const { data: userData } = await supabase.auth.getUser();
+      const sessionUser = sessionData.session?.user ?? null;
+      const getUser = userData.user ?? null;
+
+      let draftNeeds: string | null = null;
+      try {
+        const raw = localStorage.getItem(CREATE_EVENT_DRAFT_KEY);
+        if (raw) {
+          const d = JSON.parse(raw) as CreateEventDraft;
+          draftNeeds = String(!!d.needsProfileDetails);
+        }
+      } catch {
+        draftNeeds = 'parse_error';
+      }
+
+      if (cancelled) return;
+
+      const row: CreateEventAuthDebugSnap = {
+        at: new Date().toISOString(),
+        reason,
+        propUserId: prop?.id ?? null,
+        mirrorUserId: mirror?.id ?? null,
+        mergedUserId: merged?.id ?? null,
+        getSessionUserId: sessionUser?.id ?? null,
+        getUserId: getUser?.id ?? null,
+        sessionMatchesGetUser:
+          !sessionUser && !getUser ? true : sessionUser?.id === getUser?.id,
+        propEmail: prop?.email ?? null,
+        draftNeedsProfileDetails: draftNeeds,
+        currentStep,
+        needsProfileDetails,
+        showEmailModal,
+        showProfileModal,
+      };
+
+      setCreateEventAuthDebugSnap(row);
+      console.log('[im-in CreateEvent auth debug]', reason, row);
+    };
+
+    void snap('effect-initial');
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      void snap(`onAuthStateChange:${event}`);
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [
+    createEventAuthDebugEnabled,
+    currentStep,
+    needsProfileDetails,
+    showEmailModal,
+    showProfileModal,
+    userFromApp?.id,
+    sessionMirrorUser?.id,
+    user?.id,
+  ]);
+
+  const laloAuthEnabled = isLaloWhatsAppAuthEnabled();
+
+  const createEventVerifyClient = useMemo(
+    () =>
+      createImInLaloVerifyClient({
+        redirectTo: '/create-event',
+        imInMode: 'sign_in',
+        beforeStart: () => {
+          const draftToPersist: CreateEventDraft = {
+            formData: { ...formDataRef.current },
+            authEmail: '',
+            // Completion handler rewrites after verify. Do not set CREATE_EVENT_PENDING_AUTH_KEY here:
+            // when the session appears, the pending-auth effect can run before the handler finishes updating
+            // the draft and wrongly opens "One Last Step".
+            needsProfileDetails: true,
+            pendingAuth: true,
+            laloNewUser: false,
+            resumeAfterAuthStep: currentStepRef.current,
+          };
+          localStorage.setItem(CREATE_EVENT_DRAFT_KEY, JSON.stringify(draftToPersist));
+        },
+      }),
+    [],
+  );
+
+  const handleWhatsAppAuthCompletedForCreate = useCallback(async () => {
+    if (createEventWhatsAppOnCompleteInFlightRef.current) return;
+    createEventWhatsAppOnCompleteInFlightRef.current = true;
+    try {
+      const attempt = getStoredLaloAuthAttempt();
+      if (!attempt) {
+        setError('Verification finished but the session was lost. Try again.');
+        return;
+      }
+      const result = await finalizeLaloWhatsAppAuth(attempt);
+      await supabase.auth.refreshSession().catch(() => null);
+
+      /** Mobile WebViews sometimes persist the session a tick after signInWithPassword; avoid a false "still logged out" pass. */
+      let sessionUser = (await supabase.auth.getUser()).data.user;
+      for (let i = 0; i < 8 && !sessionUser; i++) {
+        await new Promise((r) => setTimeout(r, 120));
+        await supabase.auth.refreshSession().catch(() => null);
+        sessionUser = (await supabase.auth.getUser()).data.user;
+      }
+      setSessionMirrorUser(sessionUser ?? null);
+
+      if (!sessionUser) {
+        setError(
+          'WhatsApp verified, but this tab did not receive your sign-in session yet. Tap Continue with WhatsApp once more, or use email sign-in.',
+        );
+        return;
+      }
+
+      const laloNewUser = !!result.isNewUser;
+      let needProfileDetails = true;
+      let resolvedAccountName = '';
+
+      if (sessionUser) {
+        resolvedAccountName = await resolveHostDisplayNameAfterWhatsAppSignIn(sessionUser);
+        needProfileDetails = !resolvedAccountName.trim();
+      }
+
+      const draftRaw = localStorage.getItem(CREATE_EVENT_DRAFT_KEY);
+      if (draftRaw) {
+        try {
+          const draft = JSON.parse(draftRaw) as CreateEventDraft;
+          draft.needsProfileDetails = needProfileDetails;
+          draft.laloNewUser = laloNewUser;
+          draft.resumeAfterAuthStep = 3;
+          if (resolvedAccountName) {
+            draft.formData = {
+              ...draft.formData,
+              host_name: resolvedAccountName,
+            };
+          }
+          localStorage.setItem(CREATE_EVENT_DRAFT_KEY, JSON.stringify(draft));
+        } catch {
+          /* keep going */
+        }
+      }
+
+      if (!needProfileDetails) {
+        sessionStorage.setItem(CREATE_EVENT_AUTO_SUBMIT_AFTER_WHATSAPP_KEY, '1');
+      } else {
+        sessionStorage.removeItem(CREATE_EVENT_AUTO_SUBMIT_AFTER_WHATSAPP_KEY);
+      }
+
+      step3EnteredAtRef.current = Date.now();
+      setCurrentStep(3);
+      setNeedsProfileDetails(needProfileDetails);
+      if (resolvedAccountName) {
+        setAccountHostName(resolvedAccountName);
+        setFormData((prev) => ({ ...prev, host_name: resolvedAccountName }));
+        setProfileName(resolvedAccountName);
+      }
+      setProfileModalShowWhatsappField(!laloNewUser);
+
+      if (needProfileDetails) {
+        let nameSeed = (resolvedAccountName || '').trim();
+        if (!nameSeed && draftRaw) {
+          try {
+            const d = JSON.parse(draftRaw) as CreateEventDraft;
+            nameSeed = (d.formData?.host_name || '').trim();
+          } catch {
+            /* noop */
+          }
+        }
+        setProfileName(nameSeed);
+        setShowProfileModal(true);
+        setAuthMessage(
+          laloNewUser
+            ? 'Add how we should show your name as host (you already verified WhatsApp).'
+            : 'Almost there — add how we should show your name as host.',
+        );
+      } else {
+        setShowProfileModal(false);
+        setAuthMessage('Signed in. Finishing your activity…');
+      }
+
+      setShowEmailModal(false);
+      setCreateEventAuthStep('choose');
+      navigate('/create-event', { replace: true });
+    } catch (completionError) {
+      setError(completionError instanceof Error ? completionError.message : 'Could not finish signing in.');
+    } finally {
+      createEventWhatsAppOnCompleteInFlightRef.current = false;
+    }
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!showEmailModal) return;
+    if (!laloAuthEnabled) {
+      setCreateEventAuthStep('email');
+    } else {
+      setCreateEventAuthStep('choose');
+    }
+  }, [showEmailModal, laloAuthEnabled]);
 
   useBodyScrollLock(showEmailModal || showProfileModal);
 
@@ -164,6 +536,13 @@ export default function CreateEvent({ user }: { user: User | null }) {
     return !isNameLikelyFromEmailHandle(normalizedName, email);
   };
 
+  /** Synthetic auth emails (Lalo / guest) must not disqualify a real display name as "just the email handle". */
+  const isTrustedHostDisplayName = (name?: string | null, email?: string | null) => {
+    if (!(name || '').trim()) return false;
+    if (isSystemGuestEmail(email)) return true;
+    return isTrustedHumanName(name, email);
+  };
+
   const runModerationForEvent = async (eventId: string, visibility: 'public' | 'semi_public' | 'private') => {
     if (!shouldModerateVisibility(visibility)) return;
 
@@ -197,7 +576,16 @@ export default function CreateEvent({ user }: { user: User | null }) {
           duration_minutes: draft.formData.duration_minutes || prev.duration_minutes,
         }));
         setVisibilitySelected(true);
-        setCurrentStep(2);
+        const resumeAuthStep = localStorage.getItem(CREATE_EVENT_PENDING_AUTH_KEY) === 'true';
+        const resumeFromDraft =
+          draft.resumeAfterAuthStep === 1 || draft.resumeAfterAuthStep === 2 || draft.resumeAfterAuthStep === 3
+            ? draft.resumeAfterAuthStep
+            : null;
+        const nextStep = resumeFromDraft ?? (resumeAuthStep ? 3 : 2);
+        if (nextStep === 3) {
+          step3EnteredAtRef.current = Date.now();
+        }
+        setCurrentStep(nextStep);
         setShowTimezoneField(
           !!draft.formData.timezone && draft.formData.timezone !== DETECTED_EVENT_TIMEZONE,
         );
@@ -214,31 +602,121 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
   useEffect(() => {
     if (isEditing || !user) return;
-    if (localStorage.getItem(CREATE_EVENT_PENDING_AUTH_KEY) === 'true') {
-      setCurrentStep(3);
-      let shouldCollectProfileDetails = true;
+    if (localStorage.getItem(CREATE_EVENT_PENDING_AUTH_KEY) !== 'true') return;
+
+    let cancelled = false;
+
+    void (async () => {
+      const resolvedName = (await resolveHostDisplayNameAfterWhatsAppSignIn(user)).trim();
+
+      let draftSaysNeed = true;
+      let laloNewUser = false;
       const draftRaw = localStorage.getItem(CREATE_EVENT_DRAFT_KEY);
       if (draftRaw) {
         try {
           const draft = JSON.parse(draftRaw) as CreateEventDraft;
-          shouldCollectProfileDetails = !!draft.needsProfileDetails;
+          draftSaysNeed = !!draft.needsProfileDetails;
+          laloNewUser = !!draft.laloNewUser;
         } catch {
-          shouldCollectProfileDetails = true;
+          draftSaysNeed = true;
         }
       }
 
+      const shouldCollectProfileDetails = draftSaysNeed && !resolvedName;
+
+      if (cancelled) return;
+
+      if (resolvedName) {
+        try {
+          if (draftRaw) {
+            const draft = JSON.parse(draftRaw) as CreateEventDraft;
+            draft.needsProfileDetails = false;
+            draft.formData = {
+              ...draft.formData,
+              host_name: (draft.formData?.host_name || '').trim() || resolvedName,
+            };
+            localStorage.setItem(CREATE_EVENT_DRAFT_KEY, JSON.stringify(draft));
+          }
+        } catch {
+          /* noop */
+        }
+        setAccountHostName(resolvedName);
+        setFormData((prev) => ({
+          ...prev,
+          host_name: prev.host_name.trim() ? prev.host_name : resolvedName,
+        }));
+        setProfileName((prev) => prev.trim() || resolvedName);
+      }
+
+      if (cancelled) return;
+
+      step3EnteredAtRef.current = Date.now();
+      setCurrentStep(3);
       setNeedsProfileDetails(shouldCollectProfileDetails);
       if (shouldCollectProfileDetails) {
-        setProfileName('');
+        let nameSeed = '';
+        if (draftRaw) {
+          try {
+            const draft = JSON.parse(draftRaw) as CreateEventDraft;
+            nameSeed = (draft.formData?.host_name || '').trim();
+          } catch {
+            /* noop */
+          }
+        }
+        setProfileName(nameSeed);
+        setProfileModalShowWhatsappField(!laloNewUser);
         setShowProfileModal(true);
-        setAuthMessage('Welcome! Add your name to finish creating your activity.');
+        setAuthMessage(
+          laloNewUser
+            ? 'Add how we should show your name as host (you already verified WhatsApp).'
+            : 'Welcome! Add your name to finish creating your activity.',
+        );
       } else {
         setShowProfileModal(false);
         setAuthMessage('You are signed in. Review your details and click Create Activity.');
       }
       localStorage.removeItem(CREATE_EVENT_PENDING_AUTH_KEY);
-    }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [isEditing, user]);
+
+  /** If draft / sync state still say "need profile" but the merged profile already has a host name, close the modal. */
+  useEffect(() => {
+    if (isEditing || !user || !needsProfileDetails) return;
+    let cancelled = false;
+    void (async () => {
+      const resolved = (await resolveHostDisplayNameAfterWhatsAppSignIn(user)).trim();
+      if (cancelled || !resolved) return;
+      setNeedsProfileDetails(false);
+      setShowProfileModal(false);
+      setAccountHostName(resolved);
+      setFormData((prev) => ({
+        ...prev,
+        host_name: prev.host_name.trim() ? prev.host_name : resolved,
+      }));
+      setProfileName((prev) => prev.trim() || resolved);
+      const raw = localStorage.getItem(CREATE_EVENT_DRAFT_KEY);
+      if (raw) {
+        try {
+          const draft = JSON.parse(raw) as CreateEventDraft;
+          draft.needsProfileDetails = false;
+          draft.formData = {
+            ...draft.formData,
+            host_name: (draft.formData?.host_name || '').trim() || resolved,
+          };
+          localStorage.setItem(CREATE_EVENT_DRAFT_KEY, JSON.stringify(draft));
+        } catch {
+          /* noop */
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditing, user, needsProfileDetails]);
 
   useEffect(() => {
     if (!user) {
@@ -259,7 +737,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
         .maybeSingle();
 
       let resolvedName = pickHostNameFromProfile(byUserId);
-      if (!isTrustedHumanName(resolvedName, normalizedEmail)) {
+      if (!isTrustedHostDisplayName(resolvedName, user.email)) {
         resolvedName = '';
       }
       if (!resolvedName && normalizedEmail) {
@@ -269,13 +747,13 @@ export default function CreateEvent({ user }: { user: User | null }) {
           .eq('email', normalizedEmail)
           .maybeSingle();
         const byEmailName = pickHostNameFromProfile(byEmail);
-        if (isTrustedHumanName(byEmailName, normalizedEmail)) {
+        if (isTrustedHostDisplayName(byEmailName, user.email)) {
           resolvedName = byEmailName;
         }
       }
 
       const metadataName = getAccountNameFromUser(user);
-      if (!resolvedName && isTrustedHumanName(metadataName, normalizedEmail)) {
+      if (!resolvedName && isTrustedHostDisplayName(metadataName, user.email)) {
         resolvedName = metadataName;
       }
 
@@ -379,173 +857,212 @@ export default function CreateEvent({ user }: { user: User | null }) {
     }
   };
 
+  const runCreateEventSave = useCallback(
+    async (options?: { skipStep3TimingGuard?: boolean }) => {
+      if (currentStep !== 3) return;
+      if (!options?.skipStep3TimingGuard && Date.now() - step3EnteredAtRef.current < 450) return;
+      if (!user) {
+        createEventWhatsAppOnCompleteInFlightRef.current = false;
+        setShowEmailModal(true);
+        return;
+      }
+      if (!isEditing && needsProfileDetails && !formData.host_name.trim()) {
+        setProfileModalShowWhatsappField(true);
+        setShowProfileModal(true);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        let oldCapacity = 0;
+        if (isEditing) {
+          const { data: oldEvent } = await supabase
+            .from('events')
+            .select('capacity')
+            .eq('id', id)
+            .single();
+          oldCapacity = oldEvent?.capacity || 0;
+        }
+
+        const metadataName = getAccountNameFromUser(user);
+        const resolvedHostName = pickFirstNonEmpty(
+          isTrustedHostDisplayName(formData.host_name, user.email) ? formData.host_name : '',
+          isTrustedHostDisplayName(accountHostName, user.email) ? accountHostName : '',
+          isTrustedHostDisplayName(metadataName, user.email) ? metadataName : '',
+        ).trim();
+        const resolvedHostContact = formData.host_contact_text.trim();
+        const resolvedVisibility = formData.visibility || 'semi_public';
+        if (!resolvedHostName) {
+          setProfileName('');
+          setNeedsProfileDetails(true);
+          setProfileModalShowWhatsappField(true);
+          setShowProfileModal(true);
+          throw new Error('Please add your name before creating this activity.');
+        }
+        await guestService.getOrCreateProfileForUser(user, resolvedHostName);
+        if (!formData.starts_at) {
+          throw new Error('Start time is required.');
+        }
+
+        const { startsAtUtcIso, endsAtUtcIso } = toUtcIsoFromStartAndDuration(
+          formData.starts_at,
+          formData.duration_minutes,
+          formData.timezone || DEFAULT_EVENT_TIMEZONE,
+        );
+
+        const submissionData: any = {
+          ...formData,
+          starts_at: startsAtUtcIso,
+          ends_at: endsAtUtcIso,
+          host_name: resolvedHostName,
+          visibility: resolvedVisibility,
+          is_public: resolvedVisibility !== 'private',
+          show_host_publicly: resolvedVisibility !== 'private',
+          description: formData.description.trim() || null,
+          public_summary: formData.public_summary.trim() || null,
+          location_text: formData.location_text.trim() || null,
+          public_location_text: formData.public_location_text.trim() || null,
+          google_maps_url: formData.google_maps_url.trim() || null,
+          timezone: formData.timezone || DEFAULT_EVENT_TIMEZONE,
+          duration_minutes: formData.duration_minutes || 60,
+          host_contact_text: resolvedHostContact || null,
+        };
+
+        if (resolvedVisibility === 'public') {
+          submissionData.public_summary = submissionData.public_summary || submissionData.description;
+          submissionData.public_location_text = submissionData.public_location_text || submissionData.location_text;
+        }
+
+        if (!isEditing) {
+          submissionData.host_user_id = user.id;
+          submissionData.status = 'scheduled';
+        }
+
+        let result;
+        if (isEditing) {
+          result = await supabase
+            .from('events')
+            .update(submissionData)
+            .eq('id', id)
+            .select()
+            .single();
+        } else {
+          result = await supabase
+            .from('events')
+            .insert([submissionData])
+            .select()
+            .single();
+        }
+
+        if (result.error) {
+          throw result.error;
+        }
+
+        if (result.data) {
+          await supabase
+            .from('event_hosts')
+            .upsert(
+              [
+                {
+                  event_id: result.data.id,
+                  user_id: user.id,
+                  added_by_user_id: user.id,
+                },
+              ],
+              { onConflict: 'event_id,user_id' },
+            );
+
+          if (!isEditing) {
+            localStorage.removeItem(CREATE_EVENT_DRAFT_KEY);
+            localStorage.removeItem(CREATE_EVENT_PENDING_AUTH_KEY);
+            sessionStorage.removeItem(CREATE_EVENT_AUTO_SUBMIT_AFTER_WHATSAPP_KEY);
+            setNeedsProfileDetails(false);
+          }
+          if (isEditing && formData.capacity > oldCapacity) {
+            const { data: waitlist } = await supabase
+              .from('event_attendees')
+              .select('*')
+              .eq('event_id', id)
+              .eq('status', 'waitlist')
+              .order('joined_at', { ascending: true });
+
+            if (waitlist && waitlist.length > 0) {
+              const { data: confirmed } = await supabase
+                .from('event_attendees')
+                .select('id')
+                .eq('event_id', id)
+                .eq('status', 'confirmed');
+
+              const currentConfirmedCount = confirmed?.length || 0;
+              const spotsAvailable = formData.capacity - currentConfirmedCount;
+
+              if (spotsAvailable > 0) {
+                const toPromote = pickWaitlistAttendeesForPromotion(waitlist, spotsAvailable);
+                for (const person of toPromote) {
+                  await supabase
+                    .from('event_attendees')
+                    .update({ status: 'confirmed', promoted_at: new Date().toISOString() })
+                    .eq('id', person.id);
+                }
+              }
+            }
+          }
+
+          await runModerationForEvent(result.data.id, resolvedVisibility);
+
+          if (!isEditing) {
+            sessionStorage.setItem(CREATE_EVENT_SUCCESS_KEY, result.data.id);
+          }
+
+          navigate(`/host/events/${result.data.id}`, {
+            state: isEditing ? undefined : { justCreated: true },
+          });
+        }
+      } catch (err: any) {
+        console.error('Error saving activity:', err);
+        setError(err.message || 'Failed to save activity. Please try again.');
+        setLoading(false);
+      }
+    },
+    [
+      accountHostName,
+      currentStep,
+      formData,
+      id,
+      isEditing,
+      navigate,
+      needsProfileDetails,
+      user,
+    ],
+  );
+
+  useEffect(() => {
+    if (isEditing) return;
+    if (sessionStorage.getItem(CREATE_EVENT_AUTO_SUBMIT_AFTER_WHATSAPP_KEY) !== '1') return;
+    if (!user || currentStep !== 3 || showProfileModal || showEmailModal || loading) return;
+    if (needsProfileDetails && !formData.host_name.trim()) return;
+
+    sessionStorage.removeItem(CREATE_EVENT_AUTO_SUBMIT_AFTER_WHATSAPP_KEY);
+    void runCreateEventSave({ skipStep3TimingGuard: true });
+  }, [
+    currentStep,
+    formData.host_name,
+    isEditing,
+    loading,
+    needsProfileDetails,
+    runCreateEventSave,
+    showEmailModal,
+    showProfileModal,
+    user,
+  ]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (currentStep !== 3) return;
     if (Date.now() - step3EnteredAtRef.current < 450) return;
-    if (!user) {
-      setShowEmailModal(true);
-      return;
-    }
-    if (!isEditing && needsProfileDetails && !formData.host_name.trim()) {
-      setShowProfileModal(true);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Fetch old capacity for comparison
-      let oldCapacity = 0;
-      if (isEditing) {
-        const { data: oldEvent } = await supabase
-          .from('events')
-          .select('capacity')
-          .eq('id', id)
-          .single();
-        oldCapacity = oldEvent?.capacity || 0;
-      }
-
-      // Clean up optional fields: convert empty strings to null
-      const metadataName = getAccountNameFromUser(user);
-      const resolvedHostName = pickFirstNonEmpty(
-        isTrustedHumanName(formData.host_name, user.email) ? formData.host_name : '',
-        isTrustedHumanName(accountHostName, user.email) ? accountHostName : '',
-        isTrustedHumanName(metadataName, user.email) ? metadataName : '',
-      ).trim();
-      const resolvedHostContact = formData.host_contact_text.trim();
-      const resolvedVisibility = formData.visibility || 'semi_public';
-      if (!resolvedHostName) {
-        setProfileName('');
-        setNeedsProfileDetails(true);
-        setShowProfileModal(true);
-        throw new Error('Please add your name before creating this activity.');
-      }
-      await guestService.getOrCreateProfileForUser(user, resolvedHostName);
-      if (!formData.starts_at) {
-        throw new Error('Start time is required.');
-      }
-
-      const { startsAtUtcIso, endsAtUtcIso } = toUtcIsoFromStartAndDuration(
-        formData.starts_at,
-        formData.duration_minutes,
-        formData.timezone || DEFAULT_EVENT_TIMEZONE,
-      );
-
-      const submissionData: any = {
-        ...formData,
-        starts_at: startsAtUtcIso,
-        ends_at: endsAtUtcIso,
-        host_name: resolvedHostName,
-        visibility: resolvedVisibility,
-        is_public: resolvedVisibility !== 'private',
-        show_host_publicly: resolvedVisibility !== 'private',
-        description: formData.description.trim() || null,
-        public_summary: formData.public_summary.trim() || null,
-        location_text: formData.location_text.trim() || null,
-        public_location_text: formData.public_location_text.trim() || null,
-        google_maps_url: formData.google_maps_url.trim() || null,
-        timezone: formData.timezone || DEFAULT_EVENT_TIMEZONE,
-        duration_minutes: formData.duration_minutes || 60,
-        host_contact_text: resolvedHostContact || null,
-      };
-
-      if (resolvedVisibility === 'public') {
-        submissionData.public_summary = submissionData.public_summary || submissionData.description;
-        submissionData.public_location_text = submissionData.public_location_text || submissionData.location_text;
-      }
-
-      if (!isEditing) {
-        submissionData.host_user_id = user.id;
-        submissionData.status = 'scheduled';
-      }
-
-      let result;
-      if (isEditing) {
-        result = await supabase
-          .from('events')
-          .update(submissionData)
-          .eq('id', id)
-          .select()
-          .single();
-      } else {
-        result = await supabase
-          .from('events')
-          .insert([submissionData])
-          .select()
-          .single();
-      }
-
-      if (result.error) {
-        throw result.error;
-      }
-
-      if (result.data) {
-        // Keep co-host membership in sync for creator/editor.
-        await supabase
-          .from('event_hosts')
-          .upsert(
-            [
-              {
-                event_id: result.data.id,
-                user_id: user.id,
-                added_by_user_id: user.id,
-              },
-            ],
-            { onConflict: 'event_id,user_id' },
-          );
-
-        if (!isEditing) {
-          localStorage.removeItem(CREATE_EVENT_DRAFT_KEY);
-          localStorage.removeItem(CREATE_EVENT_PENDING_AUTH_KEY);
-          setNeedsProfileDetails(false);
-        }
-        // If capacity increased, promote people from waitlist
-        if (isEditing && formData.capacity > oldCapacity) {
-          const { data: waitlist } = await supabase
-            .from('event_attendees')
-            .select('*')
-            .eq('event_id', id)
-            .eq('status', 'waitlist')
-            .order('joined_at', { ascending: true });
-
-          if (waitlist && waitlist.length > 0) {
-            const { data: confirmed } = await supabase
-              .from('event_attendees')
-              .select('id')
-              .eq('event_id', id)
-              .eq('status', 'confirmed');
-            
-            const currentConfirmedCount = confirmed?.length || 0;
-            const spotsAvailable = formData.capacity - currentConfirmedCount;
-
-            if (spotsAvailable > 0) {
-              const toPromote = pickWaitlistAttendeesForPromotion(waitlist, spotsAvailable);
-              for (const person of toPromote) {
-                await supabase
-                  .from('event_attendees')
-                  .update({ status: 'confirmed', promoted_at: new Date().toISOString() })
-                  .eq('id', person.id);
-              }
-            }
-          }
-        }
-
-        await runModerationForEvent(result.data.id, resolvedVisibility);
-
-        if (!isEditing) {
-          sessionStorage.setItem(CREATE_EVENT_SUCCESS_KEY, result.data.id);
-        }
-
-        navigate(`/host/events/${result.data.id}`, {
-          state: isEditing ? undefined : { justCreated: true },
-        });
-      }
-    } catch (err: any) {
-      console.error('Error saving activity:', err);
-      setError(err.message || 'Failed to save activity. Please try again.');
-      setLoading(false);
-    }
+    await runCreateEventSave({ skipStep3TimingGuard: true });
   };
 
   const handleSendMagicLink = async (e: React.FormEvent) => {
@@ -564,12 +1081,16 @@ export default function CreateEvent({ user }: { user: User | null }) {
     let shouldCollectProfileDetails = true;
     const { data: existingProfile } = await supabase
       .from('attendee_profiles')
-      .select('id, first_name, last_name')
+      .select('id, first_name, last_name, full_name')
       .eq('email', normalizedEmail)
       .maybeSingle();
     if (existingProfile) {
-      const profileName = `${existingProfile.first_name || ''} ${existingProfile.last_name || ''}`.trim();
-      const hasProfileName = isTrustedHumanName(profileName, normalizedEmail);
+      const profileName = pickFirstNonEmpty(
+        `${existingProfile.first_name || ''} ${existingProfile.last_name || ''}`.trim(),
+        existingProfile.full_name || '',
+      );
+      /** Any stored profile display name skips the modal — same rule as post–WhatsApp merge. */
+      const hasProfileName = !!profileName.trim();
       shouldCollectProfileDetails = !hasProfileName;
     }
 
@@ -582,6 +1103,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
       authEmail: normalizedEmail,
       needsProfileDetails: shouldCollectProfileDetails,
       pendingAuth: true,
+      resumeAfterAuthStep: 3,
     };
     localStorage.setItem(CREATE_EVENT_DRAFT_KEY, JSON.stringify(draftToPersist));
     localStorage.setItem(CREATE_EVENT_PENDING_AUTH_KEY, 'true');
@@ -626,6 +1148,23 @@ export default function CreateEvent({ user }: { user: User | null }) {
       setNeedsProfileDetails(false);
       setShowProfileModal(false);
       setAuthMessage('Details saved. Click Create Activity to finish.');
+
+      const persistedDraftRaw = localStorage.getItem(CREATE_EVENT_DRAFT_KEY);
+      if (persistedDraftRaw) {
+        try {
+          const draft = JSON.parse(persistedDraftRaw) as CreateEventDraft;
+          draft.needsProfileDetails = false;
+          draft.laloNewUser = false;
+          draft.formData = {
+            ...draft.formData,
+            host_name: normalizedName,
+            host_contact_text: profileWhatsapp.trim(),
+          };
+          localStorage.setItem(CREATE_EVENT_DRAFT_KEY, JSON.stringify(draft));
+        } catch {
+          /* noop */
+        }
+      }
     } catch (profileError) {
       setError(profileError instanceof Error ? profileError.message : 'Could not save your profile details.');
     }
@@ -1093,7 +1632,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                     <Button
                       type="button"
                       onClick={() => goToStep(3)}
-                      className="flex-1"
+                      className="sm:flex-1 sm:min-w-0"
                     >
                       Next
                     </Button>
@@ -1211,9 +1750,10 @@ export default function CreateEvent({ user }: { user: User | null }) {
                           </div>
                         </div>
                       ) : (
-                        <div className="rounded-2xl bg-slate-50 p-4">
-                          <p className="text-sm text-slate-500">
-                            You can fill this out now. We’ll ask for your email when you create the activity.
+                        <div className="rounded-2xl bg-slate-50 p-4 space-y-2">
+                          <p className="text-sm text-slate-600">
+                            Host name and contact are set after you sign in. When you tap <span className="font-bold">Create Activity</span>, choose{' '}
+                            {laloAuthEnabled ? 'WhatsApp or email' : 'email'} to finish — then you can review these fields as the organiser.
                           </p>
                         </div>
                       )}
@@ -1245,7 +1785,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                     <Button
                       type="submit"
                       loading={loading}
-                      className="flex-1"
+                      className="sm:flex-1 sm:min-w-0"
                     >
                       {isEditing ? 'Save Changes' : 'Create Activity'}
                     </Button>
@@ -1264,48 +1804,113 @@ export default function CreateEvent({ user }: { user: User | null }) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowEmailModal(false)}
+              onClick={() => {
+                setShowEmailModal(false);
+                setCreateEventAuthStep('choose');
+              }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
+              className="relative my-auto max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-8 shadow-2xl sm:max-h-[calc(100dvh-3rem)]"
             >
-              <h2 className="text-xl font-black text-slate-900 tracking-tight mb-2">Finish with Magic Link</h2>
-              <p className="text-sm text-slate-500 font-medium mb-6">
-                To create this activity, enter your email and we will send you a magic link.
-              </p>
+              {createEventAuthStep === 'choose' && laloAuthEnabled ? (
+                <>
+                  <h2 className="mb-2 text-xl font-black tracking-tight text-slate-900">Sign in to create this activity</h2>
+                  <p className="mb-6 text-sm font-medium text-slate-500">
+                    Continue with WhatsApp, or use email for a magic link below.
+                  </p>
+                  <div className="space-y-3">
+                    <LaloVerifyPanel
+                      client={createEventVerifyClient}
+                      storageKeyPrefix="im_in_lalo_verify_create_event"
+                      flowType="login"
+                      layout="cta"
+                      title="Sign in with WhatsApp"
+                      description="Powered by Lalo Verify"
+                      buttonLabel="Continue with WhatsApp"
+                      successTitle="WhatsApp verified"
+                      successDescription="Completing your sign-in now."
+                      idleBadge={null}
+                      onCompleted={handleWhatsAppAuthCompletedForCreate}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setCreateEventAuthStep('email')}
+                      className="block w-full max-w-none rounded-[2rem] border border-slate-200/90 bg-white px-4 py-4 text-left shadow-[0_14px_34px_rgba(15,23,42,0.08)] transition-transform duration-150 hover:-translate-y-0.5 sm:px-5 sm:py-4"
+                    >
+                      <span className="flex items-center gap-4">
+                        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.15rem] border border-brand-100/80 bg-brand-50 text-brand-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+                          <Mail className="h-6 w-6" strokeWidth={2} />
+                        </span>
+                        <span className="min-w-0 flex-1 text-left">
+                          <span className="block text-lg font-black tracking-tight text-slate-900">Continue with email</span>
+                          <span className="mt-0.5 block text-sm font-medium text-slate-500">We&apos;ll send a magic link</span>
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                  <div className="mt-6">
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        setShowEmailModal(false);
+                        setCreateEventAuthStep('choose');
+                      }}
+                      variant="secondary"
+                      className="w-full"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 className="mb-2 text-xl font-black tracking-tight text-slate-900">Finish with email</h2>
+                  <p className="mb-6 text-sm font-medium text-slate-500">
+                    Enter your email and we will send you a magic link to sign in, then you can finish creating this activity.
+                  </p>
 
-              <form onSubmit={handleSendMagicLink} className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Email</label>
-                  <input
-                    required
-                    type="email"
-                    value={authEmail}
-                    onChange={(e) => setAuthEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="ui-input"
-                  />
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <Button
-                    type="button"
-                    onClick={() => setShowEmailModal(false)}
-                    variant="secondary"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    loading={authLoading}
-                  >
-                    Send Magic Link
-                  </Button>
-                </div>
-              </form>
+                  <form onSubmit={handleSendMagicLink} className="space-y-4">
+                    <div>
+                      <label className="mb-2 block px-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        Email
+                      </label>
+                      <input
+                        required
+                        type="email"
+                        value={authEmail}
+                        onChange={(e) => setAuthEmail(e.target.value)}
+                        placeholder="you@example.com"
+                        className="ui-input"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-3 pt-2 sm:flex-row">
+                      {laloAuthEnabled ? (
+                        <Button type="button" onClick={() => setCreateEventAuthStep('choose')} variant="secondary">
+                          Back
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            setShowEmailModal(false);
+                            setCreateEventAuthStep('choose');
+                          }}
+                          variant="secondary"
+                        >
+                          Cancel
+                        </Button>
+                      )}
+                      <Button type="submit" loading={authLoading} className="sm:flex-1 sm:min-w-0">
+                        Send magic link
+                      </Button>
+                    </div>
+                  </form>
+                </>
+              )}
             </motion.div>
           </div>
         )}
@@ -1329,7 +1934,9 @@ export default function CreateEvent({ user }: { user: User | null }) {
             >
               <h2 className="text-xl font-black text-slate-900 tracking-tight mb-2">One Last Step</h2>
               <p className="text-sm text-slate-500 font-medium mb-6">
-                Add your host details for this activity.
+                {profileModalShowWhatsappField
+                  ? 'Add your host details for this activity.'
+                  : 'Add how we should show your name as host — your WhatsApp is already linked.'}
               </p>
               <form onSubmit={handleProfileDetailsSubmit} className="space-y-4">
                 <div>
@@ -1343,6 +1950,7 @@ export default function CreateEvent({ user }: { user: User | null }) {
                     className="ui-input"
                   />
                 </div>
+                {profileModalShowWhatsappField ? (
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">WhatsApp (Optional)</label>
                   <input
@@ -1353,17 +1961,18 @@ export default function CreateEvent({ user }: { user: User | null }) {
                     className="ui-input"
                   />
                 </div>
-                <div className="flex gap-3 pt-2">
+                ) : null}
+                <div className="flex w-full flex-col gap-3 pt-2 sm:flex-row sm:flex-nowrap">
                   <Button
                     type="button"
+                    fullWidth={false}
+                    className="w-full min-w-0 sm:flex-1"
                     onClick={() => setShowProfileModal(false)}
                     variant="secondary"
                   >
                     Cancel
                   </Button>
-                  <Button
-                    type="submit"
-                  >
+                  <Button type="submit" fullWidth={false} className="w-full min-w-0 sm:flex-1">
                     Continue
                   </Button>
                 </div>
@@ -1373,6 +1982,44 @@ export default function CreateEvent({ user }: { user: User | null }) {
         )}
       </AnimatePresence>
 
+      {createEventAuthDebugEnabled ? (
+        <div className="fixed bottom-3 left-3 right-3 z-[100] max-w-md mx-auto pointer-events-auto">
+          <div className="rounded-xl border border-amber-300 bg-amber-50/95 shadow-lg text-left text-[10px] font-mono text-slate-800">
+            <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b border-amber-200 bg-amber-100/80">
+              <span className="font-bold text-amber-900">CreateEvent auth debug</span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className="rounded-md px-2 py-0.5 font-bold text-amber-900 hover:bg-amber-200/80"
+                  onClick={() => setCreateEventAuthDebugOpen((o) => !o)}
+                >
+                  {createEventAuthDebugOpen ? 'Hide' : 'Show'}
+                </button>
+                {createEventAuthDebugSnap ? (
+                  <button
+                    type="button"
+                    className="rounded-md px-2 py-0.5 font-bold text-amber-900 hover:bg-amber-200/80"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(JSON.stringify(createEventAuthDebugSnap, null, 2));
+                    }}
+                  >
+                    Copy
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {createEventAuthDebugOpen ? (
+              createEventAuthDebugSnap ? (
+                <pre className="max-h-40 overflow-auto p-2 whitespace-pre-wrap break-all">
+                  {JSON.stringify(createEventAuthDebugSnap, null, 2)}
+                </pre>
+              ) : (
+                <p className="p-2 text-amber-800">Waiting for snapshot…</p>
+              )
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

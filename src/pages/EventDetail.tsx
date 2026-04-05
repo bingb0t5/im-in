@@ -214,19 +214,6 @@ export default function EventDetail({ user }: { user: User | null }) {
   }, []);
 
   useEffect(() => {
-    if (!user?.id || !event?.id) return;
-
-    void supabase.rpc('mark_event_shared_with_me', {
-      p_event_id: event.id,
-      p_source: searchParams.get('access') ? 'link' : 'link',
-    }).then(({ error }) => {
-      if (error) {
-        console.warn('Could not mark event as shared for this user:', error);
-      }
-    });
-  }, [user?.id, event?.id, searchParams]);
-
-  useEffect(() => {
     if (!user) return;
     setGuestInfo((prev) => ({
       name: pickFirstNonEmpty(prev.name, getAccountNameFromUser(user), signedInPreferredName, fallbackNameFromEmail(user.email)),
@@ -502,6 +489,14 @@ export default function EventDetail({ user }: { user: User | null }) {
     const requestedSlug = (slug || '').trim();
     const canonicalPublicSlug = (nextEvent.public_slug || nextEvent.slug || '').trim();
     const canonicalPrivateSlug = (nextEvent.private_slug || nextEvent.join_code || '').trim();
+    const legacyAccessToken = searchParams.get('access');
+
+    if (legacyAccessToken && canonicalPrivateSlug) {
+      navigate(`/events/${canonicalPrivateSlug}`, { replace: true });
+      setLoading(false);
+      return;
+    }
+
     const isKnownCanonicalSlug =
       (canonicalPublicSlug && requestedSlug === canonicalPublicSlug)
       || (canonicalPrivateSlug && requestedSlug === canonicalPrivateSlug);

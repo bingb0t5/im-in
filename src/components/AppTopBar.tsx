@@ -195,12 +195,10 @@ export function AppTopBar({ user }: AppTopBarProps) {
           </div>
         </div>
         {showHeaderSearch ? (
-          <div className="mt-0 space-y-0">
-            {isHome ? (
-              <p className="-mt-1 text-center text-sm font-semibold leading-tight text-slate-500">
-                See what&apos;s on. Say <span className="italic">I&apos;m In.</span>
-              </p>
-            ) : null}
+          <div className="mt-0">
+            <p className="-mt-1 mb-4 text-center text-sm font-semibold leading-tight text-slate-500">
+              See what&apos;s on. Say <span className="italic">I&apos;m In.</span>
+            </p>
             <form onSubmit={handleHeaderSearchSubmit} className="relative">
               <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-300" />
               <input

@@ -404,6 +404,7 @@ export default function MyActivities({ user }: { user: User | null }) {
           onClose={() => navigate('/my-activities', { replace: true })}
           title="Sign in to see your activities"
           message="Track what you’re hosting, attending, requesting, or what has been shared with you."
+          postAuthRedirect="/my-activities"
         />
       </div>
     );

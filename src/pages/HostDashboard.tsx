@@ -18,8 +18,19 @@ type InAppShareCandidate = {
   whatsapp_number: string | null;
   attended_previous: boolean;
   viewed_previous: boolean;
+  engagement_tag: 'attended' | 'viewed_private' | 'both' | string;
   already_shared: boolean;
   selected_by_default: boolean;
+};
+
+type EventAccessLogEntry = {
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  whatsapp_number: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  view_count: number;
 };
 
 export default function HostDashboard({ user }: { user: User | null }) {
@@ -59,6 +70,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [lookupCandidate, setLookupCandidate] = useState<InAppShareCandidate | null>(null);
   const [lookupNotFound, setLookupNotFound] = useState(false);
   const [showInAppSharePrompt, setShowInAppSharePrompt] = useState(false);
+  const [eventAccessLog, setEventAccessLog] = useState<EventAccessLogEntry[]>([]);
+  const [eventAccessLogLoading, setEventAccessLogLoading] = useState(false);
+  const [eventAccessLogError, setEventAccessLogError] = useState<string | null>(null);
   const inAppShareSectionRef = useRef<HTMLElement | null>(null);
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
@@ -91,6 +105,13 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const getDisplayEmail = (email?: string | null) => {
     if (!email || isSystemGuestEmail(email)) return 'No email provided';
     return email;
+  };
+
+  const getEngagementTagLabel = (candidate: InAppShareCandidate) => {
+    if (candidate.attended_previous || candidate.engagement_tag === 'attended' || candidate.engagement_tag === 'both') {
+      return 'Has attended';
+    }
+    return 'Viewed link only';
   };
 
   const normalizeWhatsapp = (value: string) => value.replace(/[^\d]/g, '');
@@ -176,7 +197,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const fetchInAppShareCandidates = async (eventId: string) => {
     setInAppShareLoading(true);
     try {
-      const { data, error } = await supabase.rpc('host_list_copy_share_candidates', {
+      const { data, error } = await supabase.rpc('host_list_share_suggestions', {
         p_event_id: eventId,
       });
       if (error) throw error;
@@ -193,6 +214,23 @@ export default function HostDashboard({ user }: { user: User | null }) {
       setSelectedShareUserIds([]);
     } finally {
       setInAppShareLoading(false);
+    }
+  };
+
+  const fetchEventAccessLog = async (eventId: string) => {
+    setEventAccessLogLoading(true);
+    setEventAccessLogError(null);
+    try {
+      const { data, error } = await supabase.rpc('host_list_event_access_log', {
+        p_event_id: eventId,
+      });
+      if (error) throw error;
+      setEventAccessLog((data || []) as EventAccessLogEntry[]);
+    } catch (error: any) {
+      setEventAccessLog([]);
+      setEventAccessLogError(error?.message || 'Could not load access log right now.');
+    } finally {
+      setEventAccessLogLoading(false);
     }
   };
 
@@ -465,6 +503,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       fetchInterests(normalizedEvent.id);
       fetchHosts(normalizedEvent.id, normalizedEvent.host_user_id || null, normalizedEvent.host_name || null);
       fetchInAppShareCandidates(normalizedEvent.id);
+      fetchEventAccessLog(normalizedEvent.id);
     }
   };
 
@@ -1158,178 +1197,218 @@ export default function HostDashboard({ user }: { user: User | null }) {
           ) : null}
         </section>
 
-        {(showInAppSharePrompt || event.copied_from_event_id) ? (
-          <section className="bg-white rounded-2xl p-5" ref={inAppShareSectionRef}>
-            {showInAppSharePrompt ? (
-              <div className="mb-4 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-brand-700">Share in app</p>
-                <p className="mt-1 text-sm text-brand-700">
-                  Start by sharing this activity directly with people from your previous activity.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowInAppSharePrompt(false)}
-                  className="mt-2 text-xs font-bold text-brand-700 underline"
-                >
-                  Got it
-                </button>
-              </div>
-            ) : null}
-
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Share In App</p>
+        <section className="bg-white rounded-2xl p-5" ref={inAppShareSectionRef}>
+          {showInAppSharePrompt ? (
+            <div className="mb-4 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-brand-700">Share in app</p>
+              <p className="mt-1 text-sm text-brand-700">
+                Pick from people who have engaged with your activities before. "Has attended" is prioritized over "Viewed link only".
+              </p>
               <button
                 type="button"
-                onClick={() => {
-                  if (!event) return;
-                  void fetchInAppShareCandidates(event.id);
-                }}
-                disabled={inAppShareLoading}
-                className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
+                onClick={() => setShowInAppSharePrompt(false)}
+                className="mt-2 text-xs font-bold text-brand-700 underline"
               >
-                Refresh
+                Got it
+              </button>
+            </div>
+          ) : null}
+
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Share In App</p>
+            <button
+              type="button"
+              onClick={() => {
+                if (!event) return;
+                void fetchInAppShareCandidates(event.id);
+              }}
+              disabled={inAppShareLoading}
+              className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
+            >
+              Refresh
+            </button>
+          </div>
+
+          <p className="mt-1 text-xs text-slate-500">
+            Suggestions include people who attended or viewed private links for your activities.
+          </p>
+
+          {inAppShareLoading ? (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+              Loading recipients...
+            </div>
+          ) : inAppShareCandidates.length > 0 ? (
+            <div className="mt-3 space-y-3">
+              <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
+                {inAppShareCandidates.map((candidate) => {
+                  const checked = selectedShareUserIds.includes(candidate.user_id);
+                  const engagementLabel = getEngagementTagLabel(candidate);
+                  return (
+                    <label key={candidate.user_id} className="flex cursor-pointer items-start gap-3 border-b border-slate-200 px-3 py-3 last:border-b-0">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(evt) => {
+                          setSelectedShareUserIds((prev) => {
+                            if (evt.target.checked) {
+                              if (prev.includes(candidate.user_id)) return prev;
+                              return [...prev, candidate.user_id];
+                            }
+                            return prev.filter((id) => id !== candidate.user_id);
+                          });
+                        }}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-bold text-slate-800">{candidate.display_name}</p>
+                        <p className="truncate text-xs text-slate-500">
+                          {candidate.email || candidate.whatsapp_number || 'No contact details'}
+                        </p>
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                          {engagementLabel}
+                          {candidate.already_shared ? ' · already shared' : ''}
+                        </p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedShareUserIds(inAppShareCandidates.map((candidate) => candidate.user_id))}
+                    className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedShareUserIds([])}
+                    className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void shareToSelectedUsers(selectedShareUserIds)}
+                  disabled={inAppShareSaving || selectedShareUserIds.length === 0}
+                  className="rounded-xl bg-brand-600 px-3 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
+                >
+                  {inAppShareSaving ? 'Sharing...' : `Share selected (${selectedShareUserIds.length})`}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+              No share suggestions yet from your activity history.
+            </div>
+          )}
+
+          <div className="mt-4 space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Add by WhatsApp</p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={manualWhatsappLookup}
+                onChange={(evt) => {
+                  setManualWhatsappLookup(evt.target.value);
+                  setLookupCandidate(null);
+                  setLookupNotFound(false);
+                }}
+                placeholder="Enter WhatsApp number"
+                className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
+              />
+              <button
+                type="button"
+                onClick={() => void lookupByWhatsapp()}
+                disabled={lookupLoading}
+                className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+              >
+                {lookupLoading ? 'Checking...' : 'Find'}
               </button>
             </div>
 
-            <p className="mt-1 text-xs text-slate-500">
-              {event.copied_from_event_id
-                ? 'People from the copied activity are preselected by default.'
-                : 'No copied-from activity found. You can still share with a WhatsApp-linked account below.'}
-            </p>
-
-            {inAppShareLoading ? (
-              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
-                Loading recipients...
-              </div>
-            ) : inAppShareCandidates.length > 0 ? (
-              <div className="mt-3 space-y-3">
-                <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
-                  {inAppShareCandidates.map((candidate) => {
-                    const checked = selectedShareUserIds.includes(candidate.user_id);
-                    return (
-                      <label key={candidate.user_id} className="flex cursor-pointer items-start gap-3 border-b border-slate-200 px-3 py-3 last:border-b-0">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(evt) => {
-                            setSelectedShareUserIds((prev) => {
-                              if (evt.target.checked) {
-                                if (prev.includes(candidate.user_id)) return prev;
-                                return [...prev, candidate.user_id];
-                              }
-                              return prev.filter((id) => id !== candidate.user_id);
-                            });
-                          }}
-                          className="mt-0.5 h-4 w-4 rounded border-slate-300"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-bold text-slate-800">{candidate.display_name}</p>
-                          <p className="truncate text-xs text-slate-500">
-                            {candidate.email || candidate.whatsapp_number || 'No contact details'}
-                          </p>
-                          <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
-                            {candidate.attended_previous ? 'Attended' : ''}
-                            {candidate.attended_previous && candidate.viewed_previous ? ' · ' : ''}
-                            {candidate.viewed_previous ? 'Viewed private activity' : ''}
-                            {candidate.already_shared ? ' · already shared' : ''}
-                          </p>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedShareUserIds(inAppShareCandidates.map((candidate) => candidate.user_id))}
-                      className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
-                    >
-                      Select all
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedShareUserIds([])}
-                      className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void shareToSelectedUsers(selectedShareUserIds)}
-                    disabled={inAppShareSaving || selectedShareUserIds.length === 0}
-                    className="rounded-xl bg-brand-600 px-3 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
-                  >
-                    {inAppShareSaving ? 'Sharing...' : `Share selected (${selectedShareUserIds.length})`}
-                  </button>
-                </div>
-              </div>
-            ) : event.copied_from_event_id ? (
-              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
-                No previous attendees or tracked viewers found for the copied activity.
-              </div>
-            ) : null}
-
-            <div className="mt-4 space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Add by WhatsApp</p>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={manualWhatsappLookup}
-                  onChange={(evt) => {
-                    setManualWhatsappLookup(evt.target.value);
-                    setLookupCandidate(null);
-                    setLookupNotFound(false);
-                  }}
-                  placeholder="Enter WhatsApp number"
-                  className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
-                />
+            {lookupCandidate ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p className="text-sm font-bold text-slate-800">{lookupCandidate.display_name}</p>
+                <p className="text-xs text-slate-500">{lookupCandidate.email || lookupCandidate.whatsapp_number || 'Linked account found'}</p>
                 <button
                   type="button"
-                  onClick={() => void lookupByWhatsapp()}
-                  disabled={lookupLoading}
-                  className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                  onClick={() => void shareToSelectedUsers([lookupCandidate.user_id])}
+                  disabled={inAppShareSaving}
+                  className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
                 >
-                  {lookupLoading ? 'Checking...' : 'Find'}
+                  {inAppShareSaving ? 'Sharing...' : 'Share with this account'}
                 </button>
               </div>
-
-              {lookupCandidate ? (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                  <p className="text-sm font-bold text-slate-800">{lookupCandidate.display_name}</p>
-                  <p className="text-xs text-slate-500">{lookupCandidate.email || lookupCandidate.whatsapp_number || 'Linked account found'}</p>
-                  <button
-                    type="button"
-                    onClick={() => void shareToSelectedUsers([lookupCandidate.user_id])}
-                    disabled={inAppShareSaving}
-                    className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
-                  >
-                    {inAppShareSaving ? 'Sharing...' : 'Share with this account'}
-                  </button>
-                </div>
-              ) : null}
-
-              {lookupNotFound ? (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                  <p className="text-xs text-slate-500">No linked account found for that number.</p>
-                  <button
-                    type="button"
-                    onClick={() => { void openWhatsAppToNumber(manualWhatsappLookup); }}
-                    className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500"
-                  >
-                    Send link via WhatsApp instead
-                  </button>
-                </div>
-              ) : null}
-            </div>
-
-            {inAppShareMessage ? (
-              <p className="mt-3 text-xs font-bold text-slate-500">{inAppShareMessage}</p>
             ) : null}
-          </section>
-        ) : null}
+
+            {lookupNotFound ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p className="text-xs text-slate-500">No linked account found for that number.</p>
+                <button
+                  type="button"
+                  onClick={() => { void openWhatsAppToNumber(manualWhatsappLookup); }}
+                  className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500"
+                >
+                  Send link via WhatsApp instead
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          {inAppShareMessage ? (
+            <p className="mt-3 text-xs font-bold text-slate-500">{inAppShareMessage}</p>
+          ) : null}
+        </section>
+
+        <section className="bg-white rounded-2xl p-5">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Private Link Access Log</p>
+            <button
+              type="button"
+              onClick={() => {
+                if (!event) return;
+                void fetchEventAccessLog(event.id);
+              }}
+              disabled={eventAccessLogLoading}
+              className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
+            >
+              Refresh
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">Shows signed-in people who opened this activity’s private link.</p>
+
+          {eventAccessLogLoading ? (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+              Loading access log...
+            </div>
+          ) : eventAccessLogError ? (
+            <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-3 text-sm text-red-600">
+              {eventAccessLogError}
+            </div>
+          ) : eventAccessLog.length > 0 ? (
+            <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
+              {eventAccessLog.map((entry) => (
+                <div key={entry.user_id} className="border-b border-slate-200 px-3 py-3 last:border-b-0">
+                  <p className="truncate text-sm font-bold text-slate-800">{entry.display_name}</p>
+                  <p className="truncate text-xs text-slate-500">{entry.email || entry.whatsapp_number || 'No contact details'}</p>
+                  <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                    Last opened {formatDate(entry.last_seen_at, event.timezone)}
+                    {entry.view_count > 1 ? ` · ${entry.view_count} views` : ''}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+              No signed-in private-link visits recorded yet.
+            </div>
+          )}
+        </section>
 
         {/* Share Tools */}
         <section className="bg-white rounded-2xl p-5">

@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "lalo-verify": "file:../lalo/packages/lalo-verify",
     "@supabase/supabase-js": "^2.99.3",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",

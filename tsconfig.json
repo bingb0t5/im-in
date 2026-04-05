@@ -18,6 +18,15 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "lalo-verify": [
+        "../lalo/packages/lalo-verify/src/index.ts"
+      ],
+      "lalo-verify/react": [
+        "../lalo/packages/lalo-verify/src/react/index.ts"
+      ],
+      "lalo-verify/styles.css": [
+        "../lalo/packages/lalo-verify/src/styles.css"
       ]
     },
     "allowImportingTsExtensions": true,

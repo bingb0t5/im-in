@@ -21,16 +21,14 @@ export function buildEventPath(
   const preferPrivateAccess = !!options?.preferPrivateAccess;
   const publicSlug = event.public_slug || event.slug;
   const privateSlug = event.private_slug || event.join_code || event.slug;
-  const usePrivatePath = preferPrivateAccess || visibility !== 'public';
+  /** Semi-public discoverability uses the public slug; full details use the private slug capability link. */
+  const usePrivatePath =
+    preferPrivateAccess || (visibility !== 'public' && visibility !== 'semi_public');
   const selectedSlug = usePrivatePath ? privateSlug : publicSlug;
   const base = `/events/${selectedSlug}`;
 
   if (!selectedSlug) {
     return '/';
-  }
-
-  if (preferPrivateAccess && visibility === 'semi_public' && event.access_code && privateSlug === publicSlug) {
-    return `${base}?access=${event.access_code}`;
   }
 
   return base;

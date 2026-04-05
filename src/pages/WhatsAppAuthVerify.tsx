@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { MessageCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '../components/ui/Button';
-import { Card } from '../components/ui/Card';
-import { StateScreen } from '../components/ui/StateScreen';
+import { LaloVerifyFlow } from '../components/auth/LaloVerifyFlow';
+import { LaloVerifyOverlay } from '../components/auth/LaloVerifyOverlay';
 import {
   LALO_AUTH_POLL_INTERVAL_MS,
   clearAllLaloAuthState,
@@ -12,9 +11,60 @@ import {
   getStoredLaloAuthAttempt,
   isLaloWhatsAppAuthEnabled,
   isStoredLaloAttemptExpired,
-  mapLaloStatusToMessage,
   type StoredLaloAuthAttempt,
 } from '../integrations/lalo/laloAuth';
+
+type ParsedWhatsAppLinks = {
+  appLink: string;
+  webLink: string;
+  phone: string;
+  text: string;
+  code: string;
+};
+
+function parseWhatsAppLinks(url: string): ParsedWhatsAppLinks {
+  if (!url) {
+    return {
+      appLink: '',
+      webLink: '',
+      phone: '',
+      text: '',
+      code: '',
+    };
+  }
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const phoneFromQuery = parsed.searchParams.get('phone') || '';
+    const phoneFromPath = host === 'wa.me' ? parsed.pathname.replace(/\//g, '').trim() : '';
+    const phone = phoneFromQuery || phoneFromPath;
+    const text = parsed.searchParams.get('text') || '';
+    const codeMatch = text.match(/LALO\s+VERIFY:\s*([A-Z0-9-]+)/i);
+    const appLink = new URL('whatsapp://send');
+    if (phone) appLink.searchParams.set('phone', phone);
+    if (text) appLink.searchParams.set('text', text);
+    const webLink = phone
+      ? `https://wa.me/${phone}${text ? `?text=${encodeURIComponent(text)}` : ''}`
+      : parsed.toString();
+
+    return {
+      appLink: phone || text ? appLink.toString() : '',
+      webLink,
+      phone,
+      text,
+      code: codeMatch?.[1] || '',
+    };
+  } catch {
+    return {
+      appLink: '',
+      webLink: url,
+      phone: '',
+      text: '',
+      code: '',
+    };
+  }
+}
 
 export default function WhatsAppAuthVerify() {
   const navigate = useNavigate();
@@ -22,51 +72,18 @@ export default function WhatsAppAuthVerify() {
   const [attemptMode, setAttemptMode] = useState<'sign_in' | 'link_account'>(
     getStoredLaloAuthAttempt()?.mode === 'link_account' ? 'link_account' : 'sign_in',
   );
-  const [checking, setChecking] = useState(false);
   const [completing, setCompleting] = useState(false);
-  const [message, setMessage] = useState<string | null>('Please send the message in WhatsApp.');
   const [error, setError] = useState<string | null>(null);
   const [expired, setExpired] = useState(false);
   const [cancelled, setCancelled] = useState(false);
+  const [handoffStarted, setHandoffStarted] = useState(false);
+  const [openFailure, setOpenFailure] = useState<string | null>(null);
   const isBusyRef = useRef(false);
-  const parsedWhatsapp = (() => {
-    const url = attempt?.whatsappUrl || '';
-    if (!url) return { phone: '', text: '', code: '' };
-    try {
-      const parsed = new URL(url);
-      const host = parsed.hostname.toLowerCase();
-      const phoneFromQuery = parsed.searchParams.get('phone') || '';
-      const phoneFromPath = host === 'wa.me'
-        ? parsed.pathname.replace(/\//g, '').trim()
-        : '';
-      const phone = phoneFromQuery || phoneFromPath;
-      const text = parsed.searchParams.get('text') || '';
-      const codeMatch = text.match(/LALO\s+VERIFY:\s*([A-Z0-9-]+)/i);
-      return {
-        phone,
-        text,
-        code: codeMatch?.[1] || '',
-      };
-    } catch {
-      return { phone: '', text: '', code: '' };
-    }
-  })();
 
-  const openWhatsAppApp = () => {
-    if (!attempt?.whatsappUrl) return;
-    const deepLink = new URL('whatsapp://send');
-    if (parsedWhatsapp.phone) deepLink.searchParams.set('phone', parsedWhatsapp.phone);
-    if (parsedWhatsapp.text) deepLink.searchParams.set('text', parsedWhatsapp.text);
-    // If parsing didn't produce useful fields, fallback to provided URL.
-    window.location.href = parsedWhatsapp.phone || parsedWhatsapp.text
-      ? deepLink.toString()
-      : attempt.whatsappUrl;
-  };
-
-  const openWhatsAppWebFallback = () => {
-    if (!attempt?.whatsappUrl) return;
-    window.open(attempt.whatsappUrl, '_blank', 'noopener,noreferrer');
-  };
+  const parsedWhatsApp = useMemo(
+    () => parseWhatsAppLinks(attempt?.whatsappUrl || ''),
+    [attempt?.whatsappUrl],
+  );
 
   useEffect(() => {
     if (!isLaloWhatsAppAuthEnabled()) {
@@ -92,17 +109,31 @@ export default function WhatsAppAuthVerify() {
     setAttempt(storedAttempt);
   }, [navigate]);
 
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        setHandoffStarted(true);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   const isLinkMode = attemptMode === 'link_account';
   const returnPath = isLinkMode ? '/profile' : '/login';
+
+  const goBack = () => {
+    clearAllLaloAuthState();
+    navigate(returnPath, { replace: true });
+  };
 
   const finishSignIn = async (activeAttempt: StoredLaloAuthAttempt) => {
     setCompleting(true);
     setError(null);
-    setMessage(
-      activeAttempt.mode === 'link_account'
-        ? 'Verification complete. Linking WhatsApp to your account...'
-        : 'Verification complete. Finishing sign in...',
-    );
+    setOpenFailure(null);
 
     try {
       const result = await finalizeLaloWhatsAppAuth(activeAttempt);
@@ -113,6 +144,7 @@ export default function WhatsAppAuthVerify() {
           isNewUser: result.isNewUser,
           mode: result.mode,
           merged: !!result.merged,
+          whatsappNumber: result.whatsappNumber || activeAttempt.whatsappNumber || null,
         },
       });
     } catch (completionError) {
@@ -123,12 +155,11 @@ export default function WhatsAppAuthVerify() {
             ? 'Could not link WhatsApp to your account.'
             : 'Could not finish signing in.',
       );
-    } finally {
       setCompleting(false);
     }
   };
 
-  const runStatusCheck = async (manual = false) => {
+  const runStatusCheck = async () => {
     if (!attempt || isBusyRef.current || completing) return;
     if (isStoredLaloAttemptExpired(attempt)) {
       setAttemptMode(attempt.mode);
@@ -139,16 +170,11 @@ export default function WhatsAppAuthVerify() {
     }
 
     isBusyRef.current = true;
-    if (manual) {
-      setChecking(true);
-      setError(null);
-    }
 
     try {
       const status = await getLaloWhatsAppStatus(attempt.attemptId);
 
       if (status.status === 'pending') {
-        setMessage('Please send the message in WhatsApp.');
         return;
       }
 
@@ -169,20 +195,10 @@ export default function WhatsAppAuthVerify() {
       }
 
       await finishSignIn(attempt);
-    } catch (statusError) {
-      const message = statusError instanceof Error ? statusError.message : 'Could not check WhatsApp sign in.';
-      // Auto polling should not hard-fail the screen on transient edge/network errors.
-      // Keep polling and only surface the error when the user explicitly retries.
-      if (manual) {
-        setError(message);
-      } else {
-        setError(null);
-        setMessage(mapLaloStatusToMessage('pending'));
-      }
+    } catch {
+      // Keep polling on transient network or edge-function failures.
+      setError(null);
     } finally {
-      if (manual) {
-        setChecking(false);
-      }
       isBusyRef.current = false;
     }
   };
@@ -191,11 +207,11 @@ export default function WhatsAppAuthVerify() {
     if (!attempt || expired || cancelled || completing) return;
 
     const initialCheckTimeout = window.setTimeout(() => {
-      void runStatusCheck(false);
+      void runStatusCheck();
     }, 900);
 
     const intervalId = window.setInterval(() => {
-      void runStatusCheck(false);
+      void runStatusCheck();
     }, LALO_AUTH_POLL_INTERVAL_MS);
 
     return () => {
@@ -204,115 +220,152 @@ export default function WhatsAppAuthVerify() {
     };
   }, [attempt, expired, cancelled, completing]);
 
+  const openWhatsAppWebFallback = () => {
+    if (!attempt?.whatsappUrl) return;
+
+    setHandoffStarted(true);
+    setOpenFailure(null);
+    const fallbackUrl = parsedWhatsApp.webLink || attempt.whatsappUrl;
+    const popup = window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
+    if (!popup) {
+      window.location.href = fallbackUrl;
+    }
+  };
+
+  const openWhatsAppHandoff = () => {
+    if (!attempt?.whatsappUrl) return;
+
+    setHandoffStarted(true);
+    setOpenFailure(null);
+    const fallbackUrl = parsedWhatsApp.webLink || attempt.whatsappUrl;
+
+    try {
+      if (parsedWhatsApp.appLink) {
+        window.location.href = parsedWhatsApp.appLink;
+        window.setTimeout(() => {
+          if (document.visibilityState === 'visible') {
+            const popup = window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
+            if (!popup) {
+              window.location.href = fallbackUrl;
+            }
+          }
+        }, 700);
+        return;
+      }
+
+      const popup = window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
+      if (!popup) {
+        window.location.href = fallbackUrl;
+      }
+    } catch {
+      setOpenFailure('Could not open WhatsApp automatically. Use the web fallback instead.');
+    }
+  };
+
   if (expired) {
     return (
-      <StateScreen
-        badge="WhatsApp Sign In"
-        status="error"
-        title="This login expired"
-        subtitle="Try again from the login screen."
-        helper="Start a new WhatsApp verification attempt to continue."
-        actions={
-          <Button onClick={() => navigate(returnPath, { replace: true })}>
-            {isLinkMode ? 'Back to profile' : 'Back to login'}
-          </Button>
-        }
-      />
+      <LaloVerifyFlow>
+        <LaloVerifyOverlay
+          phase="idle"
+          title="This login expired"
+          description="Try again from the login screen."
+          helperCard="Start a new WhatsApp verification attempt to continue."
+          primaryAction={{
+            label: isLinkMode ? 'Back to profile' : 'Back to login',
+            onClick: goBack,
+          }}
+        />
+      </LaloVerifyFlow>
     );
   }
 
   if (cancelled) {
     return (
-      <StateScreen
-        badge="WhatsApp Sign In"
-        status="error"
-        title="This login was cancelled"
-        subtitle="Start again when you're ready."
-        helper="You can begin a fresh WhatsApp verification attempt from the login screen."
-        actions={
-          <Button onClick={() => navigate(returnPath, { replace: true })}>
-            {isLinkMode ? 'Back to profile' : 'Back to login'}
-          </Button>
-        }
-      />
+      <LaloVerifyFlow>
+        <LaloVerifyOverlay
+          phase="idle"
+          title="This login was cancelled"
+          description="Start again when you're ready."
+          helperCard="You can begin a fresh WhatsApp verification attempt from the login screen."
+          primaryAction={{
+            label: isLinkMode ? 'Back to profile' : 'Back to login',
+            onClick: goBack,
+          }}
+        />
+      </LaloVerifyFlow>
     );
   }
 
   if (!attempt) {
     return (
-      <StateScreen
-        badge="WhatsApp Sign In"
-        status="error"
-        title="No login attempt found"
-        subtitle={error || 'Start again from the login screen.'}
-        actions={
-          <Button onClick={() => navigate(returnPath, { replace: true })}>
-            {isLinkMode ? 'Back to profile' : 'Back to login'}
-          </Button>
-        }
-      />
+      <LaloVerifyFlow>
+        <LaloVerifyOverlay
+          phase="idle"
+          title="No login attempt found"
+          description={error || 'Start again from the login screen.'}
+          primaryAction={{
+            label: isLinkMode ? 'Back to profile' : 'Back to login',
+            onClick: goBack,
+          }}
+        />
+      </LaloVerifyFlow>
     );
   }
 
+  const detailCard =
+    parsedWhatsApp.phone || parsedWhatsApp.code ? (
+      <div className="rounded-[1.35rem] border border-white/12 bg-white/10 px-4 py-3 text-left text-sm text-white/76">
+        {parsedWhatsApp.phone ? (
+          <p>
+            <span className="text-white/46">To:</span> <span className="font-semibold text-white">{parsedWhatsApp.phone}</span>
+          </p>
+        ) : null}
+        {parsedWhatsApp.code ? (
+          <p className={parsedWhatsApp.phone ? 'mt-2' : ''}>
+            <span className="text-white/46">Code:</span> <span className="font-semibold text-white">{parsedWhatsApp.code}</span>
+          </p>
+        ) : null}
+      </div>
+    ) : null;
+
   return (
-    <StateScreen
-      badge="WhatsApp Sign In"
-      status={error ? 'error' : 'loading'}
-      title={completing ? 'Finishing sign in' : 'Checking...'}
-            subtitle={
-              completing
-                ? isLinkMode
-                  ? 'Saving your WhatsApp verification'
-                  : 'Creating your session'
-                : 'Verifying your message'
-            }
-      helper={
-        error
-          ? mapLaloStatusToMessage('pending')
-          : 'Return here after sending the WhatsApp message. We will keep checking automatically.'
-      }
-      actions={
-        <>
-          {error ? (
-            <Card className="ui-feedback ui-feedback-error text-left">
-              <p>{error}</p>
-            </Card>
-          ) : null}
-          {message ? (
-            <Card className="ui-feedback ui-feedback-info text-left">
-              <p>{message}</p>
-            </Card>
-          ) : null}
-          {!completing ? (
-            <Card className="ui-feedback ui-feedback-info text-left">
-              <p className="font-bold text-slate-700">Step 1: Open WhatsApp and send the message.</p>
-              {parsedWhatsapp.phone ? <p className="mt-1 text-xs text-slate-500">To: {parsedWhatsapp.phone}</p> : null}
-              {parsedWhatsapp.code ? <p className="mt-1 text-xs text-slate-500">Code: {parsedWhatsapp.code}</p> : null}
-              <div className="mt-3 space-y-2">
-                <Button variant="secondary" onClick={openWhatsAppApp}>
-                  Open WhatsApp app
-                </Button>
-                <Button variant="ghost" onClick={openWhatsAppWebFallback}>
-                  Open WhatsApp web fallback
-                </Button>
-              </div>
-            </Card>
-          ) : null}
-          <Button loading={checking || completing} onClick={() => void runStatusCheck(true)}>
-            I've sent it, check again
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              clearAllLaloAuthState();
-              navigate(returnPath);
-            }}
-            leadingIcon={<ArrowLeft className="h-4 w-4" />}
-          >
-            {isLinkMode ? 'Back to profile' : 'Back to login'}
-          </Button>
-        </>
-      }
-    />
+    <LaloVerifyFlow>
+      <LaloVerifyOverlay
+        phase={completing ? 'verified' : handoffStarted ? 'waiting' : 'handoff'}
+        expiresAt={attempt.expiresAt}
+        verifiedNumber={completing ? attempt.whatsappNumber || null : null}
+        description={completing ? 'Finalising your sign-in...' : undefined}
+        primaryAction={
+          completing
+            ? undefined
+            : {
+                label: 'Send message to Lalo Verify using WhatsApp',
+                onClick: openWhatsAppHandoff,
+                icon: <MessageCircle className="h-4 w-4" />,
+              }
+        }
+        helperCard={
+          completing
+            ? null
+            : handoffStarted
+              ? 'Waiting for your WhatsApp message and checking automatically...'
+              : 'This opens WhatsApp with your Lalo Verify message already filled in.'
+        }
+        secondaryAction={
+          completing
+            ? undefined
+            : {
+                label: 'Open WhatsApp web fallback',
+                onClick: openWhatsAppWebFallback,
+              }
+        }
+        footerAction={{
+          label: isLinkMode ? 'Back to profile' : 'Back to login',
+          onClick: goBack,
+        }}
+        error={openFailure || error}
+        detailCard={detailCard}
+      />
+    </LaloVerifyFlow>
   );
 }

@@ -1,12 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Button } from '../components/ui/Button';
-import { StateScreen } from '../components/ui/StateScreen';
+import { LaloVerifyFlow } from '../components/auth/LaloVerifyFlow';
+import { LaloVerifyOverlay, type LaloVerifyPhase } from '../components/auth/LaloVerifyOverlay';
 import { clearAllLaloAuthState, isLaloWhatsAppAuthEnabled, startLaloWhatsAppAuth } from '../integrations/lalo/laloAuth';
+
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
 
 export default function WhatsAppAuthPrep() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const [phase, setPhase] = useState<LaloVerifyPhase>('connecting');
   const [error, setError] = useState<string | null>(null);
   const redirectTo = searchParams.get('from') || '/';
 
@@ -20,10 +27,18 @@ export default function WhatsAppAuthPrep() {
 
     const run = async () => {
       setError(null);
+      setPhase('connecting');
       clearAllLaloAuthState();
 
       try {
-        const attempt = await startLaloWhatsAppAuth(redirectTo);
+        await sleep(220);
+        if (cancelled) return;
+
+        setPhase('generating');
+        await sleep(180);
+        if (cancelled) return;
+
+        await startLaloWhatsAppAuth(redirectTo);
         if (cancelled) return;
 
         navigate('/auth/whatsapp/verify', { replace: true });
@@ -40,38 +55,32 @@ export default function WhatsAppAuthPrep() {
     };
   }, [navigate, redirectTo]);
 
-  if (error) {
-    return (
-      <StateScreen
-        badge="WhatsApp Sign In"
-        status="error"
-        title="Couldn't start WhatsApp sign in"
-        subtitle={error}
-        helper="Check the Lalo configuration or try again in a moment."
-        actions={
-          <>
-            <Button onClick={() => window.location.reload()}>Try again</Button>
-            <Button variant="secondary" onClick={() => navigate('/login')}>
-              Back to login
-            </Button>
-          </>
-        }
-      />
-    );
-  }
-
   return (
-    <StateScreen
-      badge="WhatsApp Sign In"
-      status="loading"
-      title="Verifying your account"
-      subtitle="Opening WhatsApp..."
-      helper="Send the message in WhatsApp, then return here to finish signing in."
-      actions={
-        <Button variant="secondary" onClick={() => navigate('/login')}>
-          Cancel
-        </Button>
-      }
-    />
+    <LaloVerifyFlow>
+      {error ? (
+        <LaloVerifyOverlay
+          phase="idle"
+          title="Couldn't start WhatsApp sign in"
+          description="Check the Lalo configuration or try again in a moment."
+          error={error}
+          primaryAction={{
+            label: 'Try again',
+            onClick: () => window.location.reload(),
+          }}
+          footerAction={{
+            label: 'Back to login',
+            onClick: () => navigate('/login', { replace: true }),
+          }}
+        />
+      ) : (
+        <LaloVerifyOverlay
+          phase={phase}
+          footerAction={{
+            label: 'Back to login',
+            onClick: () => navigate('/login', { replace: true }),
+          }}
+        />
+      )}
+    </LaloVerifyFlow>
   );
 }

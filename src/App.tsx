@@ -130,18 +130,18 @@ export default function App() {
       <ScrollToTop />
       <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-brand-100">
         <Routes>
+          <Route path="/auth/whatsapp/prep" element={<WhatsAppAuthPrep />} />
+          <Route path="/auth/whatsapp/verify" element={<WhatsAppAuthVerify />} />
+          <Route path="/auth/whatsapp/success" element={<WhatsAppAuthSuccess />} />
           <Route element={<MainTabsLayout user={user} />}>
-            <Route path="/" element={<Home user={user} />} />
             <Route path="/login" element={<Login user={user} />} />
+            <Route path="/" element={<Home user={user} />} />
             <Route path="/explore" element={<Calendar user={user} />} />
             <Route path="/calendar" element={<Navigate to="/explore" replace />} />
             <Route path="/create-event" element={<CreateEvent user={user} />} />
             <Route path="/my-activities" element={<MyActivities user={user} />} />
             <Route path="/profile" element={<ProfileSettings user={user} />} />
           </Route>
-          <Route path="/auth/whatsapp/prep" element={<WhatsAppAuthPrep />} />
-          <Route path="/auth/whatsapp/verify" element={<WhatsAppAuthVerify />} />
-          <Route path="/auth/whatsapp/success" element={<WhatsAppAuthSuccess />} />
           <Route path="/auth/account-merge/complete" element={<AccountMergeComplete user={user} />} />
           <Route path="/host/events/:id/edit" element={user ? <CreateEvent user={user} /> : <Navigate to="/login" />} />
           <Route path="/events/:slug" element={<EventDetail user={user} />} />

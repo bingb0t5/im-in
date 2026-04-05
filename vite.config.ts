@@ -12,9 +12,21 @@ export default defineConfig(({mode}) => {
       'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(env.VITE_SUPABASE_ANON_KEY),
     },
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-      },
+      alias: [
+        { find: '@', replacement: path.resolve(__dirname, '.') },
+        {
+          find: 'lalo-verify/styles.css',
+          replacement: path.resolve(__dirname, '../lalo/packages/lalo-verify/src/styles.css'),
+        },
+        {
+          find: 'lalo-verify/react',
+          replacement: path.resolve(__dirname, '../lalo/packages/lalo-verify/src/react/index.ts'),
+        },
+        {
+          find: 'lalo-verify',
+          replacement: path.resolve(__dirname, '../lalo/packages/lalo-verify/src/index.ts'),
+        },
+      ],
     },
     server: {
       // Optional: disable HMR in constrained environments.

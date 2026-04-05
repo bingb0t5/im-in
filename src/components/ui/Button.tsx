@@ -36,6 +36,8 @@ export function buttonClasses({
     variant === 'ghost' &&
       'border-transparent bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-700',
     className,
+    // After caller utilities (e.g. flex-1): keep tap height in column flex layouts (mobile Safari).
+    'min-h-12 shrink-0',
   );
 }
 

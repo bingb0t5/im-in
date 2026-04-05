@@ -101,6 +101,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
           onClose={() => navigate('/profile', { replace: true })}
           title="Sign in to manage your profile"
           message="Keep your email and WhatsApp connected to one account and update your profile details."
+          postAuthRedirect="/profile"
         />
       </div>
     );
@@ -142,17 +143,11 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     clearAllLaloAuthState();
 
     try {
-      const attempt = await startLaloWhatsAppAuth('/profile', {
+      await startLaloWhatsAppAuth('/profile', {
         mode: 'link_account',
       });
 
       navigate('/auth/whatsapp/verify', { replace: true });
-      window.setTimeout(() => {
-        const popup = window.open(attempt.whatsappUrl, '_blank', 'noopener,noreferrer');
-        if (!popup) {
-          window.location.href = attempt.whatsappUrl;
-        }
-      }, 50);
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : 'Could not start WhatsApp verification.');
       setWhatsappLoading(false);

@@ -25,8 +25,8 @@ export function AppBottomNav({ user }: AppBottomNavProps) {
     <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur-md">
       <div className="mx-auto flex max-w-2xl items-stretch justify-between px-3 pb-[max(env(safe-area-inset-bottom),0.25rem)] pt-1">
         {items.map((item) => {
-          const Icon = item.icon;
-          const isCreateItem = !!item.isCreate;
+          const Icon = 'icon' in item ? item.icon : undefined;
+          const isCreateItem = 'isCreate' in item && !!item.isCreate;
           return (
             <NavLink
               key={item.label}

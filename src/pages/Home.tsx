@@ -4,7 +4,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
-import { AuthPromptModal } from '../components/AuthPromptModal';
 import { Card } from '../components/ui/Card';
 import { HomeCommunitySection } from '../components/HomeCommunitySection';
 import { mapJoinedBookingsToEvents, pickUpcomingActivities } from '../lib/activityRelations';
@@ -29,6 +28,15 @@ function formatActivityStateLabel(state: string | null) {
   return state.replaceAll('_', ' ');
 }
 
+function pathForHomeUpcomingRow(event: Event, state: string | null) {
+  if (state === 'HOSTING') {
+    return `/host/events/${event.id}`;
+  }
+  return buildEventPath(event, {
+    preferPrivateAccess: state === 'SHARED_WITH_USER' || state === 'ATTENDING',
+  });
+}
+
 export default function Home({ user }: { user: User | null }) {
   const navigate = useNavigate();
   const topSpacingClass = user ? 'pt-2.5' : 'pt-16';
@@ -37,7 +45,6 @@ export default function Home({ user }: { user: User | null }) {
   const [joinError, setJoinError] = useState<string | null>(null);
   const [upcomingActivities, setUpcomingActivities] = useState<UpcomingActivity[]>([]);
   const [loadingNext, setLoadingNext] = useState(!!user);
-  const [showSignInPrompt, setShowSignInPrompt] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -103,17 +110,29 @@ export default function Home({ user }: { user: User | null }) {
       return;
     }
 
-    if (!user) {
-      setShowSignInPrompt(true);
-      return;
-    }
-
     setJoinLoading(true);
     setJoinError(null);
 
     try {
-      const { data, error } = await supabase.rpc('share_event_by_join_code', {
-        p_join_code: normalizedCode,
+      if (user) {
+        const { data, error } = await supabase.rpc('share_event_by_join_code', {
+          p_join_code: normalizedCode,
+        });
+
+        if (error) throw error;
+        if (!Array.isArray(data) || data.length === 0) {
+          throw new Error('No activity was found for that code.');
+        }
+
+        const sharedEvent = data[0] as Event;
+        setJoinCode('');
+        navigate(buildEventPath(sharedEvent, { preferPrivateAccess: true }));
+        return;
+      }
+
+      const { data, error } = await supabase.rpc('get_event_for_view', {
+        p_slug: normalizedCode,
+        p_access_code: null,
       });
 
       if (error) throw error;
@@ -121,9 +140,9 @@ export default function Home({ user }: { user: User | null }) {
         throw new Error('No activity was found for that code.');
       }
 
-      const sharedEvent = data[0] as Event;
+      const openedEvent = data[0] as Event;
       setJoinCode('');
-      navigate(buildEventPath(sharedEvent, { preferPrivateAccess: true }));
+      navigate(buildEventPath(openedEvent, { preferPrivateAccess: true }));
     } catch (joinCodeError) {
       setJoinError(joinCodeError instanceof Error ? joinCodeError.message : 'Could not open that activity.');
     } finally {
@@ -146,7 +165,7 @@ export default function Home({ user }: { user: User | null }) {
                   {upcomingActivities.map(({ event, state }, index) => (
                     <Link
                       key={event.id}
-                      to={buildEventPath(event, { preferPrivateAccess: state === 'SHARED_WITH_USER' })}
+                      to={pathForHomeUpcomingRow(event, state)}
                       className={`block rounded-xl py-1.5 transition-colors hover:bg-white ${index === 0 ? 'pt-1.5' : ''}`}
                     >
                       <h3 className="truncate text-base font-black text-slate-900">{event.title}</h3>
@@ -210,12 +229,6 @@ export default function Home({ user }: { user: User | null }) {
         </motion.div>
       </main>
 
-      <AuthPromptModal
-        open={showSignInPrompt}
-        onClose={() => setShowSignInPrompt(false)}
-        title="Sign in to open shared activities"
-        message="Open shared activities after you sign in so they can be saved to your account."
-      />
     </div>
   );
 }
