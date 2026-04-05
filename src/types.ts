@@ -3,6 +3,7 @@ export interface Event {
   slug: string;
   public_slug?: string;
   private_slug?: string;
+  copied_from_event_id?: string | null;
   title: string;
   description?: string;
   public_summary?: string;
@@ -128,6 +129,7 @@ export interface FeedbackAdminItem {
 export interface EventAccessRequest {
   id: string;
   event_id: string;
+  requester_user_id?: string | null;
   requester_name: string;
   requester_whatsapp: string;
   requester_note?: string | null;

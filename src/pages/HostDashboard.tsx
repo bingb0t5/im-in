@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
@@ -10,6 +10,17 @@ import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp'
 import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/moderation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { guestService, getAccountNameFromUser, isSystemGuestEmail } from '../services/guestService';
+
+type InAppShareCandidate = {
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  whatsapp_number: string | null;
+  attended_previous: boolean;
+  viewed_previous: boolean;
+  already_shared: boolean;
+  selected_by_default: boolean;
+};
 
 export default function HostDashboard({ user }: { user: User | null }) {
   const CREATE_EVENT_SUCCESS_KEY = 'im_in_recently_created_event_id';
@@ -38,6 +49,17 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [showCreateSuccessModal, setShowCreateSuccessModal] = useState(false);
   const [showManualShareModal, setShowManualShareModal] = useState(false);
   const [manualShareUrl, setManualShareUrl] = useState('');
+  const [inAppShareCandidates, setInAppShareCandidates] = useState<InAppShareCandidate[]>([]);
+  const [selectedShareUserIds, setSelectedShareUserIds] = useState<string[]>([]);
+  const [inAppShareLoading, setInAppShareLoading] = useState(false);
+  const [inAppShareSaving, setInAppShareSaving] = useState(false);
+  const [inAppShareMessage, setInAppShareMessage] = useState<string | null>(null);
+  const [manualWhatsappLookup, setManualWhatsappLookup] = useState('');
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupCandidate, setLookupCandidate] = useState<InAppShareCandidate | null>(null);
+  const [lookupNotFound, setLookupNotFound] = useState(false);
+  const [showInAppSharePrompt, setShowInAppSharePrompt] = useState(false);
+  const inAppShareSectionRef = useRef<HTMLElement | null>(null);
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
     show: boolean;
@@ -136,6 +158,108 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const ensurePrivateAccessUrl = async () => {
     if (!event) return '';
     return getPrivateShareUrl();
+  };
+
+  const openWhatsAppToNumber = async (rawNumber: string) => {
+    if (!event) return;
+    const number = normalizeWhatsapp(rawNumber);
+    if (!number) {
+      alert('Please enter a valid WhatsApp number.');
+      return;
+    }
+    const url = await ensurePrivateAccessUrl();
+    if (!url) return;
+    const inviteText = buildInviteText(url);
+    window.location.href = `https://wa.me/${number}?text=${encodeURIComponent(inviteText)}`;
+  };
+
+  const fetchInAppShareCandidates = async (eventId: string) => {
+    setInAppShareLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('host_list_copy_share_candidates', {
+        p_event_id: eventId,
+      });
+      if (error) throw error;
+      const candidates = (data || []) as InAppShareCandidate[];
+      setInAppShareCandidates(candidates);
+      setSelectedShareUserIds(
+        candidates
+          .filter((candidate) => candidate.selected_by_default)
+          .map((candidate) => candidate.user_id),
+      );
+    } catch (error) {
+      console.warn('Could not load in-app share candidates:', error);
+      setInAppShareCandidates([]);
+      setSelectedShareUserIds([]);
+    } finally {
+      setInAppShareLoading(false);
+    }
+  };
+
+  const shareToSelectedUsers = async (userIds: string[]) => {
+    if (!event || userIds.length === 0) return;
+    try {
+      setInAppShareSaving(true);
+      setInAppShareMessage(null);
+      const { data, error } = await supabase.rpc('host_share_event_with_users', {
+        p_event_id: event.id,
+        p_user_ids: userIds,
+        p_source: 'link',
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error as string);
+
+      const sharedCount = Number(data?.shared_count || 0);
+      const submittedCount = Number(data?.submitted_count || userIds.length);
+      if (sharedCount > 0) {
+        setInAppShareMessage(`Shared with ${sharedCount} account${sharedCount === 1 ? '' : 's'}.`);
+      } else {
+        setInAppShareMessage(
+          submittedCount > 0
+            ? 'Those people already had access.'
+            : 'No recipients selected.',
+        );
+      }
+      await fetchInAppShareCandidates(event.id);
+    } catch (error: any) {
+      setInAppShareMessage(error.message || 'Could not share in app right now.');
+    } finally {
+      setInAppShareSaving(false);
+    }
+  };
+
+  const lookupByWhatsapp = async () => {
+    if (!event) return;
+    const normalized = normalizeWhatsapp(manualWhatsappLookup);
+    if (!normalized) {
+      setLookupCandidate(null);
+      setLookupNotFound(false);
+      setInAppShareMessage('Enter a WhatsApp number first.');
+      return;
+    }
+
+    try {
+      setLookupLoading(true);
+      setLookupCandidate(null);
+      setLookupNotFound(false);
+      setInAppShareMessage(null);
+      const { data, error } = await supabase.rpc('host_lookup_user_by_whatsapp', {
+        p_event_id: event.id,
+        p_whatsapp: manualWhatsappLookup,
+      });
+      if (error) throw error;
+
+      const rows = (data || []) as InAppShareCandidate[];
+      if (rows.length === 0) {
+        setLookupNotFound(true);
+        return;
+      }
+      setLookupCandidate(rows[0]);
+    } catch (error: any) {
+      setInAppShareMessage(error.message || 'Could not look up that WhatsApp number.');
+    } finally {
+      setLookupLoading(false);
+    }
   };
 
   const getAddedByLabel = (attendee: Attendee) => {
@@ -241,13 +365,25 @@ export default function HostDashboard({ user }: { user: User | null }) {
   }, [id, user]);
 
   useEffect(() => {
-    const routeState = location.state as { justCreated?: boolean } | null;
+    const routeState = location.state as { justCreated?: boolean; openInAppShare?: boolean } | null;
     const justCreatedEventId = sessionStorage.getItem(CREATE_EVENT_SUCCESS_KEY);
     const shouldOpenSuccessModal = routeState?.justCreated || (!!id && justCreatedEventId === id);
     if (!shouldOpenSuccessModal) return;
 
     setShowCreateSuccessModal(true);
   }, [id, location.state]);
+
+  useEffect(() => {
+    const routeState = location.state as { openInAppShare?: boolean } | null;
+    if (routeState?.openInAppShare) {
+      setShowInAppSharePrompt(true);
+    }
+  }, [location.state]);
+
+  useEffect(() => {
+    if (!showInAppSharePrompt) return;
+    inAppShareSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [showInAppSharePrompt]);
 
   const clearCreateSuccessState = () => {
     sessionStorage.removeItem(CREATE_EVENT_SUCCESS_KEY);
@@ -328,6 +464,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       fetchJoinRequests(normalizedEvent.id);
       fetchInterests(normalizedEvent.id);
       fetchHosts(normalizedEvent.id, normalizedEvent.host_user_id || null, normalizedEvent.host_name || null);
+      fetchInAppShareCandidates(normalizedEvent.id);
     }
   };
 
@@ -679,6 +816,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
           allow_waitlist: event.allow_waitlist,
           is_public: event.is_public,
           require_guest_email_for_join: event.require_guest_email_for_join,
+          copied_from_event_id: event.id,
           host_user_id: user?.id,
           status: 'scheduled',
         }])
@@ -705,7 +843,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
         if (hostCopyError) throw hostCopyError;
       }
 
-      navigate(`/host/events/${newEvent.id}/edit`);
+      navigate(`/host/events/${newEvent.id}`, {
+        state: { openInAppShare: true },
+      });
     } catch (error: any) {
       console.error('Copy Activity Error:', error);
       alert(error.message || 'Failed to copy activity');
@@ -788,11 +928,12 @@ export default function HostDashboard({ user }: { user: User | null }) {
     try {
       setRequestActionLoadingId(request.id);
       if (status) {
-        const { error } = await supabase
-          .from('event_access_requests')
-          .update({ status })
-          .eq('id', request.id);
+        const { data, error } = await supabase.rpc('host_review_access_request', {
+          p_request_id: request.id,
+          p_action: status,
+        });
         if (error) throw error;
+        if (data?.error) throw new Error(data.error as string);
       }
 
       const whatsappUrl = `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
@@ -1016,6 +1157,179 @@ export default function HostDashboard({ user }: { user: User | null }) {
             </div>
           ) : null}
         </section>
+
+        {(showInAppSharePrompt || event.copied_from_event_id) ? (
+          <section className="bg-white rounded-2xl p-5" ref={inAppShareSectionRef}>
+            {showInAppSharePrompt ? (
+              <div className="mb-4 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-brand-700">Share in app</p>
+                <p className="mt-1 text-sm text-brand-700">
+                  Start by sharing this activity directly with people from your previous activity.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowInAppSharePrompt(false)}
+                  className="mt-2 text-xs font-bold text-brand-700 underline"
+                >
+                  Got it
+                </button>
+              </div>
+            ) : null}
+
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Share In App</p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!event) return;
+                  void fetchInAppShareCandidates(event.id);
+                }}
+                disabled={inAppShareLoading}
+                className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <p className="mt-1 text-xs text-slate-500">
+              {event.copied_from_event_id
+                ? 'People from the copied activity are preselected by default.'
+                : 'No copied-from activity found. You can still share with a WhatsApp-linked account below.'}
+            </p>
+
+            {inAppShareLoading ? (
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                Loading recipients...
+              </div>
+            ) : inAppShareCandidates.length > 0 ? (
+              <div className="mt-3 space-y-3">
+                <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
+                  {inAppShareCandidates.map((candidate) => {
+                    const checked = selectedShareUserIds.includes(candidate.user_id);
+                    return (
+                      <label key={candidate.user_id} className="flex cursor-pointer items-start gap-3 border-b border-slate-200 px-3 py-3 last:border-b-0">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(evt) => {
+                            setSelectedShareUserIds((prev) => {
+                              if (evt.target.checked) {
+                                if (prev.includes(candidate.user_id)) return prev;
+                                return [...prev, candidate.user_id];
+                              }
+                              return prev.filter((id) => id !== candidate.user_id);
+                            });
+                          }}
+                          className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-bold text-slate-800">{candidate.display_name}</p>
+                          <p className="truncate text-xs text-slate-500">
+                            {candidate.email || candidate.whatsapp_number || 'No contact details'}
+                          </p>
+                          <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                            {candidate.attended_previous ? 'Attended' : ''}
+                            {candidate.attended_previous && candidate.viewed_previous ? ' · ' : ''}
+                            {candidate.viewed_previous ? 'Viewed private activity' : ''}
+                            {candidate.already_shared ? ' · already shared' : ''}
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedShareUserIds(inAppShareCandidates.map((candidate) => candidate.user_id))}
+                      className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedShareUserIds([])}
+                      className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void shareToSelectedUsers(selectedShareUserIds)}
+                    disabled={inAppShareSaving || selectedShareUserIds.length === 0}
+                    className="rounded-xl bg-brand-600 px-3 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
+                  >
+                    {inAppShareSaving ? 'Sharing...' : `Share selected (${selectedShareUserIds.length})`}
+                  </button>
+                </div>
+              </div>
+            ) : event.copied_from_event_id ? (
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                No previous attendees or tracked viewers found for the copied activity.
+              </div>
+            ) : null}
+
+            <div className="mt-4 space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Add by WhatsApp</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={manualWhatsappLookup}
+                  onChange={(evt) => {
+                    setManualWhatsappLookup(evt.target.value);
+                    setLookupCandidate(null);
+                    setLookupNotFound(false);
+                  }}
+                  placeholder="Enter WhatsApp number"
+                  className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => void lookupByWhatsapp()}
+                  disabled={lookupLoading}
+                  className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                >
+                  {lookupLoading ? 'Checking...' : 'Find'}
+                </button>
+              </div>
+
+              {lookupCandidate ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <p className="text-sm font-bold text-slate-800">{lookupCandidate.display_name}</p>
+                  <p className="text-xs text-slate-500">{lookupCandidate.email || lookupCandidate.whatsapp_number || 'Linked account found'}</p>
+                  <button
+                    type="button"
+                    onClick={() => void shareToSelectedUsers([lookupCandidate.user_id])}
+                    disabled={inAppShareSaving}
+                    className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
+                  >
+                    {inAppShareSaving ? 'Sharing...' : 'Share with this account'}
+                  </button>
+                </div>
+              ) : null}
+
+              {lookupNotFound ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <p className="text-xs text-slate-500">No linked account found for that number.</p>
+                  <button
+                    type="button"
+                    onClick={() => { void openWhatsAppToNumber(manualWhatsappLookup); }}
+                    className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500"
+                  >
+                    Send link via WhatsApp instead
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            {inAppShareMessage ? (
+              <p className="mt-3 text-xs font-bold text-slate-500">{inAppShareMessage}</p>
+            ) : null}
+          </section>
+        ) : null}
 
         {/* Share Tools */}
         <section className="bg-white rounded-2xl p-5">
@@ -1638,6 +1952,18 @@ export default function HostDashboard({ user }: { user: User | null }) {
               </div>
 
               <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearCreateSuccessState();
+                    setShowCreateSuccessModal(false);
+                    setShowInAppSharePrompt(true);
+                    inAppShareSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-brand-700 font-black py-4 rounded-2xl transition-all active:scale-95"
+                >
+                  Share in app
+                </button>
                 <button
                   type="button"
                   onClick={() => {

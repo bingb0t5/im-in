@@ -902,6 +902,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       const { error } = await supabase.from('event_access_requests').insert([
         {
           event_id: event.id,
+          requester_user_id: user?.id || null,
           requester_name: name,
           requester_whatsapp: whatsapp,
           requester_note: requestNote.trim() || null,
