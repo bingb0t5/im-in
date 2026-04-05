@@ -1,31 +1,100 @@
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { User } from '@supabase/supabase-js';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { ArrowRight, LogOut, Share2 } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowRight, ChevronDown, ChevronUp, Eye, UserRound } from 'lucide-react';
 import { supabase } from '../supabase';
-import { formatDate } from '../utils';
+import { formatDate, isOnOrAfterTodayInTimeZone } from '../utils';
 import { Event } from '../types';
 import { buildEventPath, withConfirmedCounts } from '../lib/events';
 import { BookingRow, groupBookingsByEvent } from '../lib/bookings';
+import { AuthPromptModal } from '../components/AuthPromptModal';
 import { Card } from '../components/ui/Card';
-import { Button } from '../components/ui/Button';
 
 type JoinedRow = BookingRow & {
   status: string;
   events: Event;
 };
 
+type PendingAccessRequestRow = {
+  id: string;
+  event_id: string;
+  requester_name: string;
+  created_at: string;
+  status: 'pending' | 'approved' | 'declined' | 'contacted';
+  events?: { id: string; title: string }[] | { id: string; title: string } | null;
+};
+
+type PendingJoinRequestRow = {
+  id: string;
+  event_id: string;
+  guest_name: string;
+  created_at: string;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  events?: { id: string; title: string }[] | { id: string; title: string } | null;
+};
+
+function upcomingOnly(events: Event[]) {
+  return events.filter((event) => isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone));
+}
+
+function pastOnly(events: Event[]) {
+  return events.filter((event) => !isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone));
+}
+
+function normalizeEventRef(
+  value?: { id: string; title: string }[] | { id: string; title: string } | null,
+): { id: string; title: string } | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] || null : value;
+}
+
+function ActivityEventList({
+  events,
+  emptyLabel,
+  pathForEvent,
+}: {
+  events: Event[];
+  emptyLabel: string;
+  pathForEvent?: (event: Event) => string;
+}) {
+  if (events.length === 0) {
+    return <div className="ui-muted-panel text-sm text-slate-500">{emptyLabel}</div>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {events.map((event) => (
+        <Link
+          key={event.id}
+          to={pathForEvent ? pathForEvent(event) : buildEventPath(event, { preferPrivateAccess: true })}
+          className="block rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 transition-colors hover:bg-white"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <h3 className="text-base font-black text-slate-900">{event.title}</h3>
+              <p className="text-sm text-slate-500">{formatDate(event.starts_at, event.timezone)}</p>
+            </div>
+            <ArrowRight className="mt-1 h-4 w-4 text-slate-300" />
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 function ActivitySection({
   cta,
   description,
   emptyLabel,
   events,
+  pathForEvent,
   title,
 }: {
   cta?: { label: string; to: string };
   description: string;
   emptyLabel: string;
   events: Event[];
+  pathForEvent?: (event: Event) => string;
   title: string;
 }) {
   return (
@@ -42,37 +111,137 @@ function ActivitySection({
         ) : null}
       </div>
 
-      {events.length === 0 ? (
-        <div className="ui-muted-panel text-sm text-slate-500">{emptyLabel}</div>
-      ) : (
-        <div className="space-y-3">
-          {events.map((event) => (
-            <Link
-              key={event.id}
-              to={buildEventPath(event, { preferPrivateAccess: true })}
-              className="block rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 transition-colors hover:bg-white"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1">
-                  <h3 className="text-base font-black text-slate-900">{event.title}</h3>
-                  <p className="text-sm text-slate-500">{formatDate(event.starts_at, event.timezone)}</p>
-                </div>
-                <ArrowRight className="mt-1 h-4 w-4 text-slate-300" />
-              </div>
-            </Link>
-          ))}
+      <ActivityEventList events={events} emptyLabel={emptyLabel} pathForEvent={pathForEvent} />
+    </Card>
+  );
+}
+
+function CollapsibleActivitySection({
+  cta,
+  description,
+  emptyLabel,
+  events,
+  expanded,
+  onToggle,
+  pathForEvent,
+  title,
+}: {
+  cta?: { label: string; to: string };
+  description: string;
+  emptyLabel: string;
+  events: Event[];
+  expanded: boolean;
+  onToggle: () => void;
+  pathForEvent?: (event: Event) => string;
+  title: string;
+}) {
+  return (
+    <Card className="space-y-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <p className="ui-eyebrow">{title}</p>
+          <p className="text-sm text-slate-500">{description}</p>
         </div>
-      )}
+        <div className="flex items-center gap-2">
+          {cta ? (
+            <Link to={cta.to} className="text-sm font-bold text-brand-700">
+              {cta.label}
+            </Link>
+          ) : null}
+          <button
+            type="button"
+            onClick={onToggle}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100"
+            aria-expanded={expanded}
+            aria-label={expanded ? `Collapse ${title}` : `Expand ${title}`}
+          >
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        </div>
+      </div>
+      {expanded ? (
+        <div className="border-t border-slate-100 pt-3">
+          <ActivityEventList events={events} emptyLabel={emptyLabel} pathForEvent={pathForEvent} />
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+function PendingRequestAccordion({
+  icon,
+  title,
+  emptyLabel,
+  rows,
+  expanded,
+  onToggle,
+}: {
+  icon: ReactNode;
+  title: string;
+  emptyLabel: string;
+  rows: Array<PendingAccessRequestRow | PendingJoinRequestRow>;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const pendingLabel = `${rows.length} pending`;
+
+  return (
+    <Card className="overflow-hidden p-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between px-4 py-3 transition-colors hover:bg-slate-50"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="text-slate-400">{icon}</span>
+          <span className="truncate text-[13px] font-bold uppercase tracking-[0.14em] text-slate-400">{title}</span>
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="text-sm font-bold text-slate-500">{pendingLabel}</span>
+          {expanded ? <ChevronUp className="h-4 w-4 text-slate-300" /> : <ChevronDown className="h-4 w-4 text-slate-300" />}
+        </span>
+      </button>
+      {expanded ? rows.length === 0 ? (
+        <div className="border-t border-slate-100 px-4 py-3 text-sm text-slate-400">{emptyLabel}</div>
+      ) : (
+        <div className="space-y-2 border-t border-slate-100 p-3">
+          {rows.slice(0, 4).map((row) => {
+            const eventRef = normalizeEventRef((row as PendingAccessRequestRow | PendingJoinRequestRow).events);
+            const person = 'requester_name' in row ? row.requester_name : row.guest_name;
+            return (
+              <Link
+                key={row.id}
+                to={eventRef ? `/host/events/${eventRef.id}` : '/my-activities'}
+                className="block rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 transition-colors hover:bg-white"
+              >
+                <p className="truncate text-sm font-bold text-slate-900">{eventRef?.title || 'Activity'}</p>
+                <p className="truncate text-xs text-slate-500">{person || 'Guest'} · {formatDate(row.created_at)}</p>
+              </Link>
+            );
+          })}
+        </div>
+      ) : null}
     </Card>
   );
 }
 
 export default function MyActivities({ user }: { user: User | null }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<'hosting' | 'attending'>('hosting');
+  const [showPastHosting, setShowPastHosting] = useState(false);
+  const [showPastAttending, setShowPastAttending] = useState(false);
+  const [showPendingViewRequests, setShowPendingViewRequests] = useState(false);
+  const [showPendingJoinRequests, setShowPendingJoinRequests] = useState(false);
+  const [showAttendingEvents, setShowAttendingEvents] = useState<boolean | null>(null);
+  const [showRequestedEvents, setShowRequestedEvents] = useState<boolean | null>(null);
+  const [showSharedEvents, setShowSharedEvents] = useState<boolean | null>(null);
   const [hosting, setHosting] = useState<Event[]>([]);
   const [attending, setAttending] = useState<Event[]>([]);
   const [requested, setRequested] = useState<Event[]>([]);
   const [shared, setShared] = useState<Event[]>([]);
+  const [pendingViewRequests, setPendingViewRequests] = useState<PendingAccessRequestRow[]>([]);
+  const [pendingJoinRequests, setPendingJoinRequests] = useState<PendingJoinRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -116,6 +285,34 @@ export default function MyActivities({ user }: { user: User | null }) {
         const requestedRows = joinedRows.filter((row) => row.status === 'pending_approval');
         const attendingRows = joinedRows.filter((row) => row.status !== 'pending_approval');
 
+        const hostedUpcoming = upcomingOnly(hostedWithCounts);
+        const hostedUpcomingIds = hostedUpcoming.map((event) => event.id);
+        const [pendingAccessResult, pendingJoinResult] = await Promise.all([
+          hostedUpcomingIds.length
+            ? supabase
+                .from('event_access_requests')
+                .select('id,event_id,requester_name,created_at,status,events!inner(id,title)')
+                .eq('status', 'pending')
+                .in('event_id', hostedUpcomingIds)
+                .order('created_at', { ascending: false })
+            : Promise.resolve({ data: [], error: null }),
+          hostedUpcomingIds.length
+            ? supabase
+                .from('event_join_requests')
+                .select('id,event_id,guest_name,created_at,status,events!inner(id,title)')
+                .eq('status', 'pending')
+                .in('event_id', hostedUpcomingIds)
+                .order('created_at', { ascending: false })
+            : Promise.resolve({ data: [], error: null }),
+        ]);
+
+        if (pendingAccessResult.error) {
+          console.warn('Could not load pending view requests:', pendingAccessResult.error);
+        }
+        if (pendingJoinResult.error) {
+          console.warn('Could not load pending join requests:', pendingJoinResult.error);
+        }
+
         setHosting(hostedWithCounts);
         setRequested(
           groupBookingsByEvent(requestedRows as BookingRow[]).map((row) => row.events as Event),
@@ -124,12 +321,16 @@ export default function MyActivities({ user }: { user: User | null }) {
           groupBookingsByEvent(attendingRows as BookingRow[]).map((row) => row.events as Event),
         );
         setShared(sharedRows);
+        setPendingViewRequests((pendingAccessResult.data || []) as PendingAccessRequestRow[]);
+        setPendingJoinRequests((pendingJoinResult.data || []) as PendingJoinRequestRow[]);
       } catch (error) {
         console.error('Could not load activity state:', error);
         setHosting([]);
         setRequested([]);
         setAttending([]);
         setShared([]);
+        setPendingViewRequests([]);
+        setPendingJoinRequests([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -142,14 +343,97 @@ export default function MyActivities({ user }: { user: User | null }) {
     };
   }, [user?.id]);
 
+  const upcomingHosting = useMemo(() => upcomingOnly(hosting), [hosting]);
+  const pastHosting = useMemo(() => pastOnly(hosting), [hosting]);
+  const upcomingAttending = useMemo(() => upcomingOnly(attending), [attending]);
+  const pastAttending = useMemo(() => pastOnly(attending), [attending]);
+  const upcomingRequested = useMemo(() => upcomingOnly(requested), [requested]);
+  const pastRequested = useMemo(() => pastOnly(requested), [requested]);
+  const upcomingShared = useMemo(() => upcomingOnly(shared), [shared]);
+  const pastShared = useMemo(() => pastOnly(shared), [shared]);
+  const attendingExpanded = showAttendingEvents ?? (upcomingAttending.length > 0);
+  const requestedExpanded = showRequestedEvents ?? (upcomingRequested.length > 0);
+  const sharedExpanded = showSharedEvents ?? (upcomingShared.length > 0);
+  const pastCombinedAttending = useMemo(() => {
+    const deduped = new Map<string, Event>();
+    [...pastAttending, ...pastRequested, ...pastShared].forEach((event) => {
+      if (!deduped.has(event.id)) deduped.set(event.id, event);
+    });
+    return Array.from(deduped.values());
+  }, [pastAttending, pastRequested, pastShared]);
+
+  const pastAttendingCount = pastAttending.length + pastRequested.length + pastShared.length;
+  const showAuthPrompt = !user && searchParams.get('signin') === 'true';
+
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <main className="mx-auto max-w-2xl px-6 pb-10 pt-2">
+          <div className="space-y-6">
+            <Card className="space-y-3">
+              <p className="text-sm text-slate-500">Guests can browse, but activities you host, attend, request, or open by link appear here after you sign in.</p>
+            </Card>
+            <ActivitySection
+              title="Hosting"
+              description="Activities you are running."
+              emptyLabel="No hosted activities yet."
+              events={[]}
+            />
+            <ActivitySection
+              title="Attending"
+              description="Activities you have already joined."
+              emptyLabel="No attending activities yet."
+              events={[]}
+            />
+            <ActivitySection
+              title="Requested"
+              description="Requests waiting on host approval."
+              emptyLabel="No pending requests right now."
+              events={[]}
+            />
+            <ActivitySection
+              title="Shared with you"
+              description="Activities opened by link or join code."
+              emptyLabel="No shared activities yet."
+              events={[]}
+            />
+          </div>
+        </main>
+        <AuthPromptModal
+          open={showAuthPrompt}
+          onClose={() => navigate('/my-activities', { replace: true })}
+          title="Sign in to see your activities"
+          message="Track what you’re hosting, attending, requesting, or what has been shared with you."
+        />
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-slate-50">
       <main className="mx-auto max-w-2xl px-6 pb-10 pt-2">
         <div className="space-y-6">
+          <div className="grid grid-cols-2 rounded-2xl border border-slate-200 bg-white p-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab('hosting')}
+              className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${
+                activeTab === 'hosting' ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Hosting
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('attending')}
+              className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${
+                activeTab === 'attending' ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Attending
+            </button>
+          </div>
+
           {loading ? (
             <Card className="space-y-3">
               {[1, 2, 3].map((item) => (
@@ -158,57 +442,116 @@ export default function MyActivities({ user }: { user: User | null }) {
             </Card>
           ) : (
             <>
-              <ActivitySection
-                title="Hosting"
-                description="Activities you are running."
-                emptyLabel="You are not hosting anything yet."
-                events={hosting}
-                cta={{ label: 'Create', to: '/create-event' }}
-              />
-              <ActivitySection
-                title="Attending"
-                description="Activities you have already joined."
-                emptyLabel="You are not attending anything yet."
-                events={attending}
-                cta={{ label: 'Explore', to: '/explore' }}
-              />
-              <ActivitySection
-                title="Requested"
-                description="Requests waiting on host approval."
-                emptyLabel="No pending requests right now."
-                events={requested}
-              />
-              <ActivitySection
-                title="Shared with you"
-                description="Activities opened by link or join code."
-                emptyLabel="Nothing has been shared with you yet."
-                events={shared}
-              />
+              {activeTab === 'hosting' ? (
+                <>
+                  <div className="space-y-1.5">
+                    <PendingRequestAccordion
+                      icon={<Eye className="h-4 w-4" />}
+                      title="Requested to view"
+                      emptyLabel="No pending requests right now."
+                      rows={pendingViewRequests}
+                      expanded={showPendingViewRequests}
+                      onToggle={() => setShowPendingViewRequests((value) => !value)}
+                    />
+                    <PendingRequestAccordion
+                      icon={<UserRound className="h-4 w-4" />}
+                      title="Requested to join"
+                      emptyLabel="No pending join requests right now."
+                      rows={pendingJoinRequests}
+                      expanded={showPendingJoinRequests}
+                      onToggle={() => setShowPendingJoinRequests((value) => !value)}
+                    />
+                    <ActivitySection
+                      title="Hosting"
+                      description="Activities you are running."
+                      emptyLabel="You are not hosting anything yet."
+                      events={upcomingHosting}
+                      pathForEvent={(event) => `/host/events/${event.id}`}
+                      cta={{ label: 'Create', to: '/create-event' }}
+                    />
+                  </div>
+                  {pastHosting.length > 0 ? (
+                    <Card className="space-y-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowPastHosting((value) => !value)}
+                        className="flex w-full items-center justify-between text-left text-sm font-bold text-slate-600"
+                      >
+                        <span>Past activities ({pastHosting.length})</span>
+                        {showPastHosting ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </button>
+                      {showPastHosting ? (
+                        <div className="space-y-3 border-t border-slate-100 pt-3">
+                          <p className="text-sm text-slate-500">Previous activities you hosted.</p>
+                          <ActivityEventList
+                          emptyLabel="No past hosted activities."
+                          events={pastHosting}
+                          pathForEvent={(event) => `/host/events/${event.id}`}
+                        />
+                        </div>
+                      ) : null}
+                    </Card>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <CollapsibleActivitySection
+                    title="Attending"
+                    description="Activities you have already joined."
+                    emptyLabel="You are not attending anything yet."
+                    events={upcomingAttending}
+                    cta={{ label: 'Explore', to: '/explore' }}
+                    expanded={attendingExpanded}
+                    onToggle={() =>
+                      setShowAttendingEvents((value) => !(value ?? (upcomingAttending.length > 0)))
+                    }
+                  />
+                  <CollapsibleActivitySection
+                    title="Requested"
+                    description="Activities you requested to join and are waiting on host approval."
+                    emptyLabel="No pending requests right now."
+                    events={upcomingRequested}
+                    expanded={requestedExpanded}
+                    onToggle={() =>
+                      setShowRequestedEvents((value) => !(value ?? (upcomingRequested.length > 0)))
+                    }
+                  />
+                  <CollapsibleActivitySection
+                    title="Shared with me"
+                    description="Activities opened by link or join code."
+                    emptyLabel="Nothing has been shared with you yet."
+                    events={upcomingShared}
+                    expanded={sharedExpanded}
+                    onToggle={() =>
+                      setShowSharedEvents((value) => !(value ?? (upcomingShared.length > 0)))
+                    }
+                  />
+                  {pastAttendingCount > 0 ? (
+                    <Card className="space-y-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowPastAttending((value) => !value)}
+                        className="flex w-full items-center justify-between text-left text-sm font-bold text-slate-600"
+                      >
+                        <span>Past activities ({pastAttendingCount})</span>
+                        {showPastAttending ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </button>
+                      {showPastAttending ? (
+                        <div className="space-y-3 border-t border-slate-100 pt-3">
+                          <p className="text-sm text-slate-500">
+                            Older attending, requested, and shared activities.
+                          </p>
+                          <ActivityEventList
+                            emptyLabel="No past activities."
+                            events={pastCombinedAttending}
+                          />
+                        </div>
+                      ) : null}
+                    </Card>
+                  ) : null}
+                </>
+              )}
 
-              <Card className="space-y-3">
-                <div className="flex items-center gap-2 text-sm font-bold text-brand-700">
-                  <Share2 className="h-4 w-4" />
-                  <span>Access does not join you automatically.</span>
-                </div>
-                <p className="text-sm text-slate-500">
-                  Shared activities stay separate until you explicitly request or join them.
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <Button variant="secondary" onClick={() => navigate('/explore')}>
-                    Explore more
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    leadingIcon={<LogOut className="h-4 w-4" />}
-                    onClick={async () => {
-                      await supabase.auth.signOut();
-                      navigate('/login', { replace: true });
-                    }}
-                  >
-                    Log out
-                  </Button>
-                </div>
-              </Card>
             </>
           )}
         </div>

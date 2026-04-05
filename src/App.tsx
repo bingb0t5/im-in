@@ -30,6 +30,7 @@ import WhatsAppAuthSuccess from './pages/WhatsAppAuthSuccess';
 import AccountMergeComplete from './pages/AccountMergeComplete';
 import { guestService } from './services/guestService';
 import { MainTabsLayout } from './layouts/MainTabsLayout';
+import { ScrollToTop } from './components/ScrollToTop';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -126,6 +127,7 @@ export default function App() {
 
   return (
     <Router>
+      <ScrollToTop />
       <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-brand-100">
         <Routes>
           <Route element={<MainTabsLayout user={user} />}>
@@ -134,8 +136,8 @@ export default function App() {
             <Route path="/explore" element={<Calendar user={user} />} />
             <Route path="/calendar" element={<Navigate to="/explore" replace />} />
             <Route path="/create-event" element={<CreateEvent user={user} />} />
-            <Route path="/my-activities" element={user ? <MyActivities user={user} /> : <Navigate to="/login" />} />
-            <Route path="/profile" element={user ? <ProfileSettings user={user} /> : <Navigate to="/login" />} />
+            <Route path="/my-activities" element={<MyActivities user={user} />} />
+            <Route path="/profile" element={<ProfileSettings user={user} />} />
           </Route>
           <Route path="/auth/whatsapp/prep" element={<WhatsAppAuthPrep />} />
           <Route path="/auth/whatsapp/verify" element={<WhatsAppAuthVerify />} />

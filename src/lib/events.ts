@@ -14,14 +14,22 @@ export function withConfirmedCounts(events: EventWithAttendeeStatuses[]): Event[
 }
 
 export function buildEventPath(
-  event: Pick<Event, 'slug' | 'visibility' | 'is_public' | 'access_code'>,
+  event: Pick<Event, 'slug' | 'public_slug' | 'private_slug' | 'join_code' | 'visibility' | 'is_public' | 'access_code'>,
   options?: { preferPrivateAccess?: boolean },
 ) {
-  const base = `/events/${event.slug}`;
   const visibility = event.visibility || (event.is_public ? 'public' : 'private');
   const preferPrivateAccess = !!options?.preferPrivateAccess;
+  const publicSlug = event.public_slug || event.slug;
+  const privateSlug = event.private_slug || event.join_code || event.slug;
+  const usePrivatePath = preferPrivateAccess || visibility !== 'public';
+  const selectedSlug = usePrivatePath ? privateSlug : publicSlug;
+  const base = `/events/${selectedSlug}`;
 
-  if (preferPrivateAccess && visibility === 'semi_public' && event.access_code) {
+  if (!selectedSlug) {
+    return '/';
+  }
+
+  if (preferPrivateAccess && visibility === 'semi_public' && event.access_code && privateSlug === publicSlug) {
     return `${base}?access=${event.access_code}`;
   }
 

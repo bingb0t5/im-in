@@ -1,6 +1,8 @@
 export interface Event {
   id: string;
   slug: string;
+  public_slug?: string;
+  private_slug?: string;
   title: string;
   description?: string;
   public_summary?: string;

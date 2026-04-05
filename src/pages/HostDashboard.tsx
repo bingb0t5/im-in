@@ -4,7 +4,7 @@ import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { Users, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Clock, Edit2, Plus, X, AlertCircle, Calendar, ChevronDown, ChevronUp, MessageSquare, Mail } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { formatDate, formatDurationMinutes, generateSlug } from '../utils';
+import { formatDate, formatDurationMinutes } from '../utils';
 import { Event, Attendee, EventAccessRequest, EventInterest, EventJoinRequest } from '../types';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/moderation';
@@ -75,7 +75,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
   const getPublicPreviewUrl = () => {
     if (!event) return '';
-    return `${window.location.origin}/events/${event.slug}`;
+    const publicSlug = event.public_slug || event.slug;
+    return `${window.location.origin}/events/${publicSlug}`;
+  };
+
+  const getPrivateShareUrl = () => {
+    if (!event) return '';
+    const privateSlug = event.private_slug || event.join_code || event.slug;
+    return `${window.location.origin}/events/${privateSlug}`;
   };
 
   const buildInviteText = (url: string) => {
@@ -126,33 +133,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
     setShowManualShareModal(true);
   };
 
-  const generateAccessCode = () => {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-      return crypto.randomUUID();
-    }
-    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  };
-
   const ensurePrivateAccessUrl = async () => {
     if (!event) return '';
-    const base = getPublicPreviewUrl();
-    const visibility = event.visibility || (event.is_public ? 'public' : 'private');
-
-    if (visibility !== 'semi_public') return base;
-
-    if (event.access_code && event.access_code.trim()) {
-      return `${base}?access=${event.access_code}`;
-    }
-
-    const nextAccessCode = generateAccessCode();
-    const { error } = await supabase
-      .from('events')
-      .update({ access_code: nextAccessCode })
-      .eq('id', event.id);
-
-    if (error) throw error;
-    setEvent((prev) => (prev ? { ...prev, access_code: nextAccessCode } : prev));
-    return `${base}?access=${nextAccessCode}`;
+    return getPrivateShareUrl();
   };
 
   const getAddedByLabel = (attendee: Attendee) => {
@@ -675,8 +658,6 @@ export default function HostDashboard({ user }: { user: User | null }) {
       const durationMinutes = event.duration_minutes || 60;
       newEndsAt = new Date(newStartsAt.getTime() + durationMinutes * 60 * 1000).toISOString();
 
-      const newSlug = `${generateSlug(event.title)}-${Math.random().toString(36).substring(2, 7)}`;
-
       const { data: newEvent, error } = await supabase
         .from('events')
         .insert([{
@@ -700,7 +681,6 @@ export default function HostDashboard({ user }: { user: User | null }) {
           require_guest_email_for_join: event.require_guest_email_for_join,
           host_user_id: user?.id,
           status: 'scheduled',
-          slug: newSlug
         }])
         .select()
         .single();
@@ -1043,7 +1023,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Share Activity</p>
             <button
               type="button"
-              onClick={() => navigate(`/events/${event.slug}`)}
+              onClick={() => navigate(`/events/${event.public_slug || event.slug}`)}
               className="text-xs font-bold text-slate-400 hover:text-brand-600 transition-all active:scale-95"
             >
               View Activity

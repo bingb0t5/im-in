@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Calendar as CalendarIcon, MapPin, Search, Users } from 'lucide-react';
+import { Calendar as CalendarIcon, MapPin, Users } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatDay, formatTime } from '../utils';
 import { Event } from '../types';
@@ -165,9 +165,8 @@ export default function Calendar({ user }: { user: User | null }) {
   const [sharedEvents, setSharedEvents] = useState<Event[]>([]);
   const [hiddenUpcomingCount, setHiddenUpcomingCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const queryParam = searchParams.get('q') || '';
-  const [searchQuery, setSearchQuery] = useState(queryParam);
   useEffect(() => {
     fetchPublicEvents();
   }, []);
@@ -175,10 +174,6 @@ export default function Calendar({ user }: { user: User | null }) {
   useEffect(() => {
     void fetchRelatedActivitySearchPools();
   }, [user?.id, user?.email]);
-
-  useEffect(() => {
-    setSearchQuery(queryParam);
-  }, [queryParam]);
 
   const fetchPublicEvents = async () => {
     const nowIso = new Date().toISOString();
@@ -242,7 +237,7 @@ export default function Calendar({ user }: { user: User | null }) {
     setSharedEvents((sharedResult.data || []) as Event[]);
   };
 
-  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const normalizedSearch = queryParam.trim().toLowerCase();
   const filteredEvents = normalizedSearch
     ? events.filter(event => 
         event.title.toLowerCase().includes(normalizedSearch) ||
@@ -251,17 +246,6 @@ export default function Calendar({ user }: { user: User | null }) {
       )
     : events;
   const groupedEvents = groupCalendarEvents(filteredEvents);
-
-  const handleSearchChange = (value: string) => {
-    setSearchQuery(value);
-    const nextParams = new URLSearchParams(searchParams);
-    if (value.trim()) {
-      nextParams.set('q', value);
-    } else {
-      nextParams.delete('q');
-    }
-    setSearchParams(nextParams, { replace: true });
-  };
 
   const hiddenUpcomingLabel = hiddenUpcomingCount === 1
     ? 'There is 1 other activity happening this week.'
@@ -276,19 +260,6 @@ export default function Calendar({ user }: { user: User | null }) {
   return (
     <div className="min-h-screen bg-slate-50 pb-32">
       <main className="max-w-2xl mx-auto px-6 pt-2 space-y-6">
-        {/* Search Bar */}
-        <div className="relative group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-brand-600 transition-colors" />
-          <input 
-            type="text"
-            autoFocus={!!queryParam}
-            placeholder="Search public activities"
-            className="w-full pl-12 pr-4 py-4 bg-white rounded-2xl border border-slate-100 shadow-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-medium"
-            value={searchQuery}
-            onChange={(e) => handleSearchChange(e.target.value)}
-          />
-        </div>
-
         {loading ? (
           <div className="bg-white rounded-2xl overflow-hidden">
             {[1,2,3,4].map(i => (

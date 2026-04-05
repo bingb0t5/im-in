@@ -499,6 +499,19 @@ export default function EventDetail({ user }: { user: User | null }) {
     }
 
     const nextEvent = data[0] as Event & { can_view_full_details?: boolean };
+    const requestedSlug = (slug || '').trim();
+    const canonicalPublicSlug = (nextEvent.public_slug || nextEvent.slug || '').trim();
+    const canonicalPrivateSlug = (nextEvent.private_slug || nextEvent.join_code || '').trim();
+    const isKnownCanonicalSlug =
+      (canonicalPublicSlug && requestedSlug === canonicalPublicSlug)
+      || (canonicalPrivateSlug && requestedSlug === canonicalPrivateSlug);
+    if (requestedSlug && !isKnownCanonicalSlug && canonicalPublicSlug) {
+      const nextSearch = searchParams.toString();
+      navigate(`/events/${canonicalPublicSlug}${nextSearch ? `?${nextSearch}` : ''}`, { replace: true });
+      setLoading(false);
+      return;
+    }
+
     setEvent(nextEvent);
     setCanViewFullDetails(!!nextEvent.can_view_full_details);
 
@@ -516,7 +529,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
     const { data } = await supabase.rpc('list_event_attendees_for_view', {
       p_event_id: id,
-      p_access_code: searchParams.get('access'),
+      p_access_code: searchParams.get('access') || slug || null,
     });
 
     if (data) {
@@ -534,7 +547,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
     const { data } = await supabase.rpc('list_event_interests_for_view', {
       p_event_id: id,
-      p_access_code: searchParams.get('access'),
+      p_access_code: searchParams.get('access') || slug || null,
     });
 
     if (data) {
@@ -971,11 +984,10 @@ export default function EventDetail({ user }: { user: User | null }) {
   const hasAccessToken = !!(accessToken && event.access_code && accessToken === event.access_code);
   const isHostViewer = isEventHostViewer;
   const hasFullEventAccess = canViewFullDetails || hasAccessToken || isHostViewer;
-  const publicEventUrl = `${window.location.origin}/events/${event.slug}`;
-  const privateEventUrl =
-    eventVisibility === 'semi_public' && event.access_code
-      ? `${window.location.origin}/events/${event.slug}?access=${event.access_code}`
-      : publicEventUrl;
+  const publicEventSlug = event.public_slug || event.slug;
+  const privateEventSlug = event.private_slug || event.join_code || event.slug;
+  const publicEventUrl = `${window.location.origin}/events/${publicEventSlug}`;
+  const privateEventUrl = `${window.location.origin}/events/${privateEventSlug}`;
   const { confirmedCount, waitlistCount, isFull, spotsRemaining } = getAttendanceSummary(attendees, event.capacity);
   const approvalRequired = !!event.require_host_approval_for_join;
   const joinRequestPending = approvalRequired && myJoinRequestStatus === 'pending' && myRsvps.length === 0;

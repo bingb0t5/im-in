@@ -1,12 +1,13 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
-import { useNavigate } from 'react-router-dom';
-import { ArrowRight, CalendarDays, Search } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowRight, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
-import { Button } from '../components/ui/Button';
+import { AuthPromptModal } from '../components/AuthPromptModal';
 import { Card } from '../components/ui/Card';
-import { mapJoinedBookingsToEvents, pickNextUpcomingActivity } from '../lib/activityRelations';
+import { HomeCommunitySection } from '../components/HomeCommunitySection';
+import { mapJoinedBookingsToEvents, pickUpcomingActivities } from '../lib/activityRelations';
 import { buildEventPath } from '../lib/events';
 import { Event } from '../types';
 import { formatDate } from '../utils';
@@ -17,20 +18,30 @@ type JoinedRow = {
   guest_name: string;
 };
 
+type UpcomingActivity = {
+  event: Event;
+  state: string | null;
+};
+
+function formatActivityStateLabel(state: string | null) {
+  if (!state) return '';
+  if (state === 'SHARED_WITH_USER') return 'Shared with me';
+  return state.replaceAll('_', ' ');
+}
+
 export default function Home({ user }: { user: User | null }) {
   const navigate = useNavigate();
-  const [searchQuery, setSearchQuery] = useState('');
+  const topSpacingClass = user ? 'pt-2.5' : 'pt-16';
   const [joinCode, setJoinCode] = useState('');
   const [joinLoading, setJoinLoading] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
-  const [nextActivity, setNextActivity] = useState<Event | null>(null);
-  const [nextActivityState, setNextActivityState] = useState<string | null>(null);
+  const [upcomingActivities, setUpcomingActivities] = useState<UpcomingActivity[]>([]);
   const [loadingNext, setLoadingNext] = useState(!!user);
+  const [showSignInPrompt, setShowSignInPrompt] = useState(false);
 
   useEffect(() => {
     if (!user) {
-      setNextActivity(null);
-      setNextActivityState(null);
+      setUpcomingActivities([]);
       setLoadingNext(false);
       return;
     }
@@ -59,17 +70,16 @@ export default function Home({ user }: { user: User | null }) {
           { state: 'ATTENDING' as const, events: joined },
           { state: 'SHARED_WITH_USER' as const, events: shared },
         ];
-        const next = pickNextUpcomingActivity(groups);
-        setNextActivity(next);
-        setNextActivityState(
-          next
-            ? groups.find((group) => group.events.some((event) => event.id === next.id))?.state || null
-            : null,
+        const upcoming = pickUpcomingActivities(groups, 3);
+        setUpcomingActivities(
+          upcoming.map((event) => ({
+            event,
+            state: groups.find((group) => group.events.some((item) => item.id === event.id))?.state || null,
+          })),
         );
       } catch (error) {
         console.error('Could not load home activity summary:', error);
-        setNextActivity(null);
-        setNextActivityState(null);
+        setUpcomingActivities([]);
       } finally {
         if (!cancelled) {
           setLoadingNext(false);
@@ -84,15 +94,9 @@ export default function Home({ user }: { user: User | null }) {
     };
   }, [user?.id]);
 
-  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const query = searchQuery.trim();
-    navigate(query ? `/explore?q=${encodeURIComponent(query)}` : '/explore');
-  };
-
   const handleJoinByCode = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const normalizedCode = joinCode.trim().toUpperCase();
+    const normalizedCode = joinCode.trim();
 
     if (!normalizedCode) {
       setJoinError('Enter a code to continue.');
@@ -100,7 +104,7 @@ export default function Home({ user }: { user: User | null }) {
     }
 
     if (!user) {
-      navigate('/login');
+      setShowSignInPrompt(true);
       return;
     }
 
@@ -119,7 +123,7 @@ export default function Home({ user }: { user: User | null }) {
 
       const sharedEvent = data[0] as Event;
       setJoinCode('');
-      navigate(buildEventPath(sharedEvent));
+      navigate(buildEventPath(sharedEvent, { preferPrivateAccess: true }));
     } catch (joinCodeError) {
       setJoinError(joinCodeError instanceof Error ? joinCodeError.message : 'Could not open that activity.');
     } finally {
@@ -129,100 +133,89 @@ export default function Home({ user }: { user: User | null }) {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <main className="mx-auto max-w-2xl px-6 pb-10 pt-2">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-          <form onSubmit={handleSearchSubmit} className="relative">
-            <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-300" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search activities"
-              className="ui-input rounded-2xl border-slate-200 bg-white py-4 pl-12 pr-4 shadow-sm"
-            />
-          </form>
+      <main className={`mx-auto max-w-2xl px-6 pb-10 ${topSpacingClass}`}>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+          {user ? (
+            <Card className="space-y-2 pt-3">
+              <h2 className="ui-section-title">Upcoming activities</h2>
 
-          <Card className="space-y-4">
-            <h2 className="ui-section-title">Your next activity</h2>
-
-            {loadingNext ? (
-              <div className="ui-muted-panel text-sm text-slate-500">Loading your activity state...</div>
-            ) : !user ? (
-              <div className="ui-muted-panel space-y-3">
-                <p className="text-sm text-slate-600">Sign in to track what you&apos;re hosting, attending, or what has been shared with you.</p>
-                <Button onClick={() => navigate('/login')}>Sign in</Button>
-              </div>
-            ) : nextActivity ? (
-              <div className="ui-muted-panel space-y-3">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <h3 className="text-lg font-black text-slate-900">{nextActivity.title}</h3>
-                    <p className="text-sm text-slate-500">{formatDate(nextActivity.starts_at, nextActivity.timezone)}</p>
-                  </div>
-                  <span className="rounded-full bg-brand-50 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-brand-700">
-                    {nextActivityState?.replaceAll('_', ' ') || 'Activity'}
-                  </span>
+              {loadingNext ? (
+                <div className="ui-muted-panel text-sm text-slate-500">Loading your upcoming activities...</div>
+              ) : upcomingActivities.length > 0 ? (
+                <div className="divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-slate-50 px-3">
+                  {upcomingActivities.map(({ event, state }, index) => (
+                    <Link
+                      key={event.id}
+                      to={buildEventPath(event, { preferPrivateAccess: state === 'SHARED_WITH_USER' })}
+                      className={`block rounded-xl py-1.5 transition-colors hover:bg-white ${index === 0 ? 'pt-1.5' : ''}`}
+                    >
+                      <h3 className="truncate text-base font-black text-slate-900">{event.title}</h3>
+                      <div className="mt-0.5 flex items-center justify-between gap-2">
+                        <p className="truncate text-sm text-slate-500">{formatDate(event.starts_at, event.timezone)}</p>
+                        <ArrowRight className="h-4 w-4 shrink-0 text-slate-300" />
+                      </div>
+                      {state ? (
+                        <p className="mt-0 text-[10px] font-bold uppercase tracking-[0.16em] text-brand-700">
+                          {formatActivityStateLabel(state)}
+                        </p>
+                      ) : null}
+                    </Link>
+                  ))}
                 </div>
-                <Button variant="secondary" onClick={() => navigate(buildEventPath(nextActivity))}>
-                  Open activity
-                </Button>
-              </div>
-            ) : (
-              <div className="ui-muted-panel space-y-3">
-                <p className="text-sm text-slate-600">Nothing is coming up yet. Explore activities or create one of your own.</p>
-                <Button variant="secondary" onClick={() => navigate('/explore')}>
-                  Explore activities
-                </Button>
-              </div>
-            )}
-          </Card>
+              ) : (
+                <div className="ui-muted-panel space-y-3">
+                  <p className="text-sm text-slate-600">Nothing is coming up yet. Explore activities or create one of your own.</p>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/explore')}
+                    className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition-all hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700"
+                  >
+                    Explore activities
+                  </button>
+                </div>
+              )}
+            </Card>
+          ) : null}
 
-          <Card className="space-y-4">
-            <div className="space-y-1">
-              <h2 className="ui-section-title">Open a shared activity</h2>
-              <p className="text-sm text-slate-500">Enter a code to add an activity to your shared list without joining it.</p>
+          <Card className="space-y-3 pt-4">
+            <div className="space-y-0.5">
+              <h2 className="ui-section-title">Receive a join code?</h2>
+              <p className="text-xs text-slate-500">Enter your code below to view the activity.</p>
             </div>
 
-            <form onSubmit={handleJoinByCode} className="space-y-3">
-              <input
-                type="text"
-                value={joinCode}
-                onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
-                placeholder="Enter join code"
-                className="ui-input rounded-2xl border-slate-200 bg-white py-4 uppercase tracking-[0.18em]"
-              />
+            <form onSubmit={handleJoinByCode} className="space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={joinCode}
+                  onChange={(event) => setJoinCode(event.target.value)}
+                  placeholder="Enter join code"
+                  className="ui-input rounded-2xl border-slate-200 bg-white py-2 tracking-[0.12em]"
+                />
+                <button
+                  type="submit"
+                  disabled={joinLoading}
+                  aria-label="Open activity"
+                  className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-brand-600 bg-gradient-to-br from-teal-300 via-brand-500 to-teal-700 text-white shadow-[0_8px_18px_rgba(13,148,136,0.32)] ring-1 ring-white/70 transition-all hover:brightness-105 disabled:opacity-60"
+                >
+                  <span className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/30 via-white/10 to-transparent" />
+                  {joinLoading ? <Loader2 className="relative h-4 w-4 animate-spin" /> : <ArrowRight className="relative h-4 w-4" />}
+                </button>
+              </div>
               {joinError ? <p className="ui-feedback ui-feedback-error">{joinError}</p> : null}
-              <Button type="submit" loading={joinLoading}>
-                Open activity
-              </Button>
             </form>
           </Card>
 
-          <Card className="space-y-4">
-            <h2 className="ui-section-title">What&apos;s new</h2>
-            <div className="ui-muted-panel space-y-3">
-              <p className="text-sm text-slate-600">App-style navigation and clearer activity states are now being added across the experience.</p>
-              <div className="flex items-center gap-2 text-sm font-bold text-brand-700">
-                <CalendarDays className="h-4 w-4" />
-                <span>Explore, share, request, and attend with clearer separation.</span>
-              </div>
-            </div>
-          </Card>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Button variant="secondary" onClick={() => navigate('/explore')}>
-              Explore
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => navigate(user ? '/my-activities' : '/login')}
-              trailingIcon={<ArrowRight className="h-4 w-4" />}
-            >
-              My Activities
-            </Button>
-          </div>
+          <HomeCommunitySection user={user} />
         </motion.div>
       </main>
+
+      <AuthPromptModal
+        open={showSignInPrompt}
+        onClose={() => setShowSignInPrompt(false)}
+        title="Sign in to open shared activities"
+        message="Open shared activities after you sign in so they can be saved to your account."
+      />
     </div>
   );
 }

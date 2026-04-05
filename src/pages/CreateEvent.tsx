@@ -9,7 +9,6 @@ import {
   DEFAULT_EVENT_TIMEZONE,
   deriveDurationMinutes,
   EVENT_TIMEZONE_OPTIONS,
-  generateSlug,
   toUtcIsoFromStartAndDuration,
   utcIsoToEventLocalInput,
 } from '../utils';
@@ -458,7 +457,6 @@ export default function CreateEvent({ user }: { user: User | null }) {
 
       if (!isEditing) {
         submissionData.host_user_id = user.id;
-        submissionData.slug = `${generateSlug(formData.title)}-${Math.random().toString(36).substring(2, 7)}`;
         submissionData.status = 'scheduled';
       }
 

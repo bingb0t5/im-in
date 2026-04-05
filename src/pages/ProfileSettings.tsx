@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { LogOut, MessageCircle, Pencil } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { AuthPromptModal } from '../components/AuthPromptModal';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { supabase } from '../supabase';
@@ -16,6 +17,7 @@ import { guestService, getAccountNameFromUser, isSystemGuestEmail, type Attendee
 
 export default function ProfileSettings({ user }: { user: User | null }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [fullName, setFullName] = useState('');
@@ -60,7 +62,49 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     };
   }, [user]);
 
-  if (!user) return null;
+  const showAuthPrompt = !user && searchParams.get('signin') === 'true';
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-50 pb-20">
+        <main className="max-w-xl mx-auto px-6 pt-2">
+          <div className="space-y-5">
+            <Card className="space-y-3">
+              <h2 className="text-2xl font-black tracking-tight text-slate-900">Your profile</h2>
+              <p className="text-sm text-slate-500">Sign in to manage your details, connect WhatsApp, and keep everything tied to one account.</p>
+            </Card>
+
+            <Card className="space-y-4">
+              <div className="space-y-1">
+                <p className="ui-eyebrow">Sign-in methods</p>
+                <h2 className="text-xl font-black tracking-tight text-slate-900">Email and WhatsApp</h2>
+                <p className="text-sm text-slate-500">Once you sign in, you can keep email as backup and connect WhatsApp through verification.</p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Email backup</p>
+                  <p className="mt-1 text-base font-bold text-slate-900">Not connected yet</p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">WhatsApp verification</p>
+                  <p className="mt-1 text-base font-bold text-slate-900">Not linked yet</p>
+                  <p className="mt-2 text-sm text-slate-500">Add WhatsApp to this account through verification after you sign in.</p>
+                </div>
+              </div>
+            </Card>
+          </div>
+        </main>
+        <AuthPromptModal
+          open={showAuthPrompt}
+          onClose={() => navigate('/profile', { replace: true })}
+          title="Sign in to manage your profile"
+          message="Keep your email and WhatsApp connected to one account and update your profile details."
+        />
+      </div>
+    );
+  }
 
   const handleSave = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();

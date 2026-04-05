@@ -21,13 +21,17 @@ export function mapJoinedBookingsToEvents(bookings: BookingRow[]) {
 }
 
 export function pickNextUpcomingActivity(groups: ActivityRelationshipGroup[]) {
+  return pickUpcomingActivities(groups, 1)[0] || null;
+}
+
+export function pickUpcomingActivities(groups: ActivityRelationshipGroup[], limit = 3) {
   const upcomingEvents = dedupeEventsById(
     groups.flatMap((group) =>
       group.events.filter((event) => isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone)),
     ),
   ).sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime());
 
-  return upcomingEvents[0] || null;
+  return upcomingEvents.slice(0, Math.max(1, limit));
 }
 
 export function filterEventsForQuery(events: Event[], query: string) {
