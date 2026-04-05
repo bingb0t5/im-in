@@ -10,7 +10,8 @@ type MainTabsLayoutProps = {
 export function MainTabsLayout({ user }: MainTabsLayoutProps) {
   const location = useLocation();
   const isLogin = location.pathname === '/login';
-  const showTopBar = !isLogin;
+  const isCreateActivity = location.pathname === '/create-event';
+  const showTopBar = !isLogin && !isCreateActivity;
   /** Home and Explore share the same fixed header (logo + tagline + search); needs enough offset so first content (e.g. day headings) is not covered. */
   const hasHeaderSearch = location.pathname === '/' || location.pathname === '/explore' || location.pathname === '/calendar';
 
