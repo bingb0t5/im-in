@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
-import { MessageCircle, Pencil } from 'lucide-react';
+import { LogOut, MessageCircle, Pencil } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -321,6 +321,17 @@ export default function ProfileSettings({ user }: { user: User | null }) {
 
           {message ? <p className="rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs text-brand-700">{message}</p> : null}
           {error ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p> : null}
+
+          <Button
+            variant="ghost"
+            leadingIcon={<LogOut className="h-4 w-4" />}
+            onClick={async () => {
+              await supabase.auth.signOut();
+              navigate('/login', { replace: true });
+            }}
+          >
+            Log out
+          </Button>
         </div>
       </main>
     </div>
