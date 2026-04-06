@@ -175,6 +175,8 @@ The app includes a global, lightweight prompt system for users who open links in
 - Runtime detection lives in `src/utils/runtimeEnvironment.ts`.
 - Prompt eligibility logic lives in `src/utils/installPromptEligibility.ts`.
 - Local prompt persistence (dismiss timers + one-time post-verify follow-up) lives in `src/utils/inAppBrowserPromptState.ts`.
+- Shared profile input for prompt eligibility lives in `src/hooks/useAttendeeProfile.ts`.
+- Shared post-verify install-prompt request helper lives in `src/utils/postVerifyInstallPrompt.ts`.
 - Global UI/controller lives in `src/components/system/InAppBrowserPrompt.tsx`.
 
 Current behavior:
@@ -186,6 +188,7 @@ Current behavior:
 - After successful WhatsApp verification, a one-time install follow-up can appear.
 - Banner dismissals are stored locally with a 7-day cooldown.
 - If WhatsApp verification is disabled by environment flags, the Verify prompt can still appear, but its Verify CTA is disabled so guidance does not silently disappear.
+- WhatsApp completion paths use one shared handoff (`src/integrations/lalo/completeWhatsAppAuth.ts`) so install follow-up prompt logic is not duplicated per page.
 
 Detection caveat:
 

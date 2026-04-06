@@ -2,6 +2,7 @@ import { User } from '@supabase/supabase-js';
 import { Outlet, useLocation } from 'react-router-dom';
 import { AppBottomNav } from '../components/AppBottomNav';
 import { AppTopBar } from '../components/AppTopBar';
+import { hasMainTabsSearchHeader, showsMainTabsTopBar } from '../lib/mainTabsRoutes';
 
 type MainTabsLayoutProps = {
   user: User | null;
@@ -9,11 +10,9 @@ type MainTabsLayoutProps = {
 
 export function MainTabsLayout({ user }: MainTabsLayoutProps) {
   const location = useLocation();
-  const isLogin = location.pathname === '/login';
-  const isCreateActivity = location.pathname === '/create-event';
-  const showTopBar = !isLogin && !isCreateActivity;
+  const showTopBar = showsMainTabsTopBar(location.pathname);
   /** Home and Explore share the same fixed header (logo + tagline + search); needs enough offset so first content (e.g. day headings) is not covered. */
-  const hasHeaderSearch = location.pathname === '/' || location.pathname === '/explore' || location.pathname === '/calendar';
+  const hasHeaderSearch = hasMainTabsSearchHeader(location.pathname);
 
   const topPadding = showTopBar ? (hasHeaderSearch ? 'pt-34' : 'pt-16') : 'pt-4';
 

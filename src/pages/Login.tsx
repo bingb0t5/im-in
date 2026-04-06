@@ -8,13 +8,12 @@ import { buildAuthRedirectUrl } from '../lib/authRedirect';
 import { Button } from '../components/ui/Button';
 import {
   clearAllLaloAuthState,
-  finalizeLaloWhatsAppAuth,
   getStoredLaloAuthAttempt,
   isLaloWhatsAppAuthEnabled,
 } from '../integrations/lalo/laloAuth';
+import { completeWhatsAppAuth } from '../integrations/lalo/completeWhatsAppAuth';
 import { createImInLaloVerifyClient } from '../integrations/lalo/laloVerifyImInClient';
 import { supabase } from '../supabase';
-import { markPostVerifySuccessPending } from '../utils/inAppBrowserPromptState';
 
 export default function Login({ user }: { user: User | null }) {
   const [searchParams] = useSearchParams();
@@ -41,8 +40,7 @@ export default function Login({ user }: { user: User | null }) {
         setError('Verification finished but the session was lost. Try again.');
         return;
       }
-      const result = await finalizeLaloWhatsAppAuth(attempt);
-      markPostVerifySuccessPending();
+      const result = await completeWhatsAppAuth(attempt);
       navigate(result.redirectTo || '/', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not finish signing in.');

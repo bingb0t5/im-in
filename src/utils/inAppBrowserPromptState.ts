@@ -7,6 +7,12 @@ type PersistedPromptState = {
   dismissals: Partial<Record<PromptKind, number>>;
 };
 
+type PersistedPostVerifySuccess = {
+  pending: boolean;
+  userId?: string | null;
+  requestedAt?: number;
+};
+
 function canUseStorage() {
   return typeof window !== 'undefined';
 }
@@ -51,12 +57,38 @@ export function clearPromptDismissal(kind: PromptKind) {
 
 export function markPostVerifySuccessPending() {
   if (!canUseStorage()) return;
-  window.sessionStorage.setItem(POST_VERIFY_SUCCESS_KEY, '1');
+  const payload: PersistedPostVerifySuccess = {
+    pending: true,
+    requestedAt: Date.now(),
+  };
+  window.sessionStorage.setItem(POST_VERIFY_SUCCESS_KEY, JSON.stringify(payload));
 }
 
-export function isPostVerifySuccessPending() {
+export function markPostVerifySuccessPendingForUser(userId?: string | null) {
+  if (!canUseStorage()) return;
+  const payload: PersistedPostVerifySuccess = {
+    pending: true,
+    userId: userId || null,
+    requestedAt: Date.now(),
+  };
+  window.sessionStorage.setItem(POST_VERIFY_SUCCESS_KEY, JSON.stringify(payload));
+}
+
+export function isPostVerifySuccessPending(currentUserId?: string | null) {
   if (!canUseStorage()) return false;
-  return window.sessionStorage.getItem(POST_VERIFY_SUCCESS_KEY) === '1';
+  const raw = window.sessionStorage.getItem(POST_VERIFY_SUCCESS_KEY);
+  if (!raw) return false;
+
+  if (raw === '1') return true;
+
+  try {
+    const parsed = JSON.parse(raw) as PersistedPostVerifySuccess;
+    if (!parsed.pending) return false;
+    if (!parsed.userId || !currentUserId) return true;
+    return parsed.userId === currentUserId;
+  } catch {
+    return false;
+  }
 }
 
 export function clearPostVerifySuccessPending() {

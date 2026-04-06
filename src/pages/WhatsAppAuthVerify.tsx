@@ -6,14 +6,13 @@ import { LaloVerifyOverlay } from '../components/auth/LaloVerifyOverlay';
 import {
   LALO_AUTH_POLL_INTERVAL_MS,
   clearAllLaloAuthState,
-  finalizeLaloWhatsAppAuth,
   getLaloWhatsAppStatus,
   getStoredLaloAuthAttempt,
   isLaloWhatsAppAuthEnabled,
   isStoredLaloAttemptExpired,
   type StoredLaloAuthAttempt,
 } from '../integrations/lalo/laloAuth';
-import { markPostVerifySuccessPending } from '../utils/inAppBrowserPromptState';
+import { completeWhatsAppAuth } from '../integrations/lalo/completeWhatsAppAuth';
 
 type ParsedWhatsAppLinks = {
   appLink: string;
@@ -137,8 +136,7 @@ export default function WhatsAppAuthVerify() {
     setOpenFailure(null);
 
     try {
-      const result = await finalizeLaloWhatsAppAuth(activeAttempt);
-      markPostVerifySuccessPending();
+      const result = await completeWhatsAppAuth(activeAttempt);
       navigate('/auth/whatsapp/success', {
         replace: true,
         state: {

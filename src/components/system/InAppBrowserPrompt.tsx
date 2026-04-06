@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '../ui/Button';
 import { AddToHomeScreenHelpSheet } from './AddToHomeScreenHelpSheet';
 import { WhyVerifySheet } from './WhyVerifySheet';
-import { AttendeeProfile, guestService } from '../../services/guestService';
+import { useAttendeeProfile } from '../../hooks/useAttendeeProfile';
 import {
   clearPostVerifySuccessPending,
   clearPromptDismissal,
@@ -15,6 +15,7 @@ import {
 import { getPromptDecision } from '../../utils/installPromptEligibility';
 import { detectRuntimeEnvironment } from '../../utils/runtimeEnvironment';
 import { isLaloWhatsAppAuthEnabled } from '../../integrations/lalo/laloAuth';
+import { isMainTabsRoute } from '../../lib/mainTabsRoutes';
 
 type InAppBrowserPromptProps = {
   user: User | null;
@@ -24,48 +25,28 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const env = useMemo(() => detectRuntimeEnvironment(), []);
-  const [profile, setProfile] = useState<AttendeeProfile | null>(null);
+  const { profile, refreshProfile } = useAttendeeProfile(user);
   const [showWhyVerify, setShowWhyVerify] = useState(false);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
   const [showPostVerifySuccess, setShowPostVerifySuccess] = useState(false);
-  const [storageVersion, setStorageVersion] = useState(0);
-  const [profileRefreshNonce, setProfileRefreshNonce] = useState(0);
   const laloEnabled = isLaloWhatsAppAuthEnabled();
 
   useEffect(() => {
-    if (!user) {
-      setProfile(null);
-      return;
-    }
-    let cancelled = false;
-    void guestService.getProfileForUser(user).then((nextProfile) => {
-      if (!cancelled) setProfile(nextProfile);
-    }).catch(() => {
-      if (!cancelled) setProfile(null);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id, profileRefreshNonce]);
-
-  useEffect(() => {
-    if (!env.isInAppBrowser || env.isStandalone || !isPostVerifySuccessPending()) {
+    if (!env.isInAppBrowser || env.isStandalone || !isPostVerifySuccessPending(user?.id || null)) {
       return;
     }
     // Post-verify success should also trigger a profile refresh so prompt
     // eligibility can switch from verify to install without a full reload.
-    if (user) {
-      setProfileRefreshNonce((prev) => prev + 1);
-    }
+    refreshProfile();
     clearPromptDismissal('verify_whatsapp');
     setShowPostVerifySuccess(true);
-  }, [env.isInAppBrowser, env.isStandalone, location.key, user?.id]);
+  }, [env.isInAppBrowser, env.isStandalone, location.key, refreshProfile, user?.id]);
 
   useEffect(() => {
-    if (env.isStandalone && isPostVerifySuccessPending()) {
+    if (env.isStandalone && isPostVerifySuccessPending(user?.id || null)) {
       clearPostVerifySuccessPending();
     }
-  }, [env.isStandalone]);
+  }, [env.isStandalone, user?.id]);
 
   const debugPromptOverride = useMemo(() => {
     if (!import.meta.env.DEV) return null;
@@ -102,7 +83,6 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
   const dismissBanner = () => {
     if (effectivePromptDecision === 'none') return;
     dismissPromptForDays(effectivePromptDecision, 7);
-    setStorageVersion((prev) => prev + 1);
   };
 
   const goVerify = () => {
@@ -119,33 +99,19 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
   };
 
   const handleSuccessContinue = () => {
-    if (user) {
-      setProfileRefreshNonce((prev) => prev + 1);
-    }
+    refreshProfile();
     clearPostVerifySuccessPending();
     setShowPostVerifySuccess(false);
   };
 
   const handleSuccessShowHelp = () => {
-    if (user) {
-      setProfileRefreshNonce((prev) => prev + 1);
-    }
+    refreshProfile();
     clearPostVerifySuccessPending();
     setShowPostVerifySuccess(false);
     setShowInstallHelp(true);
   };
 
-  const isTabsRoute =
-    location.pathname === '/'
-    || location.pathname.startsWith('/explore')
-    || location.pathname.startsWith('/calendar')
-    || location.pathname.startsWith('/create-event')
-    || location.pathname.startsWith('/my-activities')
-    || location.pathname.startsWith('/profile')
-    || location.pathname.startsWith('/login');
-
-  // Touch storageVersion so banner re-renders immediately after dismiss.
-  void storageVersion;
+  const isTabsRoute = isMainTabsRoute(location.pathname);
 
   return (
     <>
