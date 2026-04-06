@@ -23,20 +23,24 @@ type LaloStartResponse = {
 type LaloStatusResponse =
   | {
       status: 'pending';
+      wa_id?: string | null;
     }
   | {
       status: 'completed';
       lalo_user_id: string;
       is_new_user: boolean;
+      wa_id: string | null;
     }
   | {
       status: 'expired' | 'cancelled';
+      wa_id?: string | null;
     };
 
 type LaloExchangeResponse = {
   trusted: true;
   lalo_user_id: string;
   is_new_user: boolean;
+  wa_id: string | null;
 };
 
 export type AttendeeProfileRow = {
@@ -536,9 +540,10 @@ export async function mergeLaloAccountIntoUser(
   };
 }
 
-export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: string) {
+export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: string, waId?: string | null) {
   const syntheticEmail = buildLaloSyntheticEmail(laloUserId);
   const temporaryPassword = generatePassword();
+  const normalizedWhatsappNumber = normalizeWhatsappNumber(waId);
   const verifiedAt = new Date().toISOString();
 
   let profile: AttendeeProfileRow | null = null;
@@ -575,6 +580,8 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
   let metadata = {
     auth_provider: nextAuthProvider,
     lalo_user_id: laloUserId,
+    whatsapp_number: normalizedWhatsappNumber,
+    whatsapp_verified_at: verifiedAt,
   };
   const profileEmail = profile?.email?.trim() || syntheticEmail;
   const shouldUseSyntheticCredentials = normalizeEmail(profileEmail) === normalizeEmail(syntheticEmail);
@@ -607,6 +614,8 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
       metadata = {
         auth_provider: nextAuthProvider,
         lalo_user_id: laloUserId,
+        whatsapp_number: normalizedWhatsappNumber,
+        whatsapp_verified_at: verifiedAt,
       };
       await mergeProfileRecords(
         admin,
@@ -615,8 +624,8 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
         userId,
         nextAuthProvider,
         laloUserId,
-        canonicalProfile.whatsapp_number || null,
-        canonicalProfile.whatsapp_verified_at || verifiedAt,
+        normalizedWhatsappNumber,
+        verifiedAt,
         preferredEmail || normalizeEmail(canonicalProfile.email) || syntheticEmail,
       );
 
@@ -626,7 +635,8 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
         email: preferredEmail || canonicalProfile.email,
         lalo_user_id: laloUserId,
         user_id: userId,
-        whatsapp_verified_at: canonicalProfile.whatsapp_verified_at || verifiedAt,
+        whatsapp_number: normalizedWhatsappNumber,
+        whatsapp_verified_at: verifiedAt,
       };
     }
 
@@ -698,6 +708,7 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
       .update({
         auth_provider: nextAuthProvider,
         lalo_user_id: laloUserId,
+        whatsapp_number: normalizedWhatsappNumber,
         whatsapp_verified_at: verifiedAt,
         user_id: userId,
         email: signInEmail,
@@ -713,6 +724,7 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
       .insert({
         auth_provider: nextAuthProvider,
         lalo_user_id: laloUserId,
+        whatsapp_number: normalizedWhatsappNumber,
         whatsapp_verified_at: verifiedAt,
         user_id: userId,
         email: signInEmail,
@@ -738,10 +750,10 @@ export async function linkExistingUserToLaloIdentity(
   admin: SupabaseClient,
   user: SupabaseUser,
   laloUserId: string,
-  whatsappNumber?: string | null,
+  waId?: string | null,
 ) {
   const normalizedEmail = normalizeEmail(user.email);
-  const normalizedWhatsappNumber = normalizeWhatsappNumber(whatsappNumber);
+  const normalizedWhatsappNumber = normalizeWhatsappNumber(waId);
   const verifiedAt = new Date().toISOString();
 
   const { data: existingByLalo, error: existingByLaloError } = await admin

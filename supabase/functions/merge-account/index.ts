@@ -151,37 +151,59 @@ async function completeMerge(request: Request) {
     return json({ error: 'That merge request points back to the current account.' }, { status: 409 });
   }
 
-  const sourceProfile = await getLatestProfileByUserId(admin, mergeRequest.source_user_id);
-  if (!sourceProfile?.lalo_user_id) {
-    return json({ error: 'The WhatsApp account to merge could not be found anymore.' }, { status: 404 });
-  }
-
-  const targetProfile = await getBestTargetProfile(admin, targetUser.id, targetUser.email || '');
-  const mergeResult = await mergeLaloAccountIntoUser(
-    admin,
-    targetUser,
-    sourceProfile,
-    targetProfile,
-    sourceProfile.lalo_user_id,
-    sourceProfile.whatsapp_number || null,
-    sourceProfile.whatsapp_verified_at || new Date().toISOString(),
-  );
-
-  const { error: consumeError } = await admin
+  const claimedAt = new Date().toISOString();
+  const { data: claimedRequest, error: claimError } = await admin
     .from('account_merge_requests')
-    .update({ consumed_at: new Date().toISOString() })
-    .eq('id', mergeRequest.id);
+    .update({ consumed_at: claimedAt })
+    .eq('id', mergeRequest.id)
+    .is('consumed_at', null)
+    .select('id')
+    .maybeSingle();
 
-  if (consumeError) {
-    throw Object.assign(new Error(consumeError.message), { status: 500 });
+  if (claimError) {
+    throw Object.assign(new Error(claimError.message), { status: 500 });
   }
 
-  return json({
-    merged: true,
-    target_user_id: targetUser.id,
-    target_email: normalizedTargetEmail,
-    profile_id: mergeResult.profileId,
-  });
+  if (!claimedRequest?.id) {
+    return json({ error: 'That merge request has already been used.' }, { status: 409 });
+  }
+
+  try {
+    const sourceProfile = await getLatestProfileByUserId(admin, mergeRequest.source_user_id);
+    if (!sourceProfile?.lalo_user_id) {
+      return json({ error: 'The WhatsApp account to merge could not be found anymore.' }, { status: 404 });
+    }
+
+    const targetProfile = await getBestTargetProfile(admin, targetUser.id, targetUser.email || '');
+    const mergeResult = await mergeLaloAccountIntoUser(
+      admin,
+      targetUser,
+      sourceProfile,
+      targetProfile,
+      sourceProfile.lalo_user_id,
+      sourceProfile.whatsapp_number || null,
+      sourceProfile.whatsapp_verified_at || new Date().toISOString(),
+    );
+
+    return json({
+      merged: true,
+      target_user_id: targetUser.id,
+      target_email: normalizedTargetEmail,
+      profile_id: mergeResult.profileId,
+    });
+  } catch (error) {
+    const { error: releaseClaimError } = await admin
+      .from('account_merge_requests')
+      .update({ consumed_at: null })
+      .eq('id', mergeRequest.id)
+      .eq('consumed_at', claimedAt);
+
+    if (releaseClaimError) {
+      console.error('Could not release failed account merge claim:', releaseClaimError.message);
+    }
+
+    throw error;
+  }
 }
 
 Deno.serve(async (request) => {

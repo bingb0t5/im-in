@@ -5,15 +5,50 @@ import { CheckCircle2 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { StateScreen } from '../components/ui/StateScreen';
 import { accountMergeClient } from '../integrations/accountMerge/accountMergeClient';
+import { supabase } from '../supabase';
 
-export default function AccountMergeComplete({ user }: { user: User | null }) {
+const TRANSIENT_MERGE_ERROR_RE = /failed to send a request to the edge function|networkerror|load failed|fetch failed/i;
+
+function formatMergeError(error: unknown) {
+  const message = error instanceof Error ? error.message : 'Could not merge your accounts.';
+  if (TRANSIENT_MERGE_ERROR_RE.test(message)) {
+    return 'We could not reach the merge service yet. If this link opened inside an email app, reopen the latest merge link in your browser and try again.';
+  }
+
+  return message;
+}
+
+export default function AccountMergeComplete({ user: userFromApp }: { user: User | null }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('Finishing your account merge...');
   const [error, setError] = useState<string | null>(null);
   const hasStartedRef = useRef(false);
+  const [sessionMirrorUser, setSessionMirrorUser] = useState<User | null>(null);
   const requestId = searchParams.get('request') || '';
+  const user = userFromApp ?? sessionMirrorUser;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!cancelled) {
+        setSessionMirrorUser(session?.user ?? null);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSessionMirrorUser(session?.user ?? null);
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     if (!requestId) {
@@ -35,7 +70,7 @@ export default function AccountMergeComplete({ user }: { user: User | null }) {
         }, 1400);
       } catch (mergeError) {
         setStatus('error');
-        setError(mergeError instanceof Error ? mergeError.message : 'Could not merge your accounts.');
+        setError(formatMergeError(mergeError));
       }
     })();
   }, [navigate, requestId, user]);

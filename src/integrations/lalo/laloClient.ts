@@ -9,20 +9,24 @@ export type LaloStartResponse = {
 export type LaloStatusResponse =
   | {
       status: 'pending';
+      wa_id?: string | null;
     }
   | {
       status: 'completed';
       lalo_user_id: string;
       is_new_user: boolean;
+      wa_id: string | null;
     }
   | {
       status: 'expired' | 'cancelled';
+      wa_id?: string | null;
     };
 
 export type LaloCompleteResponse = {
   trusted: true;
   lalo_user_id: string;
   is_new_user: boolean;
+  wa_id: string | null;
   sign_in_email: string;
   sign_in_password: string;
 };
@@ -32,6 +36,7 @@ export type LaloLinkResponse = {
   linked: true;
   merged?: boolean;
   lalo_user_id: string;
+  wa_id: string | null;
   whatsapp_number: string | null;
 };
 

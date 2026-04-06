@@ -11,7 +11,6 @@ import {
   clearAllLaloAuthState,
   clearAllLaloStateForSignOut,
   isLaloWhatsAppAuthEnabled,
-  startLaloWhatsAppAuth,
 } from '../integrations/lalo/laloAuth';
 import { accountMergeClient } from '../integrations/accountMerge/accountMergeClient';
 import { guestService, getAccountNameFromUser, isSystemGuestEmail, type AttendeeProfile } from '../services/guestService';
@@ -131,7 +130,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     }
   };
 
-  const handleStartWhatsappVerification = async () => {
+  const handleStartWhatsappVerification = () => {
     if (!isLaloWhatsAppAuthEnabled()) {
       setError('WhatsApp verification is not enabled yet.');
       return;
@@ -141,17 +140,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     setError(null);
     setMessage(null);
     clearAllLaloAuthState();
-
-    try {
-      await startLaloWhatsAppAuth('/profile', {
-        mode: 'link_account',
-      });
-
-      navigate('/auth/whatsapp/verify', { replace: true });
-    } catch (startError) {
-      setError(startError instanceof Error ? startError.message : 'Could not start WhatsApp verification.');
-      setWhatsappLoading(false);
-    }
+    navigate('/auth/whatsapp/verify?mode=link_existing&autostart=1&returnTo=%2Fprofile', { replace: true });
   };
 
   const handleStartAccountMerge = async (e: FormEvent<HTMLFormElement>) => {

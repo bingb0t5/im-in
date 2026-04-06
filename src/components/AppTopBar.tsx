@@ -4,6 +4,7 @@ import { CircleHelp, LogIn, LogOut, Menu, MessageSquarePlus, Search, Shield, Use
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { clearAllLaloStateForSignOut } from '../integrations/lalo/laloAuth';
+import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { cn } from '../utils';
 import { useNotifications } from '../hooks/useNotifications';
 import { NotificationItem } from '../types';
@@ -15,6 +16,8 @@ type AppTopBarProps = {
   user: User | null;
 };
 
+const REPLY_TO_HOST_ACTION = 'im-in://reply-to-host';
+
 export function AppTopBar({ user }: AppTopBarProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -22,6 +25,10 @@ export function AppTopBar({ user }: AppTopBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<NotificationItem | null>(null);
+  const [replyNotification, setReplyNotification] = useState<NotificationItem | null>(null);
+  const [replyMessage, setReplyMessage] = useState('');
+  const [replySending, setReplySending] = useState(false);
+  const [replyFeedback, setReplyFeedback] = useState<string | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const {
@@ -33,6 +40,7 @@ export function AppTopBar({ user }: AppTopBarProps) {
     markRead,
     markAllRead,
   } = useNotifications(user);
+  useBodyScrollLock(!!replyNotification);
 
   const isHome = location.pathname === '/';
   const isExplore = location.pathname === '/explore' || location.pathname === '/calendar';
@@ -52,6 +60,9 @@ export function AppTopBar({ user }: AppTopBarProps) {
   useEffect(() => {
     setNotificationsOpen(false);
     setSelectedNotification(null);
+    setReplyNotification(null);
+    setReplyMessage('');
+    setReplyFeedback(null);
   }, [location.pathname, location.search]);
 
   useEffect(() => {
@@ -150,6 +161,44 @@ export function AppTopBar({ user }: AppTopBarProps) {
       ...notification,
       read_at: readAt,
     });
+  };
+
+  const getReplyEventLabel = (notification: NotificationItem | null) => {
+    if (!notification) return 'this activity';
+    const eventTitle = notification.metadata?.event_title;
+    if (typeof eventTitle === 'string' && eventTitle.trim()) {
+      return eventTitle.trim();
+    }
+    return notification.title;
+  };
+
+  const handleSendReply = async () => {
+    if (!replyNotification?.event_id) {
+      setReplyFeedback('This notification is missing activity details.');
+      return;
+    }
+    if (!replyMessage.trim()) {
+      setReplyFeedback('Write a reply first.');
+      return;
+    }
+
+    try {
+      setReplySending(true);
+      setReplyFeedback(null);
+      const { data, error } = await supabase.rpc('reply_to_event_hosts', {
+        p_event_id: replyNotification.event_id,
+        p_message: replyMessage.trim(),
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error as string);
+      const sentCount = Number(data?.sent_count || 0);
+      setReplyFeedback(`Reply sent to ${sentCount} host${sentCount === 1 ? '' : 's'}.`);
+      setReplyMessage('');
+    } catch (error: any) {
+      setReplyFeedback(error?.message || 'Could not send your reply right now.');
+    } finally {
+      setReplySending(false);
+    }
   };
 
   const handleMenuSignOut = async () => {
@@ -323,6 +372,14 @@ export function AppTopBar({ user }: AppTopBarProps) {
         onClose={() => setSelectedNotification(null)}
         onAction={(notification) => {
           if (!notification.action_url) return;
+          if (notification.action_url === REPLY_TO_HOST_ACTION) {
+            setReplyNotification(notification);
+            setReplyMessage('');
+            setReplyFeedback(null);
+            setSelectedNotification(null);
+            setNotificationsOpen(false);
+            return;
+          }
           if (notification.action_url.startsWith('/')) {
             navigate(notification.action_url);
           } else {
@@ -332,6 +389,61 @@ export function AppTopBar({ user }: AppTopBarProps) {
           setNotificationsOpen(false);
         }}
       />
+      {replyNotification ? (
+        <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 sm:p-6">
+          <button
+            type="button"
+            onClick={() => setReplyNotification(null)}
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+            aria-label="Close reply modal"
+          />
+          <div className="relative z-[180] w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setReplyNotification(null)}
+              className="absolute right-3 top-3 rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Reply</p>
+            <h3 className="mt-1 pr-8 text-xl font-black tracking-tight text-slate-900">Message the host</h3>
+            <p className="mt-2 text-sm text-slate-500">
+              Send a quick reply about <span className="font-semibold text-slate-700">{getReplyEventLabel(replyNotification)}</span>.
+            </p>
+            <label className="mt-4 block">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Message</span>
+              <textarea
+                value={replyMessage}
+                onChange={(event) => setReplyMessage(event.target.value)}
+                rows={4}
+                placeholder="Write your reply..."
+                className="mt-1 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
+              />
+            </label>
+            {replyFeedback ? (
+              <p className="mt-3 text-xs font-bold text-slate-500">{replyFeedback}</p>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setReplyNotification(null)}
+                className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSendReply()}
+                disabled={replySending || !replyMessage.trim()}
+                className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-brand-500 disabled:opacity-50"
+              >
+                {replySending ? 'Sending...' : 'Send reply'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </header>
   );
 }

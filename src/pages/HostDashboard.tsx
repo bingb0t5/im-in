@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
@@ -51,6 +51,7 @@ type PrivateAccessUser = {
 };
 
 type HostDashboardTab = 'requests' | 'people' | 'share' | 'settings';
+type NotificationActionOption = 'none' | 'view_activity' | 'reply';
 
 export default function HostDashboard({ user }: { user: User | null }) {
   const CREATE_EVENT_SUCCESS_KEY = 'im_in_recently_created_event_id';
@@ -89,6 +90,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [lookupCandidate, setLookupCandidate] = useState<InAppShareCandidate | null>(null);
   const [lookupNotFound, setLookupNotFound] = useState(false);
   const [showInAppSharePrompt, setShowInAppSharePrompt] = useState(false);
+  const [showInAppShareModal, setShowInAppShareModal] = useState(false);
   const [eventAccessLog, setEventAccessLog] = useState<EventAccessLogEntry[]>([]);
   const [eventAccessLogLoading, setEventAccessLogLoading] = useState(false);
   const [eventAccessLogError, setEventAccessLogError] = useState<string | null>(null);
@@ -101,12 +103,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [selectedNotificationUserIds, setSelectedNotificationUserIds] = useState<string[]>([]);
   const [notificationTitle, setNotificationTitle] = useState('');
   const [notificationMessage, setNotificationMessage] = useState('');
-  const [notificationActionUrl, setNotificationActionUrl] = useState('');
+  const [notificationAction, setNotificationAction] = useState<NotificationActionOption>('view_activity');
   const [notificationSending, setNotificationSending] = useState(false);
   const [notificationSendMessage, setNotificationSendMessage] = useState<string | null>(null);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [settingsSavingKey, setSettingsSavingKey] = useState<string | null>(null);
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<HostDashboardTab>('requests');
   const [showShareInsights, setShowShareInsights] = useState(false);
-  const inAppShareSectionRef = useRef<HTMLElement | null>(null);
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
     show: boolean;
@@ -116,7 +120,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
   }>({ show: false, type: 'event', id: '' });
   const [confirmText, setConfirmText] = useState('');
 
-  useBodyScrollLock(showAddModal || showCreateSuccessModal || showDeleteModal.show || showManualShareModal);
+  useBodyScrollLock(
+    showAddModal
+    || showCreateSuccessModal
+    || showDeleteModal.show
+    || showManualShareModal
+    || showInAppShareModal
+    || showNotificationModal,
+  );
 
   const pickFirstNonEmpty = (...values: Array<string | null | undefined>) =>
     values.map((value) => (value || '').trim()).find(Boolean) || '';
@@ -288,6 +299,43 @@ export default function HostDashboard({ user }: { user: User | null }) {
       setSelectedNotificationUserIds([]);
     } finally {
       setNotificationRecipientsLoading(false);
+    }
+  };
+
+  const openNotificationModal = () => {
+    if (!event) return;
+    void fetchNotificationRecipients(event.id);
+    setShowNotificationModal(true);
+  };
+
+  const openInAppShareModal = () => {
+    if (!event) return;
+    void fetchInAppShareCandidates(event.id);
+    setShowInAppShareModal(true);
+  };
+
+  const updateEventSettings = async (updates: Partial<Event>, successMessage: string) => {
+    if (!event) return;
+    const updateKey = Object.keys(updates)[0] || 'settings';
+
+    try {
+      setSettingsSavingKey(updateKey);
+      setSettingsMessage(null);
+      const { data, error } = await supabase
+        .from('events')
+        .update(updates)
+        .eq('id', event.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setEvent((prev) => (prev ? { ...prev, ...(data as Partial<Event>) } : prev));
+      setSettingsMessage(successMessage);
+    } catch (error: any) {
+      setSettingsMessage(error?.message || 'Could not save settings right now.');
+    } finally {
+      setSettingsSavingKey(null);
     }
   };
 
@@ -491,14 +539,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
     if (routeState?.openInAppShare) {
       setActiveTab('share');
       setShowInAppSharePrompt(true);
+      setShowInAppShareModal(true);
     }
   }, [location.state]);
-
-  useEffect(() => {
-    if (!showInAppSharePrompt) return;
-    setActiveTab('share');
-    inAppShareSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [showInAppSharePrompt]);
 
   const clearCreateSuccessState = () => {
     sessionStorage.removeItem(CREATE_EVENT_SUCCESS_KEY);
@@ -600,14 +643,29 @@ export default function HostDashboard({ user }: { user: User | null }) {
     try {
       setNotificationSending(true);
       setNotificationSendMessage(null);
+      const actionConfig =
+        notificationAction === 'view_activity'
+          ? {
+              actionUrl: `/events/${event.private_slug || event.join_code || event.slug}`,
+              actionLabel: 'View activity',
+            }
+          : notificationAction === 'reply'
+            ? {
+                actionUrl: 'im-in://reply-to-host',
+                actionLabel: 'Reply',
+              }
+            : {
+                actionUrl: null,
+                actionLabel: null,
+              };
       const { data, error } = await supabase.rpc('host_send_activity_notification', {
         p_event_id: event.id,
         p_target: notificationTarget,
         p_user_ids: notificationTarget === 'selected' ? selectedNotificationUserIds : [],
         p_title: notificationTitle.trim() || null,
         p_message: notificationMessage.trim(),
-        p_action_url: notificationActionUrl.trim() || null,
-        p_action_label: notificationActionUrl.trim() ? 'Open activity' : null,
+        p_action_url: actionConfig.actionUrl,
+        p_action_label: actionConfig.actionLabel,
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error as string);
@@ -616,7 +674,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
       setNotificationSendMessage(`Notification sent to ${sentCount} account${sentCount === 1 ? '' : 's'}.`);
       setNotificationTitle('');
       setNotificationMessage('');
-      setNotificationActionUrl('');
+      setNotificationAction('view_activity');
+      setShowNotificationModal(false);
       if (notificationTarget === 'selected') {
         setSelectedNotificationUserIds([]);
       }
@@ -973,7 +1032,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
           show_host_publicly: event.show_host_publicly,
           visibility: event.visibility || (event.is_public ? 'public' : 'private'),
           allow_waitlist: event.allow_waitlist,
+          require_host_approval_for_join: event.require_host_approval_for_join,
           is_public: event.is_public,
+          public_discovery_enabled: event.public_discovery_enabled,
           require_guest_email_for_join: event.require_guest_email_for_join,
           copied_from_event_id: event.id,
           host_user_id: user?.id,
@@ -1228,22 +1289,51 @@ export default function HostDashboard({ user }: { user: User | null }) {
       <main className="max-w-2xl mx-auto px-4 pt-6 space-y-6">
         {/* At-a-glance row: When · Going · Waitlist */}
         <section className="grid grid-cols-3 gap-3">
-          <div className="col-span-1 bg-white p-3 rounded-2xl flex flex-col justify-between">
-            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-1">When</p>
-            <p className="text-xs font-bold text-slate-900 leading-snug">{formatDate(event.starts_at, event.timezone)}</p>
-            <p className="text-[10px] text-slate-400 mt-1">{formatDurationMinutes(event.duration_minutes)}</p>
+          <div className="col-span-1 rounded-2xl bg-white px-3 py-2.5">
+            <p className="mb-1 text-[9px] font-medium uppercase tracking-widest text-slate-400">When</p>
+            <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
+              <p className="text-xs font-bold leading-snug text-slate-900">{formatDate(event.starts_at, event.timezone)}</p>
+              <span className="text-[10px] text-slate-400">{formatDurationMinutes(event.duration_minutes)}</span>
+            </div>
           </div>
-          <div className="bg-white p-3 rounded-2xl">
-            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-1">Going</p>
-            <p className="text-lg font-bold text-slate-900 tracking-tight">{confirmed.length} <span className="text-slate-300 text-base font-light">/</span> {event.capacity}</p>
+          <button
+            type="button"
+            onClick={() => setActiveTab('people')}
+            className="rounded-2xl bg-white px-3 py-2.5 text-left transition-all hover:bg-slate-50 active:scale-[0.99]"
+            aria-label="View people going to this activity"
+          >
+            <p className="mb-1 text-[9px] font-medium uppercase tracking-widest text-slate-400">Going</p>
+            <p className="text-lg font-bold tracking-tight text-slate-900">{confirmed.length} <span className="text-base font-light text-slate-300">/</span> {event.capacity}</p>
             {pendingApprovalAttendees.length > 0 ? (
-              <p className="text-[10px] text-slate-400 mt-1">{pendingApprovalAttendees.length} pending approval</p>
+              <p className="mt-0.5 text-[10px] text-slate-400">{pendingApprovalAttendees.length} pending approval</p>
             ) : null}
-          </div>
-          <div className="bg-white p-3 rounded-2xl">
-            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest mb-1">Waitlist</p>
-            <p className="text-lg font-bold text-slate-900 tracking-tight">{waitlist.length}</p>
-          </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('people')}
+            className="rounded-2xl bg-white px-3 py-2.5 text-left transition-all hover:bg-slate-50 active:scale-[0.99]"
+            aria-label="View activity waitlist"
+          >
+            <p className="mb-1 text-[9px] font-medium uppercase tracking-widest text-slate-400">Waitlist</p>
+            <p className="text-lg font-bold tracking-tight text-slate-900">{waitlist.length}</p>
+          </button>
+        </section>
+
+        <section className="space-y-2">
+          <button
+            type="button"
+            onClick={openNotificationModal}
+            className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition-all hover:border-brand-200 hover:bg-brand-50/40 active:scale-[0.99]"
+          >
+            <div>
+              <p className="text-sm font-black tracking-tight text-brand-600">Send Notification</p>
+              <p className="mt-0.5 text-xs text-slate-500">Send an in-app update to your guests.</p>
+            </div>
+            <MessageSquare className="h-5 w-5 text-brand-600" />
+          </button>
+          {notificationSendMessage ? (
+            <p className="px-1 text-xs font-bold text-slate-500">{notificationSendMessage}</p>
+          ) : null}
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-1">
@@ -1383,7 +1473,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
           </div>
           {event.join_code ? (
             <div className="mb-4 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-brand-700">Join code</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-brand-700">Join code (case sensitive)</p>
               <p className="mt-1 text-lg font-black tracking-[0.2em] text-slate-900">{event.join_code}</p>
               <p className="mt-1 text-xs text-slate-500">People can enter this on Home to save the activity under Shared with you.</p>
             </div>
@@ -1400,13 +1490,23 @@ export default function HostDashboard({ user }: { user: User | null }) {
                   <span className="text-xs font-bold text-slate-600">Private Link</span>
                 </button>
               </div>
-              <button onClick={() => { void shareWhatsApp(); }} className="w-full bg-brand-600 hover:bg-brand-700 p-4 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
-                <MessageCircle className="w-5 h-5 text-white" />
-                <span className="text-sm font-bold text-white">Share Private Link via WhatsApp</span>
-              </button>
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={() => { void shareWhatsApp(); }} className="bg-brand-600 hover:bg-brand-700 p-4 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
+                  <MessageCircle className="w-5 h-5 text-white" />
+                  <span className="text-sm font-bold text-white">WhatsApp</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={openInAppShareModal}
+                  className="bg-slate-50 hover:bg-slate-100 p-4 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95"
+                >
+                  <Users className="w-5 h-5 text-slate-500" />
+                  <span className="text-sm font-bold text-slate-700">Share In App</span>
+                </button>
+              </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <button onClick={() => { void copyLink(); }} className="bg-slate-50 hover:bg-slate-100 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
                 <Copy className="w-4 h-4 text-slate-400" />
                 <span className="text-xs font-bold text-slate-600">Copy Link</span>
@@ -1415,326 +1515,19 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 <MessageCircle className="w-4 h-4 text-white" />
                 <span className="text-xs font-bold text-white">WhatsApp</span>
               </button>
-            </div>
-          )}
-        </section>
-
-        <section className="bg-white rounded-2xl p-5" ref={inAppShareSectionRef}>
-          {showInAppSharePrompt ? (
-            <div className="mb-4 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3">
-              <p className="text-xs font-black uppercase tracking-[0.14em] text-brand-700">Share in app</p>
-              <p className="mt-1 text-sm text-brand-700">
-                Pick from people who have engaged with your activities before. "Has attended" is prioritized over "Viewed link only".
-              </p>
               <button
                 type="button"
-                onClick={() => setShowInAppSharePrompt(false)}
-                className="mt-2 text-xs font-bold text-brand-700 underline"
+                onClick={openInAppShareModal}
+                className="bg-slate-50 hover:bg-slate-100 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95"
               >
-                Got it
+                <Users className="w-4 h-4 text-slate-500" />
+                <span className="text-xs font-bold text-slate-600">In App</span>
               </button>
-            </div>
-          ) : null}
-
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-black text-brand-600 tracking-tight">Share In App</p>
-            <button
-              type="button"
-              onClick={() => {
-                if (!event) return;
-                void fetchInAppShareCandidates(event.id);
-              }}
-              disabled={inAppShareLoading}
-              className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
-            >
-              Refresh
-            </button>
-          </div>
-
-          <p className="mt-1 text-xs text-slate-500">
-            Suggestions include people who attended or viewed private links for your activities.
-          </p>
-
-          {inAppShareLoading ? (
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
-              Loading recipients...
-            </div>
-          ) : inAppShareCandidates.length > 0 ? (
-            <div className="mt-3 space-y-3">
-              <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
-                {inAppShareCandidates.map((candidate) => {
-                  const checked = selectedShareUserIds.includes(candidate.user_id);
-                  const engagementLabel = getEngagementTagLabel(candidate);
-                  return (
-                    <label key={candidate.user_id} className="flex cursor-pointer items-start gap-3 border-b border-slate-200 px-3 py-3 last:border-b-0">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(evt) => {
-                          setSelectedShareUserIds((prev) => {
-                            if (evt.target.checked) {
-                              if (prev.includes(candidate.user_id)) return prev;
-                              return [...prev, candidate.user_id];
-                            }
-                            return prev.filter((id) => id !== candidate.user_id);
-                          });
-                        }}
-                        className="mt-0.5 h-4 w-4 rounded border-slate-300"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-bold text-slate-800">{candidate.display_name}</p>
-                        <p className="truncate text-xs text-slate-500">
-                          {candidate.email || candidate.whatsapp_number || 'No contact details'}
-                        </p>
-                        <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
-                          {engagementLabel}
-                          {candidate.already_shared ? ' · already shared' : ''}
-                        </p>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedShareUserIds(inAppShareCandidates.map((candidate) => candidate.user_id))}
-                    className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
-                  >
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedShareUserIds([])}
-                    className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
-                  >
-                    Clear
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void shareToSelectedUsers(selectedShareUserIds)}
-                  disabled={inAppShareSaving || selectedShareUserIds.length === 0}
-                  className="rounded-xl bg-brand-600 px-3 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
-                >
-                  {inAppShareSaving ? 'Sharing...' : `Share selected (${selectedShareUserIds.length})`}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
-              No share suggestions yet from your activity history.
             </div>
           )}
-
-          <div className="mt-4 space-y-2">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Add by WhatsApp</p>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={manualWhatsappLookup}
-                onChange={(evt) => {
-                  setManualWhatsappLookup(evt.target.value);
-                  setLookupCandidate(null);
-                  setLookupNotFound(false);
-                }}
-                placeholder="Enter WhatsApp number"
-                className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
-              />
-              <button
-                type="button"
-                onClick={() => void lookupByWhatsapp()}
-                disabled={lookupLoading}
-                className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 disabled:opacity-50"
-              >
-                {lookupLoading ? 'Checking...' : 'Find'}
-              </button>
-            </div>
-
-            {lookupCandidate ? (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                <p className="text-sm font-bold text-slate-800">{lookupCandidate.display_name}</p>
-                <p className="text-xs text-slate-500">{lookupCandidate.email || lookupCandidate.whatsapp_number || 'Linked account found'}</p>
-                <button
-                  type="button"
-                  onClick={() => void shareToSelectedUsers([lookupCandidate.user_id])}
-                  disabled={inAppShareSaving}
-                  className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
-                >
-                  {inAppShareSaving ? 'Sharing...' : 'Share with this account'}
-                </button>
-              </div>
-            ) : null}
-
-            {lookupNotFound ? (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                <p className="text-xs text-slate-500">No linked account found for that number.</p>
-                <button
-                  type="button"
-                  onClick={() => { void openWhatsAppToNumber(manualWhatsappLookup); }}
-                  className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500"
-                >
-                  Send link via WhatsApp instead
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          {inAppShareMessage ? (
-            <p className="mt-3 text-xs font-bold text-slate-500">{inAppShareMessage}</p>
-          ) : null}
         </section>
         </>
         ) : null}
-
-        <section className="bg-white rounded-2xl p-5">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-black text-brand-600 tracking-tight">Send Notification</p>
-            <button
-              type="button"
-              onClick={() => {
-                if (!event) return;
-                void fetchNotificationRecipients(event.id);
-              }}
-              disabled={notificationRecipientsLoading}
-              className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
-            >
-              Refresh audience
-            </button>
-          </div>
-          <p className="mt-1 text-xs text-slate-500">
-            Send an in-app update to people who are related to this activity.
-          </p>
-
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Audience</span>
-              <select
-                value={notificationTarget}
-                onChange={(evt) => setNotificationTarget(evt.target.value as 'all_access' | 'confirmed' | 'waitlist' | 'selected')}
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
-              >
-                <option value="all_access">Everyone with access</option>
-                <option value="confirmed">Confirmed attendees</option>
-                <option value="waitlist">Waitlisted users</option>
-                <option value="selected">Selected users</option>
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Optional title</span>
-              <input
-                type="text"
-                value={notificationTitle}
-                onChange={(evt) => setNotificationTitle(evt.target.value)}
-                placeholder={`Message from host: ${event.title}`}
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
-              />
-            </label>
-          </div>
-
-          <label className="mt-3 block">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Message</span>
-            <textarea
-              value={notificationMessage}
-              onChange={(evt) => setNotificationMessage(evt.target.value)}
-              rows={3}
-              placeholder="Write a short message..."
-              className="mt-1 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
-            />
-          </label>
-
-          <label className="mt-3 block">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Optional action URL</span>
-            <input
-              type="text"
-              value={notificationActionUrl}
-              onChange={(evt) => setNotificationActionUrl(evt.target.value)}
-              placeholder={`/events/${event.private_slug || event.slug}`}
-              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
-            />
-          </label>
-
-          {notificationTarget === 'selected' ? (
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-              {notificationRecipientsLoading ? (
-                <p className="text-sm text-slate-500">Loading recipients...</p>
-              ) : notificationRecipients.length === 0 ? (
-                <p className="text-sm text-slate-500">No eligible recipients found yet.</p>
-              ) : (
-                <>
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Select recipients</p>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedNotificationUserIds(notificationRecipients.map((recipient) => recipient.user_id))}
-                        className="rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-100"
-                      >
-                        All
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedNotificationUserIds([])}
-                        className="rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-100"
-                      >
-                        Clear
-                      </button>
-                    </div>
-                  </div>
-                  <div className="max-h-52 space-y-2 overflow-y-auto">
-                    {notificationRecipients.map((recipient) => {
-                      const checked = selectedNotificationUserIds.includes(recipient.user_id);
-                      return (
-                        <label key={recipient.user_id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(evt) => {
-                              setSelectedNotificationUserIds((prev) => {
-                                if (evt.target.checked) return prev.includes(recipient.user_id) ? prev : [...prev, recipient.user_id];
-                                return prev.filter((id) => id !== recipient.user_id);
-                              });
-                            }}
-                            className="mt-0.5 h-4 w-4 rounded border-slate-300"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-bold text-slate-800">{recipient.display_name}</p>
-                            <p className="truncate text-xs text-slate-500">{recipient.email || 'No email'}</p>
-                            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.11em] text-slate-400">
-                              {recipient.attendee_status || recipient.source}
-                            </p>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
-          ) : null}
-
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <p className="text-xs text-slate-500">
-              {notificationTarget === 'selected'
-                ? `${selectedNotificationUserIds.length} selected`
-                : `${notificationRecipients.length} eligible recipients`}
-            </p>
-            <button
-              type="button"
-              onClick={() => void sendHostNotification()}
-              disabled={notificationSending || !notificationMessage.trim()}
-              className="rounded-xl bg-brand-600 px-4 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
-            >
-              {notificationSending ? 'Sending...' : 'Send notification'}
-            </button>
-          </div>
-
-          {notificationSendMessage ? (
-            <p className="mt-2 text-xs font-bold text-slate-500">{notificationSendMessage}</p>
-          ) : null}
-        </section>
 
         <section className="bg-white rounded-2xl p-4">
           <button
@@ -2174,24 +1967,115 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
         {/* Secondary actions */}
         {activeTab === 'settings' ? (
-        <section className="pt-2 pb-12 flex flex-col items-center gap-4">
-          <button
-            onClick={copyEvent}
-            disabled={actionLoading}
-            className="text-sm text-slate-400 hover:text-slate-600 transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
-          >
-            <Copy className="w-4 h-4" /> Duplicate for next week
-          </button>
-          <button 
-            onClick={() => {
-              setConfirmText('');
-              setShowDeleteModal({ show: true, type: 'event', id: event.id });
-            }}
-            className="text-sm text-red-400 hover:text-red-500 transition-all"
-          >
-            Delete activity
-          </button>
-        </section>
+        <div className="space-y-4 pb-12 pt-2">
+          <section className="rounded-2xl bg-white p-5">
+            <div className="space-y-1">
+              <p className="text-sm font-black tracking-tight text-brand-600">Joining Rules</p>
+              <p className="text-xs text-slate-500">Control how guests can get into this activity.</p>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl bg-slate-50 px-4 py-4">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                  checked={!!event.allow_waitlist}
+                  disabled={settingsSavingKey === 'allow_waitlist'}
+                  onChange={(evt) => {
+                    void updateEventSettings(
+                      { allow_waitlist: evt.target.checked },
+                      evt.target.checked ? 'Waitlist enabled.' : 'Waitlist disabled.',
+                    );
+                  }}
+                />
+                <div>
+                  <p className="text-sm font-bold text-slate-700">Allow waitlist</p>
+                  <p className="text-xs text-slate-400">Let people join the queue when the activity is full.</p>
+                </div>
+              </label>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl bg-slate-50 px-4 py-4">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                  checked={!!event.require_host_approval_for_join}
+                  disabled={settingsSavingKey === 'require_host_approval_for_join'}
+                  onChange={(evt) => {
+                    void updateEventSettings(
+                      { require_host_approval_for_join: evt.target.checked },
+                      evt.target.checked ? 'Join approval enabled.' : 'Join approval disabled.',
+                    );
+                  }}
+                />
+                <div>
+                  <p className="text-sm font-bold text-slate-700">Require approval to join</p>
+                  <p className="text-xs text-slate-400">People request access first, then you approve them from the Requests tab.</p>
+                </div>
+              </label>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl bg-slate-50 px-4 py-4">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                  checked={!!event.require_guest_email_for_join}
+                  disabled={settingsSavingKey === 'require_guest_email_for_join'}
+                  onChange={(evt) => {
+                    void updateEventSettings(
+                      { require_guest_email_for_join: evt.target.checked },
+                      evt.target.checked ? 'Guest email requirement enabled.' : 'Guest email requirement disabled.',
+                    );
+                  }}
+                />
+                <div>
+                  <p className="text-sm font-bold text-slate-700">Require email for guest sign up</p>
+                  <p className="text-xs text-slate-400">A true require-WhatsApp setting is not wired yet. Right now this only enforces email on the direct join flow.</p>
+                </div>
+              </label>
+            </div>
+
+            {settingsMessage ? (
+              <p className="mt-4 text-xs font-bold text-slate-500">{settingsMessage}</p>
+            ) : null}
+          </section>
+
+          <section className="rounded-2xl bg-white p-5">
+            <div className="space-y-1">
+              <p className="text-sm font-black tracking-tight text-brand-600">Notifications</p>
+              <p className="text-xs text-slate-500">Send updates to guests and manage reminder behavior.</p>
+            </div>
+
+            <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-4">
+              <p className="text-sm font-bold text-slate-700">Guest notifications</p>
+              <p className="mt-1 text-xs text-slate-400">Manual host messages are live. Scheduled reminders like "24 hours before" still need backend support.</p>
+              <button
+                type="button"
+                onClick={openNotificationModal}
+                className="mt-3 rounded-xl bg-brand-600 px-4 py-2 text-xs font-bold text-white transition-all hover:bg-brand-500 active:scale-95"
+              >
+                Send notification now
+              </button>
+            </div>
+          </section>
+
+          <section className="flex flex-col items-center gap-4 pt-1">
+            <button
+              onClick={copyEvent}
+              disabled={actionLoading}
+              className="flex items-center gap-1.5 text-sm text-slate-400 transition-all hover:text-slate-600 active:scale-95 disabled:opacity-50"
+            >
+              <Copy className="w-4 h-4" /> Duplicate for next week
+            </button>
+            <button 
+              onClick={() => {
+                setConfirmText('');
+                setShowDeleteModal({ show: true, type: 'event', id: event.id });
+              }}
+              className="text-sm text-red-400 transition-all hover:text-red-500"
+            >
+              Delete activity
+            </button>
+          </section>
+        </div>
         ) : null}
       </main>
 
@@ -2320,6 +2204,387 @@ export default function HostDashboard({ user }: { user: User | null }) {
       </AnimatePresence>
 
       <AnimatePresence>
+        {showInAppShareModal ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden overscroll-contain p-3 sm:p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowInAppShareModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative my-auto max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:p-8"
+            >
+              <div className="mb-5 flex items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black tracking-tight text-slate-900">Share In App</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Suggestions include people who attended or viewed private links for your activities.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowInAppShareModal(false)}
+                  className="rounded-xl p-2 transition-all hover:bg-slate-50"
+                  aria-label="Close share in app modal"
+                >
+                  <X className="h-6 w-6 text-slate-400" />
+                </button>
+              </div>
+
+              {showInAppSharePrompt ? (
+                <div className="mb-4 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3">
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-brand-700">Share in app</p>
+                  <p className="mt-1 text-sm text-brand-700">
+                    Pick from people who have engaged with your activities before. "Has attended" is prioritized over "Viewed link only".
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowInAppSharePrompt(false)}
+                    className="mt-2 text-xs font-bold text-brand-700 underline"
+                  >
+                    Got it
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-black tracking-tight text-brand-600">Suggested accounts</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!event) return;
+                    void fetchInAppShareCandidates(event.id);
+                  }}
+                  disabled={inAppShareLoading}
+                  className="text-xs font-bold text-slate-500 transition-all hover:text-brand-600 disabled:opacity-50"
+                >
+                  Refresh
+                </button>
+              </div>
+
+              {inAppShareLoading ? (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                  Loading recipients...
+                </div>
+              ) : inAppShareCandidates.length > 0 ? (
+                <div className="mt-3 space-y-3">
+                  <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
+                    {inAppShareCandidates.map((candidate) => {
+                      const checked = selectedShareUserIds.includes(candidate.user_id);
+                      const engagementLabel = getEngagementTagLabel(candidate);
+                      return (
+                        <label key={candidate.user_id} className="flex cursor-pointer items-start gap-3 border-b border-slate-200 px-3 py-3 last:border-b-0">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(evt) => {
+                              setSelectedShareUserIds((prev) => {
+                                if (evt.target.checked) {
+                                  if (prev.includes(candidate.user_id)) return prev;
+                                  return [...prev, candidate.user_id];
+                                }
+                                return prev.filter((id) => id !== candidate.user_id);
+                              });
+                            }}
+                            className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-bold text-slate-800">{candidate.display_name}</p>
+                            <p className="truncate text-xs text-slate-500">
+                              {candidate.email || candidate.whatsapp_number || 'No contact details'}
+                            </p>
+                            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                              {engagementLabel}
+                              {candidate.already_shared ? ' · already shared' : ''}
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedShareUserIds(inAppShareCandidates.map((candidate) => candidate.user_id))}
+                        className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                      >
+                        Select all
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedShareUserIds([])}
+                        className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void shareToSelectedUsers(selectedShareUserIds)}
+                      disabled={inAppShareSaving || selectedShareUserIds.length === 0}
+                      className="rounded-xl bg-brand-600 px-3 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
+                    >
+                      {inAppShareSaving ? 'Sharing...' : `Share selected (${selectedShareUserIds.length})`}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                  No share suggestions yet from your activity history.
+                </div>
+              )}
+
+              <div className="mt-4 space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Add by WhatsApp</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={manualWhatsappLookup}
+                    onChange={(evt) => {
+                      setManualWhatsappLookup(evt.target.value);
+                      setLookupCandidate(null);
+                      setLookupNotFound(false);
+                    }}
+                    placeholder="Enter WhatsApp number"
+                    className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void lookupByWhatsapp()}
+                    disabled={lookupLoading}
+                    className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                  >
+                    {lookupLoading ? 'Checking...' : 'Find'}
+                  </button>
+                </div>
+
+                {lookupCandidate ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <p className="text-sm font-bold text-slate-800">{lookupCandidate.display_name}</p>
+                    <p className="text-xs text-slate-500">{lookupCandidate.email || lookupCandidate.whatsapp_number || 'Linked account found'}</p>
+                    <button
+                      type="button"
+                      onClick={() => void shareToSelectedUsers([lookupCandidate.user_id])}
+                      disabled={inAppShareSaving}
+                      className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
+                    >
+                      {inAppShareSaving ? 'Sharing...' : 'Share with this account'}
+                    </button>
+                  </div>
+                ) : null}
+
+                {lookupNotFound ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <p className="text-xs text-slate-500">No linked account found for that number.</p>
+                    <button
+                      type="button"
+                      onClick={() => { void openWhatsAppToNumber(manualWhatsappLookup); }}
+                      className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500"
+                    >
+                      Send link via WhatsApp instead
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              {inAppShareMessage ? (
+                <p className="mt-3 text-xs font-bold text-slate-500">{inAppShareMessage}</p>
+              ) : null}
+            </motion.div>
+          </div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showNotificationModal ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden overscroll-contain p-3 sm:p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowNotificationModal(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative my-auto max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:p-8"
+            >
+              <div className="mb-5 flex items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black tracking-tight text-slate-900">Send Notification</h2>
+                  <p className="mt-1 text-sm text-slate-500">Send an in-app update to people related to this activity.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowNotificationModal(false)}
+                  className="rounded-xl p-2 transition-all hover:bg-slate-50"
+                  aria-label="Close notification modal"
+                >
+                  <X className="h-6 w-6 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Audience</span>
+                  <select
+                    value={notificationTarget}
+                    onChange={(evt) => setNotificationTarget(evt.target.value as 'all_access' | 'confirmed' | 'waitlist' | 'selected')}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
+                  >
+                    <option value="all_access">Everyone with access</option>
+                    <option value="confirmed">Confirmed attendees</option>
+                    <option value="waitlist">Waitlisted users</option>
+                    <option value="selected">Selected users</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Action</span>
+                  <select
+                    value={notificationAction}
+                    onChange={(evt) => setNotificationAction(evt.target.value as NotificationActionOption)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
+                  >
+                    <option value="view_activity">View activity</option>
+                    <option value="reply">Reply</option>
+                    <option value="none">No action button</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="mt-3 block">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Optional title</span>
+                <input
+                  type="text"
+                  value={notificationTitle}
+                  onChange={(evt) => setNotificationTitle(evt.target.value)}
+                  placeholder={`Message from host: ${event.title}`}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
+                />
+              </label>
+
+              <label className="mt-3 block">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Message</span>
+                <textarea
+                  value={notificationMessage}
+                  onChange={(evt) => setNotificationMessage(evt.target.value)}
+                  rows={4}
+                  placeholder="Write a short message..."
+                  className="mt-1 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
+                />
+              </label>
+
+              {notificationTarget === 'selected' ? (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Select recipients</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!event) return;
+                          void fetchNotificationRecipients(event.id);
+                        }}
+                        disabled={notificationRecipientsLoading}
+                        className="rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                      >
+                        Refresh
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedNotificationUserIds(notificationRecipients.map((recipient) => recipient.user_id))}
+                        className="rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-100"
+                      >
+                        All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedNotificationUserIds([])}
+                        className="rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-100"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  {notificationRecipientsLoading ? (
+                    <p className="text-sm text-slate-500">Loading recipients...</p>
+                  ) : notificationRecipients.length === 0 ? (
+                    <p className="text-sm text-slate-500">No eligible recipients found yet.</p>
+                  ) : (
+                    <div className="max-h-52 space-y-2 overflow-y-auto">
+                      {notificationRecipients.map((recipient) => {
+                        const checked = selectedNotificationUserIds.includes(recipient.user_id);
+                        return (
+                          <label key={recipient.user_id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(evt) => {
+                                setSelectedNotificationUserIds((prev) => {
+                                  if (evt.target.checked) return prev.includes(recipient.user_id) ? prev : [...prev, recipient.user_id];
+                                  return prev.filter((id) => id !== recipient.user_id);
+                                });
+                              }}
+                              className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-bold text-slate-800">{recipient.display_name}</p>
+                              <p className="truncate text-xs text-slate-500">{recipient.email || 'No email'}</p>
+                              <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.11em] text-slate-400">
+                                {recipient.attendee_status || recipient.source}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <p className="text-xs text-slate-500">
+                  {notificationTarget === 'selected'
+                    ? `${selectedNotificationUserIds.length} selected`
+                    : `${notificationRecipients.length} eligible recipients`}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowNotificationModal(false)}
+                    className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-bold text-slate-600 transition-all hover:bg-slate-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void sendHostNotification()}
+                    disabled={notificationSending || !notificationMessage.trim()}
+                    className="rounded-xl bg-brand-600 px-4 py-2 text-xs font-bold text-white transition-all hover:bg-brand-500 disabled:opacity-50"
+                  >
+                    {notificationSending ? 'Sending...' : 'Send notification'}
+                  </button>
+                </div>
+              </div>
+
+              {notificationSendMessage ? (
+                <p className="mt-3 text-xs font-bold text-slate-500">{notificationSendMessage}</p>
+              ) : null}
+            </motion.div>
+          </div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {showManualShareModal ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
             <motion.div
@@ -2435,7 +2700,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                     setShowCreateSuccessModal(false);
                     setActiveTab('share');
                     setShowInAppSharePrompt(true);
-                    inAppShareSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    setShowInAppShareModal(true);
                   }}
                   className="w-full bg-slate-50 hover:bg-slate-100 text-brand-700 font-black py-4 rounded-2xl transition-all active:scale-95"
                 >

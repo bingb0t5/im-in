@@ -34,18 +34,16 @@ Deno.serve(async (request) => {
     }
 
     const admin = createAdminClient();
-    const linkedResult = await linkExistingUserToLaloIdentity(
-      admin,
-      user,
-      exchange.lalo_user_id,
-      whatsappNumber || null,
-    );
+    const fallbackWhatsappNumber = whatsappNumber || null;
+    const resolvedWaId = exchange.wa_id ?? fallbackWhatsappNumber;
+    const linkedResult = await linkExistingUserToLaloIdentity(admin, user, exchange.lalo_user_id, resolvedWaId);
 
     return json({
       trusted: true,
       linked: true,
       merged: !!linkedResult.merged,
       lalo_user_id: linkedResult.laloUserId,
+      wa_id: resolvedWaId,
       whatsapp_number: linkedResult.whatsappNumber,
     });
   } catch (error) {
