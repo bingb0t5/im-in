@@ -94,6 +94,7 @@ export type LaloVerifyPanelProps = {
   title: string;
   description: string;
   buttonLabel: string;
+  platformName?: string;
   layout?: 'card' | 'cta';
   helperText?: string;
   currentWhatsAppNumber?: string | null;
@@ -122,6 +123,7 @@ export function LaloVerifyPanel({
   title,
   description,
   buttonLabel,
+  platformName,
   layout = 'card',
   helperText,
   currentWhatsAppNumber,
@@ -143,6 +145,7 @@ export function LaloVerifyPanel({
   const [completionFollowUpError, setCompletionFollowUpError] = React.useState<string | null>(null);
   const [verifyPhase, setVerifyPhase] = React.useState<VerifyScreenPhase>('idle');
   const [copied, setCopied] = React.useState(false);
+  const [isAboutModalOpen, setIsAboutModalOpen] = React.useState(false);
   const [sessionState, setSessionState] = React.useState<SessionStateShape | null>(null);
   const hasTriggeredCompletionRef = React.useRef(false);
   const storageKey = React.useMemo(() => `${storageKeyPrefix}_${flowType}`, [flowType, storageKeyPrefix]);
@@ -151,6 +154,7 @@ export function LaloVerifyPanel({
     setSessionState(null);
     setVerifyPhase('idle');
     setCopied(false);
+    setIsAboutModalOpen(false);
     setCompletionFollowUpError(null);
     setAwaitingHostOnCompleted(false);
     clearPersistedVerify(storageKey);
@@ -376,19 +380,25 @@ export function LaloVerifyPanel({
   const hasDeepLink = Boolean(sessionState?.startData.whatsapp_deep_link);
   const showVerifyScreen = verifyPhase !== 'idle';
   const isCtaLayout = layout === 'cta';
+  const trimmedPlatformName = platformName?.trim() || null;
+  const platformLabel = trimmedPlatformName ?? 'this app';
+  const shouldShowAboutButton = Boolean(sessionState && verifyPhase !== 'verified');
+  const shouldShowCancelButton =
+    Boolean(sessionState) &&
+    (verifyPhase === 'handoff' || verifyPhase === 'waiting' || (verifyPhase === 'verified' && completionFollowUpError));
   /** After Lalo marks complete, keep spinner / "Verifying" until host `onCompleted` finishes (no brief "verified" flash). */
   const overlayVisualPhase: VerifyScreenPhase =
     verifyPhase === 'verified' && (awaitingHostOnCompleted || isBridgingSession) ? 'waiting' : verifyPhase;
-  const verifyTitle = overlayVisualPhase === 'verified' ? 'Verified with Lalo' : 'Verifying with Lalo';
+  const verifyTitle = overlayVisualPhase === 'verified' ? 'Verified with Lalo Verify' : 'Verifying with Lalo Verify';
   const verifyDescription =
     verifyPhase === 'connecting'
-      ? 'Connecting to Lalo Verify System'
+      ? 'Connecting to Lalo Verify'
       : verifyPhase === 'generating'
-        ? 'Generating WhatsApp code'
+        ? 'Generating your secure WhatsApp code'
         : verifyPhase === 'handoff'
-          ? 'We are ready to open WhatsApp in a separate tab. Please send the prefilled message to Lalo Verify, then return to this screen.'
+          ? `We are ready to open WhatsApp. Send the prefilled message to Lalo Verify to confirm your WhatsApp account for ${platformLabel}.`
           : verifyPhase === 'waiting'
-            ? 'Return to this screen after sending the message. Lalo will check automatically.'
+            ? 'Return to this screen after sending the message. Lalo Verify will check automatically.'
             : isBridgingSession || awaitingHostOnCompleted
               ? 'Finalising your sign-in...'
               : successDescription;
@@ -566,6 +576,26 @@ export function LaloVerifyPanel({
                     </div>
                   ) : null}
 
+                  {shouldShowAboutButton ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsAboutModalOpen(true)}
+                      className="w-full rounded-2xl border border-white/12 bg-white/[0.06] px-4 py-3 text-sm font-semibold text-white/88 transition-colors hover:bg-white/[0.1]"
+                    >
+                      What&apos;s Lalo Verify?
+                    </button>
+                  ) : null}
+
+                  {shouldShowCancelButton ? (
+                    <button
+                      type="button"
+                      onClick={clearFlowState}
+                      className="w-full rounded-2xl border border-white/12 bg-transparent px-4 py-3 text-sm font-semibold text-white/76 transition-colors hover:bg-white/[0.06] hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                  ) : null}
+
                   {verifyPhase === 'waiting' ||
                   (verifyPhase === 'verified' && (awaitingHostOnCompleted || isBridgingSession)) ? (
                     <div className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-xs text-white/60 backdrop-blur-sm">
@@ -601,6 +631,59 @@ export function LaloVerifyPanel({
                 </div>
               ) : null}
             </motion.div>
+
+            <AnimatePresence>
+              {isAboutModalOpen ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-[230] flex items-center justify-center bg-black/35 px-4 py-6 backdrop-blur-sm"
+                  onClick={() => setIsAboutModalOpen(false)}
+                >
+                  <motion.div
+                    initial={{ opacity: 0, y: 20, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 20, scale: 0.98 }}
+                    className="w-full max-w-md rounded-[1.75rem] border border-white/12 bg-[#171425]/95 p-5 text-left shadow-[0_24px_80px_rgba(0,0,0,0.32)]"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/45">
+                          Secure WhatsApp verification
+                        </p>
+                        <h4 className="text-2xl font-bold tracking-tight text-white">What&apos;s Lalo Verify?</h4>
+                      </div>
+
+                      <div className="space-y-3 text-sm leading-relaxed text-white/72">
+                        <p>
+                          {platformLabel} uses Lalo Verify to securely confirm that you own the WhatsApp account you&apos;re
+                          registering with.
+                        </p>
+                        <p>
+                          When you continue, WhatsApp opens with a unique prefilled message. Sending it lets Lalo Verify
+                          confirm the request came from your WhatsApp account using WhatsApp&apos;s official APIs.
+                        </p>
+                        <p>
+                          Your verified WhatsApp number can be used for account access and for important updates related
+                          to activities you&apos;ve joined, requested, or are managing in {platformLabel}.
+                        </p>
+                        <p>
+                          Your number is not shared publicly and is not used for unrelated promotional messages from{' '}
+                          {platformLabel} or Lalo Verify. Access is limited to verification, sign-in support, and
+                          relevant activity communication when needed.
+                        </p>
+                      </div>
+
+                      <button type="button" onClick={() => setIsAboutModalOpen(false)} className="lv-overlay-white-cta">
+                        Got it
+                      </button>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
           </motion.div>
         ) : null}
       </AnimatePresence>

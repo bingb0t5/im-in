@@ -231,6 +231,7 @@ export default function Login({ user }: { user: User | null }) {
                         storageKeyPrefix="im_in_lalo_verify_ui"
                         flowType="login"
                         layout="cta"
+                        platformName="I'm In"
                         title="Sign in with WhatsApp"
                         description="Powered by Lalo Verify"
                         buttonLabel="Continue with WhatsApp"
