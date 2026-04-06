@@ -1,5 +1,7 @@
 import { supabase } from '../supabase';
 
+const TRANSIENT_FUNCTION_INVOKE_ERROR_RE = /failed to send a request to the edge function|networkerror|load failed|fetch failed/i;
+
 function extractFunctionErrorMessage(error: unknown) {
   const response = (error as { context?: Response }).context;
   if (response instanceof Response) {
@@ -45,16 +47,46 @@ async function throwDetailedFunctionError(error: unknown) {
   throw new Error(await readFunctionErrorMessage(error));
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isTransientFunctionInvokeError(message: string) {
+  return TRANSIENT_FUNCTION_INVOKE_ERROR_RE.test(message);
+}
+
+async function waitForSessionAccessToken({
+  attempts = 6,
+  delayMs = 250,
+}: {
+  attempts?: number;
+  delayMs?: number;
+} = {}) {
+  let lastSessionError: string | null = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError) {
+      lastSessionError = sessionError.message || 'Could not read the current session.';
+    }
+
+    if (session?.access_token) {
+      return session.access_token;
+    }
+
+    if (attempt < attempts - 1) {
+      await sleep(delayMs);
+    }
+  }
+
+  throw new Error(lastSessionError || 'No active session token found. Try refreshing the page and signing in again.');
+}
+
 export async function invokeAuthedFunction<T = unknown>(name: string, body: unknown) {
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError) {
-    throw new Error(sessionError.message || 'Could not read the current session.');
-  }
-
-  if (!session?.access_token) {
-    throw new Error('No active session token found. Try refreshing the page and signing in again.');
-  }
-
   const invokeWithToken = async (accessToken: string) =>
     supabase.functions.invoke(name, {
       body,
@@ -63,7 +95,8 @@ export async function invokeAuthedFunction<T = unknown>(name: string, body: unkn
       },
     });
 
-  let { data, error } = await invokeWithToken(session.access_token);
+  let accessToken = await waitForSessionAccessToken();
+  let { data, error } = await invokeWithToken(accessToken);
 
   if (error) {
     const errorMessage = await readFunctionErrorMessage(error);
@@ -73,7 +106,12 @@ export async function invokeAuthedFunction<T = unknown>(name: string, body: unkn
         throw new Error(refreshError?.message || errorMessage || 'Could not refresh your session. Try signing in again.');
       }
 
-      ({ data, error } = await invokeWithToken(refreshed.session.access_token));
+      accessToken = refreshed.session.access_token;
+      ({ data, error } = await invokeWithToken(accessToken));
+    } else if (isTransientFunctionInvokeError(errorMessage)) {
+      await sleep(600);
+      accessToken = await waitForSessionAccessToken({ attempts: 8, delayMs: 300 });
+      ({ data, error } = await invokeWithToken(accessToken));
     }
   }
 

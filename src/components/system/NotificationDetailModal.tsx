@@ -10,6 +10,13 @@ type NotificationDetailModalProps = {
   onAction?: (notification: NotificationItem) => void;
 };
 
+const formatNotificationTypeLabel = (type: string) =>
+  type
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+
 export function NotificationDetailModal({
   open,
   notification,
@@ -37,7 +44,7 @@ export function NotificationDetailModal({
         >
           <X className="h-5 w-5" />
         </button>
-        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{notification.type}</p>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{formatNotificationTypeLabel(notification.type)}</p>
         <h3 className="mt-1 pr-8 text-xl font-black tracking-tight text-slate-900">{notification.title}</h3>
         <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{notification.message}</p>
         <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-400">

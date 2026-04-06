@@ -18,7 +18,10 @@ export type StoredLaloAuthAttempt = {
   whatsappNumber?: string | null;
 };
 
-type StoredLaloCompletion = Pick<LaloCompleteResponse, 'sign_in_email' | 'sign_in_password' | 'is_new_user' | 'lalo_user_id'> & {
+type StoredLaloCompletion = Pick<
+  LaloCompleteResponse,
+  'sign_in_email' | 'sign_in_password' | 'is_new_user' | 'lalo_user_id' | 'wa_id'
+> & {
   attemptId: string;
   redirectTo: string;
   mode: LaloAuthMode;
@@ -31,6 +34,7 @@ type FinalizedLaloAuthResult = {
   mode: LaloAuthMode;
   linked: boolean;
   merged?: boolean;
+  waId?: string | null;
   whatsappNumber?: string | null;
 };
 
@@ -170,6 +174,8 @@ async function signInWithCompletion(completion: StoredLaloCompletion) {
     redirectTo: completion.redirectTo,
     mode: completion.mode,
     linked: false,
+    waId: completion.wa_id,
+    whatsappNumber: completion.wa_id,
   };
 }
 
@@ -184,7 +190,8 @@ async function linkCurrentAccountWithCompletion(attempt: StoredLaloAuthAttempt):
     mode: attempt.mode,
     linked: true,
     merged: !!response.merged,
-    whatsappNumber: response.whatsapp_number,
+    waId: response.wa_id,
+    whatsappNumber: response.wa_id ?? response.whatsapp_number,
   };
 }
 
@@ -205,6 +212,7 @@ export async function finalizeLaloWhatsAppAuth(attempt: StoredLaloAuthAttempt): 
     mode: attempt.mode,
     is_new_user: completion.is_new_user,
     lalo_user_id: completion.lalo_user_id,
+    wa_id: completion.wa_id,
     sign_in_email: completion.sign_in_email,
     sign_in_password: completion.sign_in_password,
   };

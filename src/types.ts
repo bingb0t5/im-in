@@ -187,6 +187,7 @@ export type NotificationType =
   | 'waitlist_promoted'
   | 'attendance_changed'
   | 'host_message'
+  | 'guest_reply'
   | 'system';
 
 export interface NotificationItem {

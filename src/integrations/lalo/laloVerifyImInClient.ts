@@ -7,19 +7,20 @@ function mapImInStatusToVerify(status: Awaited<ReturnType<typeof getLaloWhatsApp
     const attempt = getStoredLaloAuthAttempt();
     return {
       status: 'pending',
+      waId: status.wa_id ?? null,
       expiresAt: attempt?.expiresAt ?? null,
     };
   }
   if (status.status === 'completed') {
     return {
       status: 'completed',
-      waId: null,
+      waId: status.wa_id ?? null,
     };
   }
   if (status.status === 'expired') {
-    return { status: 'expired' };
+    return { status: 'expired', waId: status.wa_id ?? null };
   }
-  return { status: 'cancelled' };
+  return { status: 'cancelled', waId: status.wa_id ?? null };
 }
 
 export type CreateImInLaloVerifyClientParams = {

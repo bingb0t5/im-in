@@ -94,6 +94,7 @@ export type LaloVerifyPanelProps = {
   title: string;
   description: string;
   buttonLabel: string;
+  autoStart?: boolean;
   platformName?: string;
   layout?: 'card' | 'cta';
   helperText?: string;
@@ -123,6 +124,7 @@ export function LaloVerifyPanel({
   title,
   description,
   buttonLabel,
+  autoStart = false,
   platformName,
   layout = 'card',
   helperText,
@@ -148,6 +150,7 @@ export function LaloVerifyPanel({
   const [isAboutModalOpen, setIsAboutModalOpen] = React.useState(false);
   const [sessionState, setSessionState] = React.useState<SessionStateShape | null>(null);
   const hasTriggeredCompletionRef = React.useRef(false);
+  const hasAutoStartedRef = React.useRef(false);
   const storageKey = React.useMemo(() => `${storageKeyPrefix}_${flowType}`, [flowType, storageKeyPrefix]);
 
   const clearFlowState = React.useCallback(() => {
@@ -376,6 +379,14 @@ export function LaloVerifyPanel({
       setIsStarting(false);
     }
   }, [client, flowType, getAuthToken, storageKey]);
+
+  React.useEffect(() => {
+    if (!autoStart || hasAutoStartedRef.current) return;
+    if (sessionState || verifyPhase !== 'idle' || isStarting) return;
+
+    hasAutoStartedRef.current = true;
+    void handleStart();
+  }, [autoStart, handleStart, isStarting, sessionState, verifyPhase]);
 
   const hasDeepLink = Boolean(sessionState?.startData.whatsapp_deep_link);
   const showVerifyScreen = verifyPhase !== 'idle';

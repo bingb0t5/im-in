@@ -31,12 +31,13 @@ Deno.serve(async (request) => {
     }
 
     const admin = createAdminClient();
-    const linkedUser = await createOrLinkLaloUser(admin, exchange.lalo_user_id);
+    const linkedUser = await createOrLinkLaloUser(admin, exchange.lalo_user_id, exchange.wa_id ?? null);
 
     return json({
       trusted: true,
       lalo_user_id: exchange.lalo_user_id,
       is_new_user: exchange.is_new_user,
+      wa_id: exchange.wa_id ?? null,
       auth_provider: linkedUser.authProvider,
       sign_in_email: linkedUser.signInEmail,
       sign_in_password: linkedUser.signInPassword,
