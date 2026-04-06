@@ -28,11 +28,14 @@ export function getPromptDecision(input: PromptEligibilityInput): PromptDecision
   if (!env.isInAppBrowser) return 'none';
   if (env.isStandalone) return 'none';
 
+  if (!user) {
+    return verifyDismissed ? 'none' : 'verify_whatsapp';
+  }
+
   const isVerified = isWhatsAppVerifiedProfile(profile);
   if (!isVerified) {
     return verifyDismissed ? 'none' : 'verify_whatsapp';
   }
 
-  if (!user) return 'none';
   return addToHomeDismissed ? 'none' : 'add_to_home_screen';
 }

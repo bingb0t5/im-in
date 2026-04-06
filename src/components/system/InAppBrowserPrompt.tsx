@@ -7,6 +7,7 @@ import { WhyVerifySheet } from './WhyVerifySheet';
 import { AttendeeProfile, guestService } from '../../services/guestService';
 import {
   clearPostVerifySuccessPending,
+  clearPromptDismissal,
   dismissPromptForDays,
   isPostVerifySuccessPending,
   isPromptDismissed,
@@ -28,6 +29,7 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
   const [showInstallHelp, setShowInstallHelp] = useState(false);
   const [showPostVerifySuccess, setShowPostVerifySuccess] = useState(false);
   const [storageVersion, setStorageVersion] = useState(0);
+  const [profileRefreshNonce, setProfileRefreshNonce] = useState(0);
   const laloEnabled = isLaloWhatsAppAuthEnabled();
 
   useEffect(() => {
@@ -44,14 +46,20 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, profileRefreshNonce]);
 
   useEffect(() => {
     if (!env.isInAppBrowser || env.isStandalone || !isPostVerifySuccessPending()) {
       return;
     }
+    // Post-verify success should also trigger a profile refresh so prompt
+    // eligibility can switch from verify to install without a full reload.
+    if (user) {
+      setProfileRefreshNonce((prev) => prev + 1);
+    }
+    clearPromptDismissal('verify_whatsapp');
     setShowPostVerifySuccess(true);
-  }, [env.isInAppBrowser, env.isStandalone, location.key]);
+  }, [env.isInAppBrowser, env.isStandalone, location.key, user?.id]);
 
   useEffect(() => {
     if (env.isStandalone && isPostVerifySuccessPending()) {
@@ -89,8 +97,7 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
   const bannerVisible =
     !hiddenRoutes
     && !(showPostVerifySuccess || debugPromptOverride === 'success')
-    && effectivePromptDecision !== 'none'
-    && (effectivePromptDecision !== 'verify_whatsapp' || laloEnabled);
+    && effectivePromptDecision !== 'none';
 
   const dismissBanner = () => {
     if (effectivePromptDecision === 'none') return;
@@ -99,6 +106,10 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
   };
 
   const goVerify = () => {
+    if (!laloEnabled) {
+      setShowWhyVerify(true);
+      return;
+    }
     const returnPath = `${location.pathname}${location.search}`;
     if (!user) {
       navigate(`/login?from=${encodeURIComponent(returnPath)}`);
@@ -108,11 +119,17 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
   };
 
   const handleSuccessContinue = () => {
+    if (user) {
+      setProfileRefreshNonce((prev) => prev + 1);
+    }
     clearPostVerifySuccessPending();
     setShowPostVerifySuccess(false);
   };
 
   const handleSuccessShowHelp = () => {
+    if (user) {
+      setProfileRefreshNonce((prev) => prev + 1);
+    }
     clearPostVerifySuccessPending();
     setShowPostVerifySuccess(false);
     setShowInstallHelp(true);
@@ -160,13 +177,23 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
                   </button>
                 </div>
                 <div className="mt-3 flex gap-2">
-                  <Button fullWidth={false} className="flex-1" onClick={goVerify}>
+                  <Button
+                    fullWidth={false}
+                    className="flex-1"
+                    onClick={goVerify}
+                    disabled={!laloEnabled}
+                  >
                     Verify with WhatsApp
                   </Button>
                   <Button fullWidth={false} variant="secondary" className="flex-1" onClick={() => setShowWhyVerify(true)}>
                     Why verify?
                   </Button>
                 </div>
+                {!laloEnabled ? (
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    WhatsApp verification is currently unavailable in this build.
+                  </p>
+                ) : null}
               </>
             ) : (
               <>

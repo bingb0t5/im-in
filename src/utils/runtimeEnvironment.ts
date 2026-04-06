@@ -31,7 +31,7 @@ function getStandaloneDisplayMode() {
   return nav.standalone === true;
 }
 
-function detectInAppBrowserKind(userAgent: string, isMobile: boolean): InAppBrowserKind {
+function detectInAppBrowserKind(userAgent: string, isMobile: boolean, referrer: string): InAppBrowserKind {
   const ua = userAgent.toLowerCase();
   if (!isMobile) return null;
 
@@ -41,12 +41,22 @@ function detectInAppBrowserKind(userAgent: string, isMobile: boolean): InAppBrow
   if (ua.includes('fb_iab') || ua.includes('fban') || ua.includes('fbav')) return 'facebook';
 
   // Webview detection is heuristic and may have false positives/negatives.
-  const androidWebview = ua.includes('; wv') || ua.includes(' version/') && ua.includes(' chrome/');
+  const androidWebview =
+    ua.includes('; wv')
+    || /\bwv\b/i.test(ua)
+    || ua.includes('webview')
+    || (ua.includes(' version/') && ua.includes(' chrome/'));
   const iosWebview =
     /(iphone|ipad|ipod)/i.test(userAgent)
     && /applewebkit/i.test(userAgent)
-    && !/safari/i.test(userAgent);
+    && (
+      !/safari/i.test(userAgent)
+      || /\bwebview\b/i.test(userAgent)
+      || /\b(gsa|line|micromessenger|kakaotalk|snapchat)\b/i.test(userAgent)
+    );
+  const appReferrerWebview = referrer.toLowerCase().startsWith('android-app://');
   if (androidWebview || iosWebview) return 'generic_webview';
+  if (appReferrerWebview) return 'generic_webview';
 
   return null;
 }
@@ -72,7 +82,8 @@ export function detectRuntimeEnvironment(): RuntimeEnvironment {
   const isAndroid = /android/i.test(userAgent);
   const isMobile = isIOS || isAndroid;
   const platform: MobilePlatform = isIOS ? 'ios' : isAndroid ? 'android' : 'other';
-  const inAppBrowserKind = detectInAppBrowserKind(userAgent, isMobile);
+  const referrer = typeof document !== 'undefined' ? document.referrer || '' : '';
+  const inAppBrowserKind = detectInAppBrowserKind(userAgent, isMobile, referrer);
   const isInAppBrowser = inAppBrowserKind !== null;
   const isStandalone = getStandaloneDisplayMode();
   const isChrome = /(chrome|crios)/i.test(userAgent) && !/(edg|opr|opera)/i.test(userAgent);

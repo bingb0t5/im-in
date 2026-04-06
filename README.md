@@ -185,10 +185,11 @@ Current behavior:
 - If WhatsApp-verified, users see the Add to Home Screen prompt.
 - After successful WhatsApp verification, a one-time install follow-up can appear.
 - Banner dismissals are stored locally with a 7-day cooldown.
+- If WhatsApp verification is disabled by environment flags, the Verify prompt can still appear, but its Verify CTA is disabled so guidance does not silently disappear.
 
 Detection caveat:
 
-- In-app-browser/webview detection uses user-agent heuristics and is intentionally best-effort. It may have occasional false positives/negatives across app/browser versions, so the prompts are non-blocking and fully dismissible.
+- In-app-browser/webview detection uses user-agent plus referrer heuristics and is intentionally best-effort. It may have occasional false positives/negatives across app/browser versions, so the prompts are non-blocking and fully dismissible.
 
 ## In-App Notifications
 
