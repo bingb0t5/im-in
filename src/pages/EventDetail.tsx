@@ -1253,7 +1253,7 @@ export default function EventDetail({ user }: { user: User | null }) {
             <button onClick={() => goBackOr(navigate, '/calendar')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
               <ArrowLeft className="w-5 h-5 text-slate-600" />
             </button>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Activity Preview</span>
+            <span className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">Activity Preview</span>
             <button
               onClick={() => shareInvite(publicEventUrl)}
               className="px-3 py-2 hover:bg-slate-50 rounded-xl transition-all flex items-center gap-1.5"
@@ -1269,20 +1269,20 @@ export default function EventDetail({ user }: { user: User | null }) {
             <span className="inline-flex items-center gap-1.5 text-indigo-500 text-[10px] font-bold uppercase tracking-widest">
               <Users className="w-3 h-3" /> Semi Public
             </span>
-            <h1 className="text-3xl font-black tracking-tight leading-tight text-slate-900">{event.title}</h1>
+            <h1 className="text-[1.25rem] font-black tracking-tight leading-tight text-slate-900">{event.title}</h1>
 
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                  <Calendar className="w-4 h-4 text-brand-600 shrink-0" />
                 <p className="font-bold text-slate-800 text-sm">{dayOnly}</p>
               </div>
               <div className="flex items-center gap-3">
-                <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                  <MapPin className="w-4 h-4 text-brand-600 shrink-0" />
                 <p className="font-bold text-slate-800 text-sm">{previewLocation}</p>
               </div>
               {event.show_host_publicly && event.host_name && (
                 <div className="flex items-center gap-3">
-                  <Users className="w-4 h-4 text-slate-400 shrink-0" />
+                    <Users className="w-4 h-4 text-brand-600 shrink-0" />
                   <p className="font-bold text-slate-800 text-sm">Hosted by {event.host_name}</p>
                 </div>
               )}
@@ -1291,19 +1291,29 @@ export default function EventDetail({ user }: { user: User | null }) {
             <p className="text-slate-500 leading-relaxed whitespace-pre-wrap text-sm">{previewSummary}</p>
           </section>
 
-          <button
-            onClick={() => {
-              if (document.activeElement instanceof HTMLElement) {
-                document.activeElement.blur();
-              }
-              setRequestError(null);
-              setRequestSuccess(false);
-              setShowRequestModal(true);
-            }}
-            className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all active:scale-95"
-          >
-            Request to View
-          </button>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => {
+                if (document.activeElement instanceof HTMLElement) {
+                  document.activeElement.blur();
+                }
+                setRequestError(null);
+                setRequestSuccess(false);
+                setShowRequestModal(true);
+              }}
+              className="relative w-full overflow-hidden rounded-2xl border border-brand-600 bg-gradient-to-br from-teal-300 via-brand-500 to-teal-700 py-4 text-base font-bold text-white shadow-[0_10px_24px_rgba(13,148,136,0.34)] ring-1 ring-white/70 transition-all hover:brightness-105 active:scale-95"
+            >
+              <span className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/30 via-white/10 to-transparent" />
+              <span className="relative">Request to View</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/explore')}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-4 text-base font-bold text-brand-600 transition-all hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 active:scale-95"
+            >
+              Explore Activities
+            </button>
+          </div>
         </main>
 
         <AnimatePresence>

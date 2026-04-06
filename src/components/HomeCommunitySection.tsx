@@ -167,17 +167,6 @@ export function HomeCommunitySection({ user }: { user: User | null }) {
         </footer>
       </div>
 
-      {user ? (
-        <button
-          type="button"
-          onClick={() => setShowFeedbackModal(true)}
-          className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.1rem)] right-5 z-20 inline-flex h-12 w-12 items-center justify-center rounded-full border border-brand-600 bg-gradient-to-br from-teal-300 via-brand-500 to-teal-700 text-white shadow-[0_10px_24px_rgba(13,148,136,0.34)] ring-1 ring-white/70 transition-all hover:brightness-105"
-          aria-label="Send feedback"
-        >
-          <MessageSquare className="h-5 w-5" />
-        </button>
-      ) : null}
-
       <AnimatePresence>
         {showFeedbackModal ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6">
