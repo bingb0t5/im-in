@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Calendar, ExternalLink, MapPin, Shield, X } from 'lucide-react';
 import { supabase } from '../supabase';
-import { Event, PublicModerationLogEntry } from '../types';
+import { PublicModerationLogEntry } from '../types';
 import { formatDate } from '../utils';
 
 type ActionFilter = 'all' | PublicModerationLogEntry['action'];
@@ -30,6 +30,35 @@ function formatAction(action: PublicModerationLogEntry['action']) {
   return FILTER_LABELS[action];
 }
 
+type ModerationPreviewEvent = {
+  title: string;
+  starts_at: string;
+  timezone?: string;
+  public_summary?: string;
+  public_location_text?: string;
+};
+
+function toModerationPreviewEvent(value: unknown): ModerationPreviewEvent | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const candidate = value as Record<string, unknown>;
+  const title = typeof candidate.title === 'string' ? candidate.title : '';
+  const startsAt = typeof candidate.starts_at === 'string' ? candidate.starts_at : '';
+
+  if (!title || !startsAt) {
+    return null;
+  }
+
+  return {
+    title,
+    starts_at: startsAt,
+    timezone: typeof candidate.timezone === 'string' ? candidate.timezone : undefined,
+    public_summary: typeof candidate.public_summary === 'string' ? candidate.public_summary : undefined,
+    public_location_text:
+      typeof candidate.public_location_text === 'string' ? candidate.public_location_text : undefined,
+  };
+}
+
 export function ModerationTransparencyModal() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [entries, setEntries] = useState<PublicModerationLogEntry[]>([]);
@@ -38,7 +67,7 @@ export function ModerationTransparencyModal() {
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<PublicModerationLogEntry | null>(null);
-  const [previewEvent, setPreviewEvent] = useState<(Event & { can_view_full_details?: boolean }) | null>(null);
+  const [previewEvent, setPreviewEvent] = useState<ModerationPreviewEvent | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
@@ -151,7 +180,14 @@ export function ModerationTransparencyModal() {
       return;
     }
 
-    setPreviewEvent(data[0] as Event & { can_view_full_details?: boolean });
+    const safePreviewEvent = toModerationPreviewEvent(data[0]);
+    if (!safePreviewEvent) {
+      setPreviewError('The current public page is not available right now.');
+      setPreviewLoading(false);
+      return;
+    }
+
+    setPreviewEvent(safePreviewEvent);
     setPreviewLoading(false);
   };
 
@@ -369,27 +405,16 @@ export function ModerationTransparencyModal() {
                         {formatDate(previewEvent.starts_at, previewEvent.timezone)}
                       </p>
                     </div>
-                    {previewEvent.location_text || previewEvent.public_location_text ? (
+                    {previewEvent.public_location_text ? (
                       <div className="flex items-center gap-3">
                         <MapPin className="h-4 w-4 shrink-0 text-slate-400" />
-                        <p className="text-sm text-slate-600">
-                          {previewEvent.location_text || previewEvent.public_location_text}
-                        </p>
+                        <p className="text-sm text-slate-600">{previewEvent.public_location_text}</p>
                       </div>
                     ) : null}
                   </div>
 
                   {previewEvent.public_summary ? (
                     <p className="text-sm leading-relaxed text-slate-500">{previewEvent.public_summary}</p>
-                  ) : null}
-
-                  {previewEvent.description ? (
-                    <div className="space-y-1">
-                      <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Description</p>
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-500">
-                        {previewEvent.description}
-                      </p>
-                    </div>
                   ) : null}
 
                   {previewPath ? (
