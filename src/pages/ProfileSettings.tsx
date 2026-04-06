@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from '@supabase/supabase-js';
-import { BadgeCheck, LogOut, Mail, MessageCircle } from 'lucide-react';
+import { BadgeCheck, Bell, LogOut, Mail, MessageCircle } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthPromptModal } from '../components/AuthPromptModal';
 import { Button } from '../components/ui/Button';
@@ -14,6 +14,29 @@ import {
 } from '../integrations/lalo/laloAuth';
 import { accountMergeClient } from '../integrations/accountMerge/accountMergeClient';
 import { guestService, getAccountNameFromUser, isSystemGuestEmail, type AttendeeProfile } from '../services/guestService';
+import {
+  canManagePushNotifications,
+  fetchMyNotificationPreferences,
+  fetchMyPushSubscriptions,
+  getExistingPushSubscription,
+  getPushAvailability,
+  PUSH_NOTIFICATION_CATEGORIES,
+  saveMyNotificationPreference,
+  subscribeCurrentDeviceToPush,
+  syncPushSubscriptionToServer,
+  unsubscribeCurrentDeviceFromPush,
+} from '../lib/pushNotifications';
+
+const PUSH_CATEGORY_LABELS: Record<string, string> = {
+  activity_shared: 'Activity shared with you',
+  activity_updated: 'Activity updates',
+  waitlist_added: 'Added to waitlist',
+  waitlist_promoted: 'Promoted from waitlist',
+  attendance_changed: 'Attendance changes',
+  host_message: 'Host messages',
+  guest_reply: 'Guest replies',
+  system: 'System announcements',
+};
 
 export default function ProfileSettings({ user }: { user: User | null }) {
   const navigate = useNavigate();
@@ -28,6 +51,13 @@ export default function ProfileSettings({ user }: { user: User | null }) {
   const [whatsappLoading, setWhatsappLoading] = useState(false);
   const [mergeEmail, setMergeEmail] = useState('');
   const [mergeLoading, setMergeLoading] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+  const [pushMessage, setPushMessage] = useState<string | null>(null);
+  const [permissionState, setPermissionState] = useState<NotificationPermission | 'unsupported'>('unsupported');
+  const [devicePushEnabled, setDevicePushEnabled] = useState(false);
+  const [pushPrefs, setPushPrefs] = useState<Record<string, boolean>>({});
   const autoStartAttemptedRef = useRef(false);
 
   const hydrateProfile = async (authUser: User) => {
@@ -61,6 +91,55 @@ export default function ProfileSettings({ user }: { user: User | null }) {
       cancelled = true;
     };
   }, [user]);
+
+  const pushAvailability = useMemo(() => getPushAvailability(profile), [profile]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setPermissionState('unsupported');
+      return;
+    }
+    setPermissionState(Notification.permission);
+  }, [profile?.id]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    const loadPushSettings = async () => {
+      setPushLoading(true);
+      setPushError(null);
+      try {
+        const [prefs, subscriptions, browserSubscription] = await Promise.all([
+          fetchMyNotificationPreferences(),
+          fetchMyPushSubscriptions(),
+          getExistingPushSubscription(),
+        ]);
+        if (cancelled) return;
+
+        const nextPrefs = Object.fromEntries(
+          PUSH_NOTIFICATION_CATEGORIES.map((category) => {
+            const row = prefs.find((item) => item.category === category);
+            return [category, row?.push_enabled ?? true];
+          }),
+        );
+        setPushPrefs(nextPrefs);
+
+        const activeSubscription = subscriptions.find((row) => !row.revoked_at && row.endpoint === browserSubscription?.endpoint);
+        setDevicePushEnabled(Boolean(activeSubscription && browserSubscription));
+      } catch (settingsError) {
+        if (cancelled) return;
+        setPushError(settingsError instanceof Error ? settingsError.message : 'Could not load push notification settings.');
+      } finally {
+        if (!cancelled) setPushLoading(false);
+      }
+    };
+
+    void loadPushSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const showAuthPrompt = !user && searchParams.get('signin') === 'true';
 
@@ -191,6 +270,77 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     ? 'Verified and available as your backup sign-in.'
     : 'If you change this email, we will send a magic link to the new address to verify it.';
 
+  const canManagePush = canManagePushNotifications(user, profile);
+  const pushPublicKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY as string | undefined;
+
+  const handleEnablePush = async () => {
+    if (!canManagePush) {
+      setPushError('Push notifications are only available in the installed app after linking WhatsApp.');
+      return;
+    }
+    if (!pushPublicKey?.trim()) {
+      setPushError('Push notifications are not configured yet in this environment.');
+      return;
+    }
+
+    setPushBusy(true);
+    setPushError(null);
+    setPushMessage(null);
+    try {
+      const subscription = await subscribeCurrentDeviceToPush(pushPublicKey);
+      const env = window.navigator.userAgent || '';
+      await syncPushSubscriptionToServer({
+        subscription,
+        userAgent: env,
+        platform: pushAvailability.isStandalone ? 'standalone' : 'browser',
+        isStandalone: pushAvailability.isStandalone,
+      });
+      setPermissionState('granted');
+      setDevicePushEnabled(true);
+      setPushMessage('Push notifications are enabled on this device.');
+    } catch (enableError) {
+      setPushError(enableError instanceof Error ? enableError.message : 'Could not enable push notifications.');
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        setPermissionState(Notification.permission);
+      }
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const handleDisablePush = async () => {
+    setPushBusy(true);
+    setPushError(null);
+    setPushMessage(null);
+    try {
+      const existing = await getExistingPushSubscription();
+      await unsubscribeCurrentDeviceFromPush(existing?.endpoint);
+      setDevicePushEnabled(false);
+      setPushMessage('Push notifications were disabled on this device.');
+    } catch (disableError) {
+      setPushError(disableError instanceof Error ? disableError.message : 'Could not disable push notifications.');
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const handleTogglePushPreference = async (category: string, enabled: boolean) => {
+    setPushError(null);
+    setPushMessage(null);
+    setPushBusy(true);
+    try {
+      await saveMyNotificationPreference(category, enabled);
+      setPushPrefs((prev) => ({
+        ...prev,
+        [category]: enabled,
+      }));
+    } catch (prefError) {
+      setPushError(prefError instanceof Error ? prefError.message : 'Could not update push preference.');
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
   useEffect(() => {
     if (!user || loading || autoStartAttemptedRef.current) return;
     if (!isLaloWhatsAppAuthEnabled()) return;
@@ -306,6 +456,96 @@ export default function ProfileSettings({ user }: { user: User | null }) {
                     <Button type="submit" loading={saving}>
                       Save name and email
                     </Button>
+                  </section>
+
+                  <div className="my-5 h-px bg-slate-100" />
+
+                  <section className="space-y-4">
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Push notifications</p>
+                      <h3 className="flex items-center gap-2 text-xl font-black tracking-tight text-slate-900">
+                        <Bell className="h-5 w-5" />
+                        Installed app notifications
+                      </h3>
+                      <p className="text-sm text-slate-500">
+                        Push is available only when you open the installed app and your account is linked to WhatsApp.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Eligibility</p>
+                          <p className="mt-1 text-sm font-bold text-slate-900">
+                            {pushAvailability.isStandalone ? 'Installed app detected' : 'Open the installed app'}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {hasLinkedWhatsapp ? 'WhatsApp linked' : 'Link WhatsApp to unlock push notifications'}
+                          </p>
+                        </div>
+                        <span className={`inline-flex rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${canManagePush ? 'bg-brand-50 text-brand-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {canManagePush ? 'Eligible' : 'Locked'}
+                        </span>
+                      </div>
+                      {!pushAvailability.supported && pushAvailability.reason ? (
+                        <p className="text-xs text-amber-700">{pushAvailability.reason}</p>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">This device</p>
+                          <p className="text-xs text-slate-500">
+                            Permission: {permissionState === 'unsupported' ? 'unsupported' : permissionState}
+                          </p>
+                        </div>
+                        {devicePushEnabled ? (
+                          <Button type="button" fullWidth={false} variant="secondary" onClick={() => void handleDisablePush()} loading={pushBusy}>
+                            Disable push
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            fullWidth={false}
+                            onClick={() => void handleEnablePush()}
+                            loading={pushBusy}
+                            disabled={!canManagePush || !pushAvailability.supported}
+                          >
+                            Enable push
+                          </Button>
+                        )}
+                      </div>
+                      {!pushAvailability.isStandalone ? (
+                        <p className="text-xs text-slate-500">Install the app and open it from your home screen to enable push on this device.</p>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2">
+                      <p className="text-sm font-bold text-slate-900">Notification categories</p>
+                      {PUSH_NOTIFICATION_CATEGORIES.map((category) => (
+                        <label key={category} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 px-3 py-2">
+                          <span className="text-sm text-slate-700">{PUSH_CATEGORY_LABELS[category] || category}</span>
+                          <input
+                            type="checkbox"
+                            checked={pushPrefs[category] ?? true}
+                            onChange={(event) => {
+                              void handleTogglePushPreference(category, event.target.checked);
+                            }}
+                            disabled={pushLoading || pushBusy || !canManagePush}
+                            className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600/40"
+                          />
+                        </label>
+                      ))}
+                      {!canManagePush ? (
+                        <p className="text-xs text-slate-500">
+                          Category toggles unlock after you open the installed app and link WhatsApp.
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {pushMessage ? <p className="rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs text-brand-700">{pushMessage}</p> : null}
+                    {pushError ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">{pushError}</p> : null}
                   </section>
                 </form>
 
