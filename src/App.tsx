@@ -31,6 +31,7 @@ import AccountMergeComplete from './pages/AccountMergeComplete';
 import { guestService } from './services/guestService';
 import { MainTabsLayout } from './layouts/MainTabsLayout';
 import { GlobalFeedbackWidget } from './components/GlobalFeedbackWidget';
+import { ModerationTransparencyModal } from './components/ModerationTransparencyModal';
 import { ScrollToTop } from './components/ScrollToTop';
 import { InAppBrowserPrompt } from './components/system/InAppBrowserPrompt';
 
@@ -133,6 +134,7 @@ export default function App() {
       <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-brand-100">
         <InAppBrowserPrompt user={user} />
         <GlobalFeedbackWidget user={user} />
+        <ModerationTransparencyModal />
         <Routes>
           <Route path="/auth/whatsapp/prep" element={<WhatsAppAuthPrep />} />
           <Route path="/auth/whatsapp/verify" element={<WhatsAppAuthVerify />} />

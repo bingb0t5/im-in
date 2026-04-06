@@ -50,6 +50,8 @@ type PrivateAccessUser = {
   granted_at: string;
 };
 
+type HostDashboardTab = 'requests' | 'people' | 'share' | 'settings';
+
 export default function HostDashboard({ user }: { user: User | null }) {
   const CREATE_EVENT_SUCCESS_KEY = 'im_in_recently_created_event_id';
   const { id } = useParams();
@@ -102,6 +104,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [notificationActionUrl, setNotificationActionUrl] = useState('');
   const [notificationSending, setNotificationSending] = useState(false);
   const [notificationSendMessage, setNotificationSendMessage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<HostDashboardTab>('requests');
+  const [showShareInsights, setShowShareInsights] = useState(false);
   const inAppShareSectionRef = useRef<HTMLElement | null>(null);
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
@@ -485,12 +489,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
   useEffect(() => {
     const routeState = location.state as { openInAppShare?: boolean } | null;
     if (routeState?.openInAppShare) {
+      setActiveTab('share');
       setShowInAppSharePrompt(true);
     }
   }, [location.state]);
 
   useEffect(() => {
     if (!showInAppSharePrompt) return;
+    setActiveTab('share');
     inAppShareSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [showInAppSharePrompt]);
 
@@ -1192,6 +1198,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
       : joinRequestView === 'rejected'
         ? rejectedJoinRequests
         : pendingJoinRequests;
+  const pendingReviewCount = pendingJoinRequests.length + pendingRequests.length;
+  const canReviewJoinRequests = event.require_host_approval_for_join;
+  const canReviewAccessRequests = visibility === 'semi_public';
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
@@ -1237,7 +1246,48 @@ export default function HostDashboard({ user }: { user: User | null }) {
           </div>
         </section>
 
-        {moderationStatusBadge ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-1">
+          <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+            <button
+              type="button"
+              onClick={() => setActiveTab('requests')}
+              className={`rounded-xl px-3 py-2 text-sm font-bold transition-all ${
+                activeTab === 'requests' ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Requests {pendingReviewCount > 0 ? `(${pendingReviewCount})` : ''}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('people')}
+              className={`rounded-xl px-3 py-2 text-sm font-bold transition-all ${
+                activeTab === 'people' ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              People
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('share')}
+              className={`rounded-xl px-3 py-2 text-sm font-bold transition-all ${
+                activeTab === 'share' ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Share
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('settings')}
+              className={`rounded-xl px-3 py-2 text-sm font-bold transition-all ${
+                activeTab === 'settings' ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Settings
+            </button>
+          </div>
+        </section>
+
+        {activeTab === 'settings' && moderationStatusBadge ? (
           <div className="flex justify-start">
             <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-bold ${moderationStatusBadge.className}`}>
               {moderationStatusBadge.label}
@@ -1245,13 +1295,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
           </div>
         ) : null}
 
-        {moderationBanner ? (
+        {activeTab === 'settings' && moderationBanner ? (
           <section className="bg-slate-100 border border-slate-200 rounded-2xl p-4">
             <p className="text-sm font-bold text-slate-800">{moderationBanner.title}</p>
             <p className="text-sm text-slate-500 mt-1 leading-relaxed">{moderationBanner.body}</p>
           </section>
         ) : null}
 
+        {activeTab === 'people' ? (
         <section className="bg-white rounded-2xl p-4">
           <button
             type="button"
@@ -1313,6 +1364,60 @@ export default function HostDashboard({ user }: { user: User | null }) {
             </div>
           ) : null}
         </section>
+        ) : null}
+
+        {activeTab === 'share' ? (
+        <>
+        {activeTab === 'share' ? (
+        <>
+        <section className="bg-white rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm font-black text-brand-600 tracking-tight">Share Activity</p>
+            <button
+              type="button"
+              onClick={() => navigate(`/events/${event.public_slug || event.slug}`)}
+              className="text-xs font-bold text-slate-400 hover:text-brand-600 transition-all active:scale-95"
+            >
+              View Activity
+            </button>
+          </div>
+          {event.join_code ? (
+            <div className="mb-4 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-brand-700">Join code</p>
+              <p className="mt-1 text-lg font-black tracking-[0.2em] text-slate-900">{event.join_code}</p>
+              <p className="mt-1 text-xs text-slate-500">People can enter this on Home to save the activity under Shared with you.</p>
+            </div>
+          ) : null}
+          {(event.visibility || (event.is_public ? 'public' : 'private')) === 'semi_public' ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={copyPublicPreviewLink} className="bg-slate-50 hover:bg-slate-100 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
+                  <Copy className="w-4 h-4 text-slate-400" />
+                  <span className="text-xs font-bold text-slate-600">Public Link</span>
+                </button>
+                <button onClick={() => { void copyLink(); }} className="bg-slate-50 hover:bg-slate-100 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
+                  <Copy className="w-4 h-4 text-slate-500" />
+                  <span className="text-xs font-bold text-slate-600">Private Link</span>
+                </button>
+              </div>
+              <button onClick={() => { void shareWhatsApp(); }} className="w-full bg-brand-600 hover:bg-brand-700 p-4 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
+                <MessageCircle className="w-5 h-5 text-white" />
+                <span className="text-sm font-bold text-white">Share Private Link via WhatsApp</span>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => { void copyLink(); }} className="bg-slate-50 hover:bg-slate-100 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
+                <Copy className="w-4 h-4 text-slate-400" />
+                <span className="text-xs font-bold text-slate-600">Copy Link</span>
+              </button>
+              <button onClick={() => { void shareWhatsApp(); }} className="bg-brand-600 hover:bg-brand-700 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
+                <MessageCircle className="w-4 h-4 text-white" />
+                <span className="text-xs font-bold text-white">WhatsApp</span>
+              </button>
+            </div>
+          )}
+        </section>
 
         <section className="bg-white rounded-2xl p-5" ref={inAppShareSectionRef}>
           {showInAppSharePrompt ? (
@@ -1332,7 +1437,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
           ) : null}
 
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Share In App</p>
+            <p className="text-sm font-black text-brand-600 tracking-tight">Share In App</p>
             <button
               type="button"
               onClick={() => {
@@ -1481,10 +1586,12 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <p className="mt-3 text-xs font-bold text-slate-500">{inAppShareMessage}</p>
           ) : null}
         </section>
+        </>
+        ) : null}
 
         <section className="bg-white rounded-2xl p-5">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Send Notification</p>
+            <p className="text-sm font-black text-brand-600 tracking-tight">Send Notification</p>
             <button
               type="button"
               onClick={() => {
@@ -1629,149 +1736,125 @@ export default function HostDashboard({ user }: { user: User | null }) {
           ) : null}
         </section>
 
-        <section className="bg-white rounded-2xl p-5">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Shared Private Access</p>
-            <button
-              type="button"
-              onClick={() => {
-                if (!event) return;
-                void fetchPrivateAccessUsers(event.id);
-              }}
-              disabled={privateAccessUsersLoading}
-              className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
-            >
-              Refresh
-            </button>
-          </div>
-          <p className="mt-1 text-xs text-slate-500">People who currently have direct private/shared access to this activity.</p>
-
-          {privateAccessUsersLoading ? (
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
-              Loading shared access list...
-            </div>
-          ) : privateAccessUsersError ? (
-            <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-3 text-sm text-red-600">
-              {privateAccessUsersError}
-            </div>
-          ) : privateAccessUsers.length > 0 ? (
-            <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
-              {privateAccessUsers.map((entry) => (
-                <div key={entry.user_id} className="border-b border-slate-200 px-3 py-3 last:border-b-0">
-                  <p className="truncate text-sm font-bold text-slate-800">{entry.display_name}</p>
-                  <p className="truncate text-xs text-slate-500">{entry.email || entry.whatsapp_number || 'No contact details'}</p>
-                  <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
-                    {formatSharedSource(entry.source)} · {formatDate(entry.granted_at, event.timezone)}
-                  </p>
+        <section className="bg-white rounded-2xl p-4">
+          <button
+            type="button"
+            onClick={() => setShowShareInsights((value) => !value)}
+            className="flex w-full items-center justify-between text-left"
+            aria-expanded={showShareInsights}
+          >
+            <p className="text-sm font-bold text-slate-800">Advanced Share Insights</p>
+            {showShareInsights ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+          </button>
+          {showShareInsights ? (
+            <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
+              <section className="rounded-2xl border border-slate-100 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Shared Private Access</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!event) return;
+                      void fetchPrivateAccessUsers(event.id);
+                    }}
+                    disabled={privateAccessUsersLoading}
+                    className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
+                  >
+                    Refresh
+                  </button>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
-              Nobody has shared private access yet.
-            </div>
-          )}
-        </section>
+                <p className="mt-1 text-xs text-slate-500">People who currently have direct private/shared access to this activity.</p>
 
-        <section className="bg-white rounded-2xl p-5">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Private Link Access Log</p>
-            <button
-              type="button"
-              onClick={() => {
-                if (!event) return;
-                void fetchEventAccessLog(event.id);
-              }}
-              disabled={eventAccessLogLoading}
-              className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
-            >
-              Refresh
-            </button>
-          </div>
-          <p className="mt-1 text-xs text-slate-500">Shows signed-in people who opened this activity’s private link.</p>
+                {privateAccessUsersLoading ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                    Loading shared access list...
+                  </div>
+                ) : privateAccessUsersError ? (
+                  <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-3 text-sm text-red-600">
+                    {privateAccessUsersError}
+                  </div>
+                ) : privateAccessUsers.length > 0 ? (
+                  <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
+                    {privateAccessUsers.map((entry) => (
+                      <div key={entry.user_id} className="border-b border-slate-200 px-3 py-3 last:border-b-0">
+                        <p className="truncate text-sm font-bold text-slate-800">{entry.display_name}</p>
+                        <p className="truncate text-xs text-slate-500">{entry.email || entry.whatsapp_number || 'No contact details'}</p>
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                          {formatSharedSource(entry.source)} · {formatDate(entry.granted_at, event.timezone)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                    Nobody has shared private access yet.
+                  </div>
+                )}
+              </section>
 
-          {eventAccessLogLoading ? (
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
-              Loading access log...
-            </div>
-          ) : eventAccessLogError ? (
-            <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-3 text-sm text-red-600">
-              {eventAccessLogError}
-            </div>
-          ) : eventAccessLog.length > 0 ? (
-            <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
-              {eventAccessLog.map((entry) => (
-                <div key={entry.user_id} className="border-b border-slate-200 px-3 py-3 last:border-b-0">
-                  <p className="truncate text-sm font-bold text-slate-800">{entry.display_name}</p>
-                  <p className="truncate text-xs text-slate-500">{entry.email || entry.whatsapp_number || 'No contact details'}</p>
-                  <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
-                    Last opened {formatDate(entry.last_seen_at, event.timezone)}
-                    {entry.view_count > 1 ? ` · ${entry.view_count} views` : ''}
-                  </p>
+              <section className="rounded-2xl border border-slate-100 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Private Link Access Log</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!event) return;
+                      void fetchEventAccessLog(event.id);
+                    }}
+                    disabled={eventAccessLogLoading}
+                    className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
+                  >
+                    Refresh
+                  </button>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
-              No signed-in private-link visits recorded yet.
-            </div>
-          )}
-        </section>
+                <p className="mt-1 text-xs text-slate-500">Shows signed-in people who opened this activity’s private link.</p>
 
-        {/* Share Tools */}
-        <section className="bg-white rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Share Activity</p>
-            <button
-              type="button"
-              onClick={() => navigate(`/events/${event.public_slug || event.slug}`)}
-              className="text-xs font-bold text-slate-400 hover:text-brand-600 transition-all active:scale-95"
-            >
-              View Activity
-            </button>
-          </div>
-          {event.join_code ? (
-            <div className="mb-4 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-brand-700">Join code</p>
-              <p className="mt-1 text-lg font-black tracking-[0.2em] text-slate-900">{event.join_code}</p>
-              <p className="mt-1 text-xs text-slate-500">People can enter this on Home to save the activity under Shared with you.</p>
+                {eventAccessLogLoading ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                    Loading access log...
+                  </div>
+                ) : eventAccessLogError ? (
+                  <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-3 text-sm text-red-600">
+                    {eventAccessLogError}
+                  </div>
+                ) : eventAccessLog.length > 0 ? (
+                  <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
+                    {eventAccessLog.map((entry) => (
+                      <div key={entry.user_id} className="border-b border-slate-200 px-3 py-3 last:border-b-0">
+                        <p className="truncate text-sm font-bold text-slate-800">{entry.display_name}</p>
+                        <p className="truncate text-xs text-slate-500">{entry.email || entry.whatsapp_number || 'No contact details'}</p>
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                          Last opened {formatDate(entry.last_seen_at, event.timezone)}
+                          {entry.view_count > 1 ? ` · ${entry.view_count} views` : ''}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                    No signed-in private-link visits recorded yet.
+                  </div>
+                )}
+              </section>
             </div>
           ) : null}
-          {(event.visibility || (event.is_public ? 'public' : 'private')) === 'semi_public' ? (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={copyPublicPreviewLink} className="bg-slate-50 hover:bg-slate-100 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
-                  <Copy className="w-4 h-4 text-slate-400" />
-                  <span className="text-xs font-bold text-slate-600">Public Link</span>
-                </button>
-                <button onClick={() => { void copyLink(); }} className="bg-slate-50 hover:bg-slate-100 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
-                  <Copy className="w-4 h-4 text-slate-500" />
-                  <span className="text-xs font-bold text-slate-600">Private Link</span>
-                </button>
-              </div>
-              <button onClick={() => { void shareWhatsApp(); }} className="w-full bg-brand-600 hover:bg-brand-700 p-4 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
-                <MessageCircle className="w-5 h-5 text-white" />
-                <span className="text-sm font-bold text-white">Share Private Link via WhatsApp</span>
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <button onClick={() => { void copyLink(); }} className="bg-slate-50 hover:bg-slate-100 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
-                <Copy className="w-4 h-4 text-slate-400" />
-                <span className="text-xs font-bold text-slate-600">Copy Link</span>
-              </button>
-              <button onClick={() => { void shareWhatsApp(); }} className="bg-brand-600 hover:bg-brand-700 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
-                <MessageCircle className="w-4 h-4 text-white" />
-                <span className="text-xs font-bold text-white">WhatsApp</span>
-              </button>
-            </div>
-          )}
         </section>
+        </>
+        ) : null}
 
-        {event.require_host_approval_for_join ? (
+        {activeTab === 'requests' && !canReviewJoinRequests && !canReviewAccessRequests ? (
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <p className="text-sm font-bold text-slate-800">No request workflows enabled.</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Turn on host approval in activity settings or use a semi-public activity to manage request queues here.
+            </p>
+          </section>
+        ) : null}
+
+        {activeTab === 'requests' && canReviewJoinRequests ? (
           <section className="bg-white rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Join Requests</p>
+              <p className="text-sm font-black text-brand-600 tracking-tight">Join Requests</p>
               <div className="flex items-center gap-3">
                 <button
                   type="button"
@@ -1864,10 +1947,10 @@ export default function HostDashboard({ user }: { user: User | null }) {
           </section>
         ) : null}
 
-        {(event.visibility || (event.is_public ? 'public' : 'private')) === 'semi_public' && (
+        {activeTab === 'requests' && canReviewAccessRequests && (
           <section className="bg-white rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Access Requests</p>
+              <p className="text-sm font-black text-brand-600 tracking-tight">Access Requests</p>
               <div className="flex items-center gap-3">
                 <button
                   type="button"
@@ -1976,10 +2059,12 @@ export default function HostDashboard({ user }: { user: User | null }) {
           </section>
         )}
 
+        {activeTab === 'people' ? (
+        <>
         {/* Attendee List */}
         <section className="bg-white rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between px-5 pt-4 pb-3">
-            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Going</p>
+            <p className="text-sm font-black text-brand-600 tracking-tight">Going</p>
             <button 
               onClick={() => setShowAddModal(true)}
               className="text-brand-600 font-bold text-xs flex items-center gap-1 hover:text-brand-500 transition-all active:scale-95"
@@ -2037,7 +2122,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
         {event.allow_waitlist && waitlist.length > 0 && (
           <section className="bg-white rounded-2xl overflow-hidden">
             <div className="flex items-center justify-between px-5 pt-4 pb-3">
-              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Waitlist</p>
+              <p className="text-sm font-black text-brand-600 tracking-tight">Waitlist</p>
               <span className="text-xs text-slate-400">{waitlist.length}</span>
             </div>
             <div className="divide-y divide-slate-50">
@@ -2066,7 +2151,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
         <section className="bg-white rounded-2xl p-5">
           <div className="flex items-center justify-between">
-            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Thinking About It</p>
+            <p className="text-sm font-black text-brand-600 tracking-tight">Thinking About It</p>
             <span className="text-sm font-bold text-slate-800">{interests.length}</span>
           </div>
           {visibility === 'public' ? (
@@ -2084,8 +2169,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <p className="text-xs text-slate-400 mt-2">No named interest yet.</p>
           )}
         </section>
+        </>
+        ) : null}
 
         {/* Secondary actions */}
+        {activeTab === 'settings' ? (
         <section className="pt-2 pb-12 flex flex-col items-center gap-4">
           <button
             onClick={copyEvent}
@@ -2104,6 +2192,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
             Delete activity
           </button>
         </section>
+        ) : null}
       </main>
 
       {/* Delete Confirmation Modal */}
@@ -2344,6 +2433,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                   onClick={() => {
                     clearCreateSuccessState();
                     setShowCreateSuccessModal(false);
+                    setActiveTab('share');
                     setShowInAppSharePrompt(true);
                     inAppShareSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                   }}

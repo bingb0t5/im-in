@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, MessageSquare, Mail, Copy, X, Plus, Download, ThumbsUp, CircleHelp } from 'lucide-react';
@@ -72,6 +72,7 @@ function renderTextWithAutoLinks(text: string) {
 export default function EventDetail({ user }: { user: User | null }) {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const [event, setEvent] = useState<Event | null>(null);
   const [attendees, setAttendees] = useState<Attendee[]>([]);
@@ -1050,6 +1051,13 @@ export default function EventDetail({ user }: { user: User | null }) {
 
   const eventVisibility = event.visibility || (event.is_public ? 'public' : 'private');
   const accessToken = searchParams.get('access');
+  const moderationHistoryParams = new URLSearchParams(location.search);
+  moderationHistoryParams.set('action', 'moderation');
+  moderationHistoryParams.set('activity', event.id);
+  const moderationHistoryHref = {
+    pathname: location.pathname,
+    search: `?${moderationHistoryParams.toString()}`,
+  };
   const hasAccessToken = !!(accessToken && event.access_code && accessToken === event.access_code);
   const isHostViewer = isEventHostViewer;
   const hasFullEventAccess = canViewFullDetails || hasAccessToken || isHostViewer;
@@ -1440,7 +1448,7 @@ export default function EventDetail({ user }: { user: User | null }) {
             )}
             {(eventVisibility === 'public' || eventVisibility === 'semi_public') && hasPublicModerationHistory ? (
               <Link
-                to={`/moderation?activity=${event.id}`}
+                to={moderationHistoryHref}
                 className="text-[10px] font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
               >
                 View moderation history

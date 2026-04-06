@@ -131,6 +131,16 @@ export function AppTopBar({ user }: AppTopBarProps) {
     navigate(to);
   };
 
+  const handleMenuAction = (action: string) => {
+    const nextParams = new URLSearchParams(location.search);
+    nextParams.set('action', action);
+    setMenuOpen(false);
+    navigate({
+      pathname: location.pathname,
+      search: `?${nextParams.toString()}`,
+    });
+  };
+
   const handleOpenNotification = async (notification: NotificationItem) => {
     const readAt = notification.read_at || new Date().toISOString();
     if (!notification.read_at) {
@@ -244,7 +254,7 @@ export function AppTopBar({ user }: AppTopBarProps) {
                 <div className="my-1 h-px bg-slate-100" />
                 <button
                   type="button"
-                  onClick={() => handleMenuNavigate('/moderation')}
+                  onClick={() => handleMenuAction('moderation')}
                   className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
                 >
                   <Shield className="h-4.5 w-4.5 shrink-0 text-brand-600" />

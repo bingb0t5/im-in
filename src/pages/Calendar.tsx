@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Calendar as CalendarIcon, MapPin, Users } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatDay, formatTime, isOnOrAfterTodayInTimeZone } from '../utils';
@@ -237,8 +237,17 @@ export default function Calendar({ user }: { user: User | null }) {
   const [sharedEvents, setSharedEvents] = useState<Event[]>([]);
   const [hiddenUpcomingCount, setHiddenUpcomingCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const queryParam = searchParams.get('q') || '';
+  const moderationTransparencyHref = (() => {
+    const nextParams = new URLSearchParams(location.search);
+    nextParams.set('action', 'moderation');
+    return {
+      pathname: location.pathname,
+      search: `?${nextParams.toString()}`,
+    };
+  })();
   useEffect(() => {
     fetchPublicEvents();
   }, []);
@@ -386,7 +395,7 @@ export default function Calendar({ user }: { user: User | null }) {
             ) : null}
             <div className="mt-4">
               <Link
-                to="/moderation"
+                to={moderationTransparencyHref}
                 className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
               >
                 Moderation transparency
@@ -426,7 +435,7 @@ export default function Calendar({ user }: { user: User | null }) {
             ) : null}
             <div className="px-1 text-center">
               <Link
-                to="/moderation"
+                to={moderationTransparencyHref}
                 className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
               >
                 Moderation transparency
