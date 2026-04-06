@@ -24,8 +24,7 @@ export function isWhatsAppVerifiedProfile(profile: AttendeeProfile | null) {
 export function getPromptDecision(input: PromptEligibilityInput): PromptDecision {
   const { env, user, profile, verifyDismissed, addToHomeDismissed } = input;
 
-  if (!env.isBrowser || !env.isMobile) return 'none';
-  if (!env.isInAppBrowser) return 'none';
+  if (!env.isBrowser) return 'none';
   if (env.isStandalone) return 'none';
 
   if (!user) {

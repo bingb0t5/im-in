@@ -14,6 +14,12 @@ export function AddToHomeScreenHelpSheet({ open, env, onClose }: AddToHomeScreen
   if (!open) return null;
 
   const steps = getAddToHomeScreenInstructions(env);
+  const isDesktopBrowser = !env.isMobile;
+  const eyebrow = isDesktopBrowser ? 'Install App' : 'Add to Home Screen';
+  const title = isDesktopBrowser ? "Install I'm In" : "Open I'm In like an app";
+  const intro = isDesktopBrowser
+    ? "Follow these quick steps to install and reopen I'm In faster."
+    : 'Follow these quick steps for a faster, smoother way to reopen activities.';
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-6">
@@ -32,11 +38,9 @@ export function AddToHomeScreenHelpSheet({ open, env, onClose }: AddToHomeScreen
         >
           <X className="h-5 w-5" />
         </button>
-        <p className="text-[10px] font-black uppercase tracking-widest text-brand-700">Add to Home Screen</p>
-        <h3 className="mt-1 text-xl font-black tracking-tight text-slate-900">Open I&apos;m In like an app</h3>
-        <p className="mt-2 text-sm text-slate-600">
-          Follow these quick steps for a faster, smoother way to reopen activities.
-        </p>
+        <p className="text-[10px] font-black uppercase tracking-widest text-brand-700">{eyebrow}</p>
+        <h3 className="mt-1 text-xl font-black tracking-tight text-slate-900">{title}</h3>
+        <p className="mt-2 text-sm text-slate-600">{intro}</p>
 
         <ol className="mt-4 space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
           {steps.map((step, idx) => (

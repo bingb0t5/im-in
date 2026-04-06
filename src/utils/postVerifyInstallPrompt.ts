@@ -6,7 +6,7 @@ import { markPostVerifySuccessPendingForUser } from './inAppBrowserPromptState';
  */
 export function requestPostVerifyInstallPrompt(userId?: string | null) {
   const env = detectRuntimeEnvironment();
-  if (!env.isBrowser || !env.isMobile || !env.isInAppBrowser || env.isStandalone) {
+  if (!env.isBrowser || env.isStandalone) {
     return;
   }
   markPostVerifySuccessPendingForUser(userId);

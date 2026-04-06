@@ -181,7 +181,7 @@ The app includes a global, lightweight prompt system for users who open links in
 
 Current behavior:
 
-- Prompts are only considered on mobile webview/in-app-browser environments.
+- Prompts are considered in browser sessions generally (not only in-app browsers).
 - Prompts are suppressed in standalone/installed PWA display mode.
 - If not WhatsApp-verified, users see the Verify prompt.
 - If WhatsApp-verified, users see the Add to Home Screen prompt.
@@ -192,7 +192,7 @@ Current behavior:
 
 Detection caveat:
 
-- In-app-browser/webview detection uses user-agent plus referrer heuristics and is intentionally best-effort. It may have occasional false positives/negatives across app/browser versions, so the prompts are non-blocking and fully dismissible.
+- In-app-browser/webview detection still uses user-agent plus referrer heuristics for instruction tailoring, and remains intentionally best-effort. The prompts themselves are non-blocking and fully dismissible.
 
 ## In-App Notifications
 

@@ -32,7 +32,7 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
   const laloEnabled = isLaloWhatsAppAuthEnabled();
 
   useEffect(() => {
-    if (!env.isInAppBrowser || env.isStandalone || !isPostVerifySuccessPending(user?.id || null)) {
+    if (!env.isBrowser || env.isStandalone || !isPostVerifySuccessPending(user?.id || null)) {
       return;
     }
     // Post-verify success should also trigger a profile refresh so prompt
@@ -40,7 +40,7 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
     refreshProfile();
     clearPromptDismissal('verify_whatsapp');
     setShowPostVerifySuccess(true);
-  }, [env.isInAppBrowser, env.isStandalone, location.key, refreshProfile, user?.id]);
+  }, [env.isBrowser, env.isStandalone, location.key, refreshProfile, user?.id]);
 
   useEffect(() => {
     if (env.isStandalone && isPostVerifySuccessPending(user?.id || null)) {
@@ -112,6 +112,14 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
   };
 
   const isTabsRoute = isMainTabsRoute(location.pathname);
+  const isDesktopBrowser = !env.isMobile;
+  const installPromptBody = isDesktopBrowser
+    ? "Install I'm In for faster access and a more app-like experience."
+    : "Add I'm In to your Home Screen for faster access and a more app-like experience.";
+  const installPrimaryCtaLabel = isDesktopBrowser ? 'Install app' : 'Add to Home Screen';
+  const postVerifyBody = isDesktopBrowser
+    ? "For the best experience, install I'm In so it's easier to reopen next time."
+    : "For the best experience, add I'm In to your Home Screen so it's easier to reopen next time.";
 
   return (
     <>
@@ -167,7 +175,7 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
                   <div className="min-w-0">
                     <p className="text-sm font-black tracking-tight text-slate-900">Open I&apos;m In like an app</p>
                     <p className="mt-1 text-xs text-slate-600">
-                      Add I&apos;m In to your Home Screen for faster access and a more app-like experience.
+                      {installPromptBody}
                     </p>
                   </div>
                   <button
@@ -180,7 +188,7 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
                 </div>
                 <div className="mt-3 flex gap-2">
                   <Button fullWidth={false} className="flex-1" onClick={() => setShowInstallHelp(true)}>
-                    Add to Home Screen
+                    {installPrimaryCtaLabel}
                   </Button>
                   <Button fullWidth={false} variant="secondary" className="flex-1" onClick={dismissBanner}>
                     Not now
@@ -192,7 +200,7 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
         </div>
       ) : null}
 
-      {(showPostVerifySuccess || debugPromptOverride === 'success') && (env.isInAppBrowser || debugPromptOverride === 'success') && !env.isStandalone ? (
+      {(showPostVerifySuccess || debugPromptOverride === 'success') && (env.isBrowser || debugPromptOverride === 'success') && !env.isStandalone ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-6">
           <button
             type="button"
@@ -204,7 +212,7 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
             <p className="text-[10px] font-black uppercase tracking-widest text-brand-700">You&apos;re verified</p>
             <h3 className="mt-1 text-2xl font-black tracking-tight text-slate-900">Keep it app-like</h3>
             <p className="mt-2 text-sm text-slate-600">
-              For the best experience, add I&apos;m In to your Home Screen so it&apos;s easier to reopen next time.
+              {postVerifyBody}
             </p>
             <div className="mt-4 flex gap-2">
               <Button fullWidth={false} className="flex-1" onClick={handleSuccessShowHelp}>
