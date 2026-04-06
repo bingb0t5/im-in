@@ -3,7 +3,7 @@ import { User } from '@supabase/supabase-js';
 import { CheckCircle2, Mail } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { LaloVerifyPanel } from 'lalo-verify/react';
+import { LaloVerifyPanel } from '../vendor/lalo-verify/react';
 import { buildAuthRedirectUrl } from '../lib/authRedirect';
 import { Button } from '../components/ui/Button';
 import {

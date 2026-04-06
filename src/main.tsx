@@ -2,7 +2,7 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import 'lalo-verify/styles.css';
+import './vendor/lalo-verify/styles.css';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
