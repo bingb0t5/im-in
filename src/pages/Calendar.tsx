@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { supabase } from '../supabase';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Calendar as CalendarIcon, MapPin, Users } from 'lucide-react';
@@ -96,6 +96,94 @@ type JoinedRow = BookingRow & {
   events: Event;
 };
 
+function getVisibilityMeta(event: Event) {
+  const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+
+  if (visibility === 'semi_public') {
+    return {
+      label: 'Semi public',
+      className: 'bg-indigo-50 text-indigo-500',
+    };
+  }
+
+  if (visibility === 'private') {
+    return {
+      label: 'Private',
+      className: 'bg-slate-100 text-slate-500',
+    };
+  }
+
+  return {
+    label: 'Public',
+    className: 'bg-brand-50 text-brand-700',
+  };
+}
+
+function getPreviewLocation(event: Event) {
+  const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+  return visibility === 'semi_public'
+    ? event.public_location_text || 'Location shared by host'
+    : event.location_text || event.public_location_text || '';
+}
+
+function ExploreEventRow({
+  event,
+  index,
+  path,
+  total,
+}: {
+  event: Event;
+  index: number;
+  path: string;
+  total: number;
+}) {
+  const dayOnly = formatDay(event.starts_at, event.timezone);
+  const timeOnly = formatTime(event.starts_at, event.timezone);
+  const previewLocation = getPreviewLocation(event);
+  const visibilityMeta = getVisibilityMeta(event);
+  const confirmedCount = event.confirmed_count || 0;
+  const thinkingCount = event.thinking_count || 0;
+
+  return (
+    <Link
+      to={path}
+      className={`block px-5 py-4 transition-colors hover:bg-slate-50 ${index < total - 1 ? 'border-b border-slate-100' : ''}`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="space-y-1">
+            <h3 className="text-[15px] font-black leading-tight text-slate-900">{event.title}</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.16em] ${visibilityMeta.className}`}>
+                {visibilityMeta.label}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+            {previewLocation ? (
+              <span className="flex min-w-0 items-center gap-1 truncate">
+                <MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" />
+                <span className="truncate">{previewLocation}</span>
+              </span>
+            ) : null}
+            <span className="flex shrink-0 items-center gap-1">
+              <Users className="h-3.5 w-3.5 text-brand-600" />
+              {confirmedCount}/{event.capacity} going
+            </span>
+            <span className="shrink-0">{thinkingCount} thinking about it</span>
+          </div>
+        </div>
+
+        <div className="shrink-0 text-right">
+          <p className="text-sm font-bold text-slate-700">{dayOnly}</p>
+          <p className="mt-0.5 text-xs text-slate-400">{timeOnly}</p>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
 function ExploreResultSection({
   events,
   label,
@@ -107,56 +195,36 @@ function ExploreResultSection({
 }) {
   if (events.length === 0) return null;
 
-  return (
-    <section className="space-y-2">
-      <div className="flex items-center gap-3 px-1">
-        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">{label}</p>
-        <div className="h-px flex-1 bg-slate-200" />
-      </div>
-      <Card className="overflow-hidden p-0">
-        {events.map((event, index) => {
-          const visibility = event.visibility || (event.is_public ? 'public' : 'private');
-          const isSemiPublic = visibility === 'semi_public';
-          const dayOnly = formatDay(event.starts_at, event.timezone);
-          const timeOnly = formatTime(event.starts_at, event.timezone);
-          const previewLocation = isSemiPublic
-            ? event.public_location_text || 'Location shared by host'
-            : event.location_text || event.public_location_text || '';
+  const sectionDescription =
+    label === 'Hosting'
+      ? 'Activities you are running.'
+      : label === 'Attending'
+        ? 'Activities you have already joined.'
+        : label === 'Shared with you'
+          ? 'Activities opened by link or join code.'
+          : 'Public activities matching your search.';
 
+  return (
+    <section>
+      <Card padded={false} className="overflow-hidden">
+        <div className="space-y-1 px-4 py-4">
+          <p className="ui-eyebrow">{label}</p>
+          <p className="text-sm text-slate-500">{sectionDescription}</p>
+        </div>
+        <div className="border-t border-slate-100">
+        {events.map((event, index) => {
           return (
-            <Link
-              key={event.id}
-              to={pathForEvent(event)}
-              className={`block px-5 py-4 transition-colors hover:bg-slate-50 ${index < events.length - 1 ? 'border-b border-slate-100' : ''}`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-bold text-slate-900 leading-tight">{event.title}</h3>
-                  <div className="mt-1 flex items-center gap-3">
-                    {previewLocation ? (
-                      <span className="flex items-center gap-1 truncate text-xs text-slate-400">
-                        <MapPin className="h-3 w-3 shrink-0" />
-                        {previewLocation}
-                      </span>
-                    ) : null}
-                    <span className="flex items-center gap-1 text-xs text-slate-400 shrink-0">
-                      <Users className="h-3 w-3" />
-                      {event.confirmed_count || 0}/{event.capacity}
-                    </span>
-                  </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-xs font-bold text-slate-700">{dayOnly}</p>
-                  {!isSemiPublic ? (
-                    <p className="text-xs text-slate-400">{timeOnly}</p>
-                  ) : (
-                    <p className="mt-0.5 text-[9px] font-bold uppercase tracking-widest text-indigo-400">Semi public</p>
-                  )}
-                </div>
-              </div>
-            </Link>
+            <Fragment key={event.id}>
+              <ExploreEventRow
+                event={event}
+                index={index}
+                total={events.length}
+                path={pathForEvent(event)}
+              />
+            </Fragment>
           );
         })}
+        </div>
       </Card>
     </section>
   );
@@ -335,60 +403,22 @@ export default function Calendar({ user }: { user: User | null }) {
                   </p>
                   <div className="h-px flex-1 bg-slate-200" />
                 </div>
-                <div className="bg-white rounded-2xl overflow-hidden">
+                <Card padded={false} className="overflow-hidden">
                   {group.events.map((event, idx) => (
                     <motion.div
                       key={event.id}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                     >
-                      {(() => {
-                        const visibility = event.visibility || (event.is_public ? 'public' : 'private');
-                        const isSemiPublic = visibility === 'semi_public';
-                        const dayOnly = formatDay(event.starts_at, event.timezone);
-                        const timeOnly = formatTime(event.starts_at, event.timezone);
-                        const previewLocation = isSemiPublic
-                          ? event.public_location_text || 'Location shared by host'
-                          : event.location_text || event.public_location_text || '';
-                        const eventPath = buildEventPath(event);
-
-                        return (
-                          <Link 
-                            to={eventPath}
-                            className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${idx < group.events.length - 1 ? 'border-b border-slate-50' : ''}`}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex-1 min-w-0">
-                                <h3 className="text-sm font-bold text-slate-900 leading-tight">{event.title}</h3>
-                                <div className="flex items-center gap-3 mt-1">
-                                  {previewLocation && (
-                                    <span className="text-xs text-slate-400 flex items-center gap-1 truncate">
-                                      <MapPin className="w-3 h-3 shrink-0" />{previewLocation}
-                                    </span>
-                                  )}
-                                  <span className="text-xs text-slate-400 flex items-center gap-1 shrink-0">
-                                    <Users className="w-3 h-3" />{event.confirmed_count}/{event.capacity}
-                                  </span>
-                                  <span className="text-xs text-slate-400 shrink-0">
-                                    {event.thinking_count || 0} thinking about it
-                                  </span>
-                                </div>
-                              </div>
-                              <div className="text-right shrink-0">
-                                <p className="text-xs font-bold text-slate-700">{dayOnly}</p>
-                                {!isSemiPublic ? (
-                                  <p className="text-xs text-slate-400">{timeOnly}</p>
-                                ) : (
-                                  <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest mt-0.5">Semi public</p>
-                                )}
-                              </div>
-                            </div>
-                          </Link>
-                        );
-                      })()}
+                      <ExploreEventRow
+                        event={event}
+                        index={idx}
+                        total={group.events.length}
+                        path={buildEventPath(event)}
+                      />
                     </motion.div>
                   ))}
-                </div>
+                </Card>
               </section>
             ))}
             {!normalizedSearch && hiddenUpcomingCount > 0 ? (

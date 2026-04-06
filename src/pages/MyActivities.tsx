@@ -1,9 +1,9 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowRight, ChevronDown, ChevronUp, Eye, UserRound } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, MapPin, UserRound, Users } from 'lucide-react';
 import { supabase } from '../supabase';
-import { formatDate, isOnOrAfterTodayInTimeZone } from '../utils';
+import { formatDate, formatDay, formatTime, isOnOrAfterTodayInTimeZone } from '../utils';
 import { Event } from '../types';
 import { buildEventPath, withConfirmedCounts } from '../lib/events';
 import { BookingRow, groupBookingsByEvent } from '../lib/bookings';
@@ -48,6 +48,36 @@ function normalizeEventRef(
   return Array.isArray(value) ? value[0] || null : value;
 }
 
+function getVisibilityMeta(event: Event) {
+  const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+
+  if (visibility === 'semi_public') {
+    return {
+      label: 'Semi public',
+      className: 'bg-indigo-50 text-indigo-500',
+    };
+  }
+
+  if (visibility === 'private') {
+    return {
+      label: 'Private',
+      className: 'bg-slate-100 text-slate-500',
+    };
+  }
+
+  return {
+    label: 'Public',
+    className: 'bg-brand-50 text-brand-700',
+  };
+}
+
+function getPreviewLocation(event: Event) {
+  const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+  return visibility === 'semi_public'
+    ? event.public_location_text || 'Location shared by host'
+    : event.location_text || event.public_location_text || '';
+}
+
 function ActivityEventList({
   events,
   emptyLabel,
@@ -62,21 +92,57 @@ function ActivityEventList({
   }
 
   return (
-    <div className="space-y-3">
-      {events.map((event) => (
-        <Link
-          key={event.id}
-          to={pathForEvent ? pathForEvent(event) : buildEventPath(event, { preferPrivateAccess: true })}
-          className="block rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 transition-colors hover:bg-white"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <h3 className="text-base font-black text-slate-900">{event.title}</h3>
-              <p className="text-sm text-slate-500">{formatDate(event.starts_at, event.timezone)}</p>
-            </div>
-            <ArrowRight className="mt-1 h-4 w-4 text-slate-300" />
-          </div>
-        </Link>
+    <div>
+      {events.map((event, index) => (
+        (() => {
+          const path = pathForEvent ? pathForEvent(event) : buildEventPath(event, { preferPrivateAccess: true });
+          const dayOnly = formatDay(event.starts_at, event.timezone);
+          const timeOnly = formatTime(event.starts_at, event.timezone);
+          const previewLocation = getPreviewLocation(event);
+          const visibilityMeta = getVisibilityMeta(event);
+          const confirmedCount = event.confirmed_count || 0;
+          const thinkingCount = event.thinking_count || 0;
+
+          return (
+            <Link
+              key={event.id}
+              to={path}
+              className={`block px-5 py-4 transition-colors hover:bg-slate-50 ${index < events.length - 1 ? 'border-b border-slate-100' : ''}`}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="space-y-1">
+                    <h3 className="text-[15px] font-black leading-tight text-slate-900">{event.title}</h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.16em] ${visibilityMeta.className}`}>
+                        {visibilityMeta.label}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                    {previewLocation ? (
+                      <span className="flex min-w-0 items-center gap-1 truncate">
+                        <MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" />
+                        <span className="truncate">{previewLocation}</span>
+                      </span>
+                    ) : null}
+                    <span className="flex shrink-0 items-center gap-1">
+                      <Users className="h-3.5 w-3.5 text-brand-600" />
+                      {confirmedCount}/{event.capacity} going
+                    </span>
+                    <span className="shrink-0">{thinkingCount} thinking about it</span>
+                  </div>
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-bold text-slate-700">{dayOnly}</p>
+                  <p className="mt-0.5 text-xs text-slate-400">{timeOnly}</p>
+                </div>
+              </div>
+            </Link>
+          );
+        })()
       ))}
     </div>
   );
@@ -98,8 +164,8 @@ function ActivitySection({
   title: string;
 }) {
   return (
-    <Card className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
+    <Card padded={false} className="overflow-hidden">
+      <div className="flex items-start justify-between gap-4 px-4 py-4">
         <div className="space-y-1">
           <p className="ui-eyebrow">{title}</p>
           <p className="text-sm text-slate-500">{description}</p>
@@ -111,7 +177,9 @@ function ActivitySection({
         ) : null}
       </div>
 
-      <ActivityEventList events={events} emptyLabel={emptyLabel} pathForEvent={pathForEvent} />
+      <div className="border-t border-slate-100">
+        <ActivityEventList events={events} emptyLabel={emptyLabel} pathForEvent={pathForEvent} />
+      </div>
     </Card>
   );
 }
@@ -136,8 +204,8 @@ function CollapsibleActivitySection({
   title: string;
 }) {
   return (
-    <Card className="space-y-3">
-      <div className="flex items-start justify-between gap-4">
+    <Card padded={false} className="overflow-hidden">
+      <div className="flex items-start justify-between gap-4 px-4 py-4">
         <div className="space-y-1">
           <p className="ui-eyebrow">{title}</p>
           <p className="text-sm text-slate-500">{description}</p>
@@ -160,7 +228,7 @@ function CollapsibleActivitySection({
         </div>
       </div>
       {expanded ? (
-        <div className="border-t border-slate-100 pt-3">
+        <div className="border-t border-slate-100">
           <ActivityEventList events={events} emptyLabel={emptyLabel} pathForEvent={pathForEvent} />
         </div>
       ) : null}
