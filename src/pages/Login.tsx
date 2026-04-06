@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { User } from '@supabase/supabase-js';
-import { CheckCircle2, Mail } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Mail } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { LaloVerifyPanel } from '../vendor/lalo-verify/react';
@@ -115,6 +115,20 @@ export default function Login({ user }: { user: User | null }) {
 
   return (
     <div className="min-h-[calc(100svh-7rem)] bg-slate-50">
+      <header className="sticky top-0 z-10 border-b border-slate-100 bg-white/80 backdrop-blur-md">
+        <div className="mx-auto flex h-16 w-full max-w-lg items-center justify-between px-6">
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="rounded-xl p-2 transition-all hover:bg-slate-50"
+            aria-label="Back to home"
+          >
+            <ArrowLeft className="h-5 w-5 text-slate-600" />
+          </button>
+          <h1 className="text-lg font-black tracking-tight text-slate-900">Sign In</h1>
+          <div className="w-10" />
+        </div>
+      </header>
       <div className="flex min-h-[calc(100svh-7rem)] flex-col justify-center py-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}

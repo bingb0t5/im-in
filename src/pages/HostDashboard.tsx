@@ -41,6 +41,15 @@ type NotificationRecipient = {
   attendee_status: string | null;
 };
 
+type PrivateAccessUser = {
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  whatsapp_number: string | null;
+  source: 'link' | 'code' | 'host_share' | string;
+  granted_at: string;
+};
+
 export default function HostDashboard({ user }: { user: User | null }) {
   const CREATE_EVENT_SUCCESS_KEY = 'im_in_recently_created_event_id';
   const { id } = useParams();
@@ -83,6 +92,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [eventAccessLogError, setEventAccessLogError] = useState<string | null>(null);
   const [notificationRecipients, setNotificationRecipients] = useState<NotificationRecipient[]>([]);
   const [notificationRecipientsLoading, setNotificationRecipientsLoading] = useState(false);
+  const [privateAccessUsers, setPrivateAccessUsers] = useState<PrivateAccessUser[]>([]);
+  const [privateAccessUsersLoading, setPrivateAccessUsersLoading] = useState(false);
+  const [privateAccessUsersError, setPrivateAccessUsersError] = useState<string | null>(null);
   const [notificationTarget, setNotificationTarget] = useState<'all_access' | 'confirmed' | 'waitlist' | 'selected'>('all_access');
   const [selectedNotificationUserIds, setSelectedNotificationUserIds] = useState<string[]>([]);
   const [notificationTitle, setNotificationTitle] = useState('');
@@ -132,6 +144,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
   };
 
   const normalizeWhatsapp = (value: string) => value.replace(/[^\d]/g, '');
+  const formatSharedSource = (source: PrivateAccessUser['source']) => {
+    if (source === 'host_share') return 'Shared by host';
+    if (source === 'code') return 'Unlocked via join code';
+    return 'Opened private link';
+  };
 
   const getPublicPreviewUrl = () => {
     if (!event) return '';
@@ -270,6 +287,23 @@ export default function HostDashboard({ user }: { user: User | null }) {
     }
   };
 
+  const fetchPrivateAccessUsers = async (eventId: string) => {
+    setPrivateAccessUsersLoading(true);
+    setPrivateAccessUsersError(null);
+    try {
+      const { data, error } = await supabase.rpc('host_list_private_access_users', {
+        p_event_id: eventId,
+      });
+      if (error) throw error;
+      setPrivateAccessUsers((data || []) as PrivateAccessUser[]);
+    } catch (error: any) {
+      setPrivateAccessUsers([]);
+      setPrivateAccessUsersError(error?.message || 'Could not load shared private access list right now.');
+    } finally {
+      setPrivateAccessUsersLoading(false);
+    }
+  };
+
   const shareToSelectedUsers = async (userIds: string[]) => {
     if (!event || userIds.length === 0) return;
     try {
@@ -295,6 +329,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
         );
       }
       await fetchInAppShareCandidates(event.id);
+      await fetchPrivateAccessUsers(event.id);
     } catch (error: any) {
       setInAppShareMessage(error.message || 'Could not share in app right now.');
     } finally {
@@ -539,6 +574,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       fetchInterests(normalizedEvent.id);
       fetchHosts(normalizedEvent.id, normalizedEvent.host_user_id || null, normalizedEvent.host_name || null);
       fetchInAppShareCandidates(normalizedEvent.id);
+      fetchPrivateAccessUsers(normalizedEvent.id);
       fetchEventAccessLog(normalizedEvent.id);
       fetchNotificationRecipients(normalizedEvent.id);
     }
@@ -1051,6 +1087,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
         });
         if (error) throw error;
         if (data?.error) throw new Error(data.error as string);
+        if (status === 'approved') {
+          await fetchPrivateAccessUsers(event.id);
+        }
       }
 
       const whatsappUrl = `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
@@ -1588,6 +1627,50 @@ export default function HostDashboard({ user }: { user: User | null }) {
           {notificationSendMessage ? (
             <p className="mt-2 text-xs font-bold text-slate-500">{notificationSendMessage}</p>
           ) : null}
+        </section>
+
+        <section className="bg-white rounded-2xl p-5">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Shared Private Access</p>
+            <button
+              type="button"
+              onClick={() => {
+                if (!event) return;
+                void fetchPrivateAccessUsers(event.id);
+              }}
+              disabled={privateAccessUsersLoading}
+              className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
+            >
+              Refresh
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">People who currently have direct private/shared access to this activity.</p>
+
+          {privateAccessUsersLoading ? (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+              Loading shared access list...
+            </div>
+          ) : privateAccessUsersError ? (
+            <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-3 text-sm text-red-600">
+              {privateAccessUsersError}
+            </div>
+          ) : privateAccessUsers.length > 0 ? (
+            <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
+              {privateAccessUsers.map((entry) => (
+                <div key={entry.user_id} className="border-b border-slate-200 px-3 py-3 last:border-b-0">
+                  <p className="truncate text-sm font-bold text-slate-800">{entry.display_name}</p>
+                  <p className="truncate text-xs text-slate-500">{entry.email || entry.whatsapp_number || 'No contact details'}</p>
+                  <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                    {formatSharedSource(entry.source)} · {formatDate(entry.granted_at, event.timezone)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+              Nobody has shared private access yet.
+            </div>
+          )}
         </section>
 
         <section className="bg-white rounded-2xl p-5">

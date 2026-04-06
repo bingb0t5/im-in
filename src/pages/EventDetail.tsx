@@ -490,6 +490,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     const canonicalPublicSlug = (nextEvent.public_slug || nextEvent.slug || '').trim();
     const canonicalPrivateSlug = (nextEvent.private_slug || nextEvent.join_code || '').trim();
     const legacyAccessToken = searchParams.get('access');
+    const visibility = nextEvent.visibility || (nextEvent.is_public ? 'public' : 'private');
 
     if (legacyAccessToken && canonicalPrivateSlug) {
       navigate(`/events/${canonicalPrivateSlug}`, { replace: true });
@@ -500,9 +501,25 @@ export default function EventDetail({ user }: { user: User | null }) {
     const isKnownCanonicalSlug =
       (canonicalPublicSlug && requestedSlug === canonicalPublicSlug)
       || (canonicalPrivateSlug && requestedSlug === canonicalPrivateSlug);
-    if (requestedSlug && !isKnownCanonicalSlug && canonicalPublicSlug) {
+    const shouldPreservePrivatePath =
+      !!canonicalPrivateSlug
+      && (
+        requestedSlug === canonicalPrivateSlug
+        || !!legacyAccessToken
+        || (
+          requestedSlug !== canonicalPublicSlug
+          && visibility !== 'public'
+          && !!nextEvent.can_view_full_details
+        )
+      );
+    if (requestedSlug && !isKnownCanonicalSlug && (canonicalPublicSlug || canonicalPrivateSlug)) {
+      const targetSlug = shouldPreservePrivatePath ? canonicalPrivateSlug : canonicalPublicSlug;
+      if (!targetSlug) {
+        setLoading(false);
+        return;
+      }
       const nextSearch = searchParams.toString();
-      navigate(`/events/${canonicalPublicSlug}${nextSearch ? `?${nextSearch}` : ''}`, { replace: true });
+      navigate(`/events/${targetSlug}${nextSearch ? `?${nextSearch}` : ''}`, { replace: true });
       setLoading(false);
       return;
     }

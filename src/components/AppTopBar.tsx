@@ -3,6 +3,7 @@ import { User } from '@supabase/supabase-js';
 import { Menu, Search, X } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
+import { clearAllLaloStateForSignOut } from '../integrations/lalo/laloAuth';
 import { cn } from '../utils';
 import { useNotifications } from '../hooks/useNotifications';
 import { NotificationItem } from '../types';
@@ -119,6 +120,7 @@ export function AppTopBar({ user }: AppTopBarProps) {
   const handleMenuSignOut = async () => {
     setMenuOpen(false);
     await supabase.auth.signOut();
+    clearAllLaloStateForSignOut();
     navigate('/login', { replace: true });
   };
 

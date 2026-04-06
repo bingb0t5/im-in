@@ -29,6 +29,7 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
   const [showWhyVerify, setShowWhyVerify] = useState(false);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
   const [showPostVerifySuccess, setShowPostVerifySuccess] = useState(false);
+  const [dismissedInSession, setDismissedInSession] = useState(false);
   const laloEnabled = isLaloWhatsAppAuthEnabled();
 
   useEffect(() => {
@@ -75,14 +76,20 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
         ? 'add_to_home_screen'
         : promptDecision;
 
+  useEffect(() => {
+    setDismissedInSession(false);
+  }, [effectivePromptDecision, location.pathname, location.search, user?.id]);
+
   const bannerVisible =
     !hiddenRoutes
     && !(showPostVerifySuccess || debugPromptOverride === 'success')
+    && !dismissedInSession
     && effectivePromptDecision !== 'none';
 
   const dismissBanner = () => {
     if (effectivePromptDecision === 'none') return;
     dismissPromptForDays(effectivePromptDecision, 7);
+    setDismissedInSession(true);
   };
 
   const goVerify = () => {
@@ -112,6 +119,7 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
   };
 
   const isTabsRoute = isMainTabsRoute(location.pathname);
+  const hasBottomNav = isTabsRoute && !!user;
   const isDesktopBrowser = !env.isMobile;
   const installPromptBody = isDesktopBrowser
     ? "Install I'm In for faster access and a more app-like experience."
@@ -127,7 +135,7 @@ export function InAppBrowserPrompt({ user }: InAppBrowserPromptProps) {
         <div
           className="pointer-events-none fixed left-3 right-3 z-40"
           style={{
-            bottom: isTabsRoute
+            bottom: hasBottomNav
               ? 'calc(env(safe-area-inset-bottom, 0px) + 5.2rem)'
               : 'calc(env(safe-area-inset-bottom, 0px) + 0.9rem)',
           }}

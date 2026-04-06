@@ -3,6 +3,7 @@ import { laloClient, type LaloCompleteResponse, type LaloStatusResponse } from '
 
 const LALO_ATTEMPT_STORAGE_KEY = 'im_in_lalo_auth_attempt';
 const LALO_COMPLETION_STORAGE_KEY = 'im_in_lalo_auth_completion';
+const LALO_VERIFY_UI_STORAGE_KEY_PREFIXES = ['im_in_lalo_verify_ui_', 'im_in_lalo_verify_create_event_', 'lalo_verify_'];
 
 export const LALO_AUTH_POLL_INTERVAL_MS = 1500;
 
@@ -61,6 +62,24 @@ function clearStorage(key: string) {
   window.sessionStorage.removeItem(key);
 }
 
+function clearStorageByPrefix(prefixes: string[]) {
+  if (!isBrowser()) return;
+
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i += 1) {
+      const key = window.sessionStorage.key(i);
+      if (!key) continue;
+      if (prefixes.some((prefix) => key.startsWith(prefix))) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((key) => window.sessionStorage.removeItem(key));
+  } catch {
+    // Ignore session storage cleanup failures.
+  }
+}
+
 export function isLaloWhatsAppAuthEnabled() {
   return String(import.meta.env.VITE_LALO_WHATSAPP_AUTH_BETA || '').toLowerCase() === 'true';
 }
@@ -92,6 +111,15 @@ export function clearLaloCompletion() {
 export function clearAllLaloAuthState() {
   clearLaloAuthAttempt();
   clearLaloCompletion();
+}
+
+export function clearPersistedLaloVerifyUiState() {
+  clearStorageByPrefix(LALO_VERIFY_UI_STORAGE_KEY_PREFIXES);
+}
+
+export function clearAllLaloStateForSignOut() {
+  clearAllLaloAuthState();
+  clearPersistedLaloVerifyUiState();
 }
 
 export function isStoredLaloAttemptExpired(attempt?: StoredLaloAuthAttempt | null) {

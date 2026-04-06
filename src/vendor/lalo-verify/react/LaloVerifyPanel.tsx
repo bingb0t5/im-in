@@ -19,7 +19,7 @@ type SessionStateShape = {
   status: LaloVerifyStatusResponse;
 };
 
-type PersistedVerifyBundle = {
+export type PersistedVerifyBundle = {
   sessionState: SessionStateShape;
   verifyPhase: VerifyScreenPhase;
 };
@@ -66,6 +66,26 @@ function writePersistedVerify(storageKey: string, sessionState: SessionStateShap
   } catch {
     // Ignore session storage persistence failures.
   }
+}
+
+function clearPersistedVerify(storageKey: string) {
+  try {
+    sessionStorage.removeItem(storageKey);
+  } catch {
+    // Ignore session storage clear failures.
+  }
+}
+
+export function shouldRestorePersistedVerify(bundle: PersistedVerifyBundle, nowMs = Date.now()) {
+  if (bundle.verifyPhase === 'idle' || bundle.verifyPhase === 'verified') return false;
+  if (bundle.sessionState.status?.status && bundle.sessionState.status.status !== 'pending') return false;
+
+  const expiresAt = bundle.sessionState.status?.expiresAt ?? bundle.sessionState.startData.expires_at;
+  if (!expiresAt) return true;
+
+  const expiresAtMs = new Date(expiresAt).getTime();
+  if (!Number.isFinite(expiresAtMs)) return false;
+  return nowMs < expiresAtMs;
 }
 
 export type LaloVerifyPanelProps = {
@@ -133,11 +153,7 @@ export function LaloVerifyPanel({
     setCopied(false);
     setCompletionFollowUpError(null);
     setAwaitingHostOnCompleted(false);
-    try {
-      sessionStorage.removeItem(storageKey);
-    } catch {
-      // Ignore session storage clear failures.
-    }
+    clearPersistedVerify(storageKey);
   }, [storageKey]);
 
   const handleCopyMessage = React.useCallback(async () => {
@@ -225,6 +241,8 @@ export function LaloVerifyPanel({
 
         try {
           await onCompleted?.(status);
+          setCompletionFollowUpError(null);
+          clearPersistedVerify(storageKey);
         } catch (completionError: unknown) {
           const message =
             completionError instanceof Error
@@ -238,12 +256,16 @@ export function LaloVerifyPanel({
 
       return status;
     },
-    [client, onSessionBridge, onCompleted],
+    [client, onSessionBridge, onCompleted, storageKey],
   );
 
   React.useEffect(() => {
     const bundle = readPersistedVerify(storageKey);
     if (!bundle) return;
+    if (!shouldRestorePersistedVerify(bundle)) {
+      clearPersistedVerify(storageKey);
+      return;
+    }
     setSessionState(bundle.sessionState);
     setVerifyPhase(bundle.verifyPhase);
   }, [storageKey]);
@@ -254,7 +276,7 @@ export function LaloVerifyPanel({
       if (sessionState && verifyPhase !== 'idle') {
         writePersistedVerify(storageKey, sessionState, verifyPhase);
       } else if (!sessionState) {
-        sessionStorage.removeItem(storageKey);
+        clearPersistedVerify(storageKey);
       }
     } catch {
       // Ignore session storage persistence failures.

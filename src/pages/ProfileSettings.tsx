@@ -9,6 +9,7 @@ import { supabase } from '../supabase';
 import { buildAuthRedirectUrl } from '../lib/authRedirect';
 import {
   clearAllLaloAuthState,
+  clearAllLaloStateForSignOut,
   isLaloWhatsAppAuthEnabled,
   startLaloWhatsAppAuth,
 } from '../integrations/lalo/laloAuth';
@@ -360,6 +361,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
             leadingIcon={<LogOut className="h-4 w-4" />}
             onClick={async () => {
               await supabase.auth.signOut();
+              clearAllLaloStateForSignOut();
               navigate('/login', { replace: true });
             }}
           >

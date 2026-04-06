@@ -13,14 +13,16 @@ export function MainTabsLayout({ user }: MainTabsLayoutProps) {
   const showTopBar = showsMainTabsTopBar(location.pathname);
   /** Home and Explore share the same fixed header (logo + tagline + search); needs enough offset so first content (e.g. day headings) is not covered. */
   const hasHeaderSearch = hasMainTabsSearchHeader(location.pathname);
+  const showBottomNav = !!user;
 
   const topPadding = showTopBar ? (hasHeaderSearch ? 'pt-34' : 'pt-16') : 'pt-4';
+  const bottomPadding = showBottomNav ? 'pb-24' : 'pb-8';
 
   return (
-    <div className={`min-h-screen bg-slate-50 pb-24 ${topPadding}`}>
+    <div className={`min-h-screen bg-slate-50 ${bottomPadding} ${topPadding}`}>
       {showTopBar ? <AppTopBar user={user} /> : null}
       <Outlet />
-      <AppBottomNav user={user} />
+      {showBottomNav ? <AppBottomNav user={user} /> : null}
     </div>
   );
 }

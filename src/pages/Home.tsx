@@ -225,6 +225,25 @@ export default function Home({ user }: { user: User | null }) {
             </form>
           </Card>
 
+          {!user ? (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => navigate('/create-event')}
+                className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-brand-600 px-3 text-sm font-black text-white transition-all hover:bg-brand-500 active:scale-[0.99]"
+              >
+                Create activity
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/explore')}
+                className="inline-flex h-12 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 transition-all hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 active:scale-[0.99]"
+              >
+                Explore activities
+              </button>
+            </div>
+          ) : null}
+
           <HomeCommunitySection user={user} />
         </motion.div>
       </main>

@@ -291,7 +291,7 @@ export default function Calendar({ user }: { user: User | null }) {
             <ExploreResultSection
               label="Shared with you"
               events={searchedShared}
-              pathForEvent={(event) => buildEventPath(event)}
+              pathForEvent={(event) => buildEventPath(event, { preferPrivateAccess: true })}
             />
             <ExploreResultSection
               label="Public activities"

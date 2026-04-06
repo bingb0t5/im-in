@@ -67,6 +67,10 @@ export function HomeCommunitySection({ user }: { user: User | null }) {
     }));
   }, [showFeedbackModal, user?.email, user?.user_metadata]);
 
+  const footerBottomOffset = user
+    ? 'calc(env(safe-area-inset-bottom) + 5.2rem)'
+    : 'calc(env(safe-area-inset-bottom) + 0.9rem)';
+
   const closeFeedbackModal = () => {
     if (feedbackSubmitting) return;
     setShowFeedbackModal(false);
@@ -152,7 +156,7 @@ export function HomeCommunitySection({ user }: { user: User | null }) {
 
   return (
     <section>
-      <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5.2rem)] z-10 px-6 text-center">
+      <div className="sticky z-10 px-6 text-center pointer-events-none" style={{ bottom: footerBottomOffset }}>
         <p className="text-[10px] font-bold uppercase leading-relaxed tracking-widest text-slate-400">
           Built for real communities.
           <br />
@@ -163,14 +167,16 @@ export function HomeCommunitySection({ user }: { user: User | null }) {
         </footer>
       </div>
 
-      <button
-        type="button"
-        onClick={() => setShowFeedbackModal(true)}
-        className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.1rem)] right-5 z-20 inline-flex h-12 w-12 items-center justify-center rounded-full border border-brand-600 bg-gradient-to-br from-teal-300 via-brand-500 to-teal-700 text-white shadow-[0_10px_24px_rgba(13,148,136,0.34)] ring-1 ring-white/70 transition-all hover:brightness-105"
-        aria-label="Send feedback"
-      >
-        <MessageSquare className="h-5 w-5" />
-      </button>
+      {user ? (
+        <button
+          type="button"
+          onClick={() => setShowFeedbackModal(true)}
+          className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.1rem)] right-5 z-20 inline-flex h-12 w-12 items-center justify-center rounded-full border border-brand-600 bg-gradient-to-br from-teal-300 via-brand-500 to-teal-700 text-white shadow-[0_10px_24px_rgba(13,148,136,0.34)] ring-1 ring-white/70 transition-all hover:brightness-105"
+          aria-label="Send feedback"
+        >
+          <MessageSquare className="h-5 w-5" />
+        </button>
+      ) : null}
 
       <AnimatePresence>
         {showFeedbackModal ? (
@@ -448,6 +454,7 @@ export function HomeCommunitySection({ user }: { user: User | null }) {
           </div>
         ) : null}
       </AnimatePresence>
+      <div aria-hidden className={user ? 'h-28' : 'h-20'} />
     </section>
   );
 }
