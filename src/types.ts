@@ -145,6 +145,7 @@ export interface EventJoinRequest {
   attendee_profile_id?: string | null;
   guest_name: string;
   guest_email?: string | null;
+  whatsapp_number?: string | null;
   request_note?: string | null;
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   reviewed_by_user_id?: string | null;
@@ -162,6 +163,7 @@ export interface Attendee {
   added_by_attendee_profile_id?: string | null;
   guest_name: string;
   guest_email?: string | null;
+  whatsapp_number?: string | null;
   status: 'confirmed' | 'waitlist' | 'pending_approval' | 'cancelled';
   joined_at: string;
   promoted_at?: string;
@@ -175,6 +177,7 @@ export interface EventInterest {
   attendee_profile_id?: string | null;
   guest_name: string;
   guest_email?: string | null;
+  whatsapp_number?: string | null;
   visibility_mode: 'count_only' | 'named';
   created_at: string;
   updated_at: string;
@@ -203,6 +206,28 @@ export interface NotificationItem {
   action_label?: string | null;
   read_at?: string | null;
   created_at: string;
+}
+
+export type PushNotificationCategory = NotificationType;
+
+export interface NotificationPreferenceItem {
+  category: PushNotificationCategory | string;
+  push_enabled: boolean;
+}
+
+export interface PushSubscriptionItem {
+  id: string;
+  user_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  user_agent?: string | null;
+  platform?: string | null;
+  is_standalone: boolean;
+  last_seen_at: string;
+  revoked_at?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface WaitlistPosition {

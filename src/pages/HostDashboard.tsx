@@ -9,12 +9,11 @@ import { Event, Attendee, EventAccessRequest, EventInterest, EventJoinRequest } 
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/moderation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
-import { guestService, getAccountNameFromUser, isSystemGuestEmail } from '../services/guestService';
+import { guestService, getAccountNameFromUser } from '../services/guestService';
 
 type InAppShareCandidate = {
   user_id: string;
   display_name: string;
-  email: string | null;
   whatsapp_number: string | null;
   attended_previous: boolean;
   viewed_previous: boolean;
@@ -26,7 +25,6 @@ type InAppShareCandidate = {
 type EventAccessLogEntry = {
   user_id: string;
   display_name: string;
-  email: string | null;
   whatsapp_number: string | null;
   first_seen_at: string;
   last_seen_at: string;
@@ -36,7 +34,7 @@ type EventAccessLogEntry = {
 type NotificationRecipient = {
   user_id: string;
   display_name: string;
-  email: string | null;
+  whatsapp_number: string | null;
   source: string;
   attendee_status: string | null;
 };
@@ -44,7 +42,6 @@ type NotificationRecipient = {
 type PrivateAccessUser = {
   user_id: string;
   display_name: string;
-  email: string | null;
   whatsapp_number: string | null;
   source: 'link' | 'code' | 'host_share' | string;
   granted_at: string;
@@ -52,6 +49,9 @@ type PrivateAccessUser = {
 
 type HostDashboardTab = 'requests' | 'people' | 'share' | 'settings';
 type NotificationActionOption = 'none' | 'view_activity' | 'reply';
+type HostAttendee = Attendee & { whatsapp_number?: string | null };
+type HostJoinRequest = EventJoinRequest & { whatsapp_number?: string | null };
+type HostInterest = EventInterest & { whatsapp_number?: string | null };
 
 export default function HostDashboard({ user }: { user: User | null }) {
   const CREATE_EVENT_SUCCESS_KEY = 'im_in_recently_created_event_id';
@@ -59,21 +59,20 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [event, setEvent] = useState<Event | null>(null);
-  const [attendees, setAttendees] = useState<Attendee[]>([]);
+  const [attendees, setAttendees] = useState<HostAttendee[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newAttendee, setNewAttendee] = useState({ name: '', email: '' });
   const [actionLoading, setActionLoading] = useState(false);
   const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
-  const [adderHasEmailByProfileId, setAdderHasEmailByProfileId] = useState<Record<string, boolean>>({});
   const [accessRequests, setAccessRequests] = useState<EventAccessRequest[]>([]);
   const [requestActionLoadingId, setRequestActionLoadingId] = useState<string | null>(null);
   const [accessRequestView, setAccessRequestView] = useState<'pending' | 'approved' | 'declined'>('pending');
-  const [joinRequests, setJoinRequests] = useState<EventJoinRequest[]>([]);
+  const [joinRequests, setJoinRequests] = useState<HostJoinRequest[]>([]);
   const [joinRequestActionLoadingId, setJoinRequestActionLoadingId] = useState<string | null>(null);
   const [joinRequestView, setJoinRequestView] = useState<'pending' | 'approved' | 'rejected'>('pending');
-  const [interests, setInterests] = useState<EventInterest[]>([]);
-  const [hosts, setHosts] = useState<Array<{ user_id: string; display_name: string; email: string }>>([]);
+  const [interests, setInterests] = useState<HostInterest[]>([]);
+  const [hosts, setHosts] = useState<Array<{ user_id: string; display_name: string; whatsapp_number: string | null }>>([]);
   const [hostEmailToAdd, setHostEmailToAdd] = useState('');
   const [hostActionLoading, setHostActionLoading] = useState(false);
   const [showHostsPanel, setShowHostsPanel] = useState(false);
@@ -138,18 +137,13 @@ export default function HostDashboard({ user }: { user: User | null }) {
       `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim(),
     );
 
-  const getDisplayName = (name?: string | null, email?: string | null) => {
+  const getDisplayName = (name?: string | null) => {
     const explicitName = (name || '').trim();
     if (explicitName) return explicitName;
-    const localPart = (email || '').split('@')[0] || '';
-    const fallback = localPart.replace(/[._-]+/g, ' ').trim();
-    return fallback || 'Guest';
+    return 'Guest';
   };
 
-  const getDisplayEmail = (email?: string | null) => {
-    if (!email || isSystemGuestEmail(email)) return 'No email provided';
-    return email;
-  };
+  const getDisplayWhatsapp = (whatsapp?: string | null) => (whatsapp || '').trim() || 'No WhatsApp available';
 
   const getEngagementTagLabel = (candidate: InAppShareCandidate) => {
     if (candidate.attended_previous || candidate.engagement_tag === 'attended' || candidate.engagement_tag === 'both') {
@@ -246,7 +240,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const fetchInAppShareCandidates = async (eventId: string) => {
     setInAppShareLoading(true);
     try {
-      const { data, error } = await supabase.rpc('host_list_share_suggestions', {
+      const { data, error } = await supabase.rpc('host_list_share_suggestions_secure', {
         p_event_id: eventId,
       });
       if (error) throw error;
@@ -270,7 +264,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
     setEventAccessLogLoading(true);
     setEventAccessLogError(null);
     try {
-      const { data, error } = await supabase.rpc('host_list_event_access_log', {
+      const { data, error } = await supabase.rpc('host_list_event_access_log_secure', {
         p_event_id: eventId,
       });
       if (error) throw error;
@@ -286,7 +280,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const fetchNotificationRecipients = async (eventId: string) => {
     setNotificationRecipientsLoading(true);
     try {
-      const { data, error } = await supabase.rpc('host_list_notification_recipients', {
+      const { data, error } = await supabase.rpc('host_list_notification_recipients_secure', {
         p_event_id: eventId,
       });
       if (error) throw error;
@@ -343,7 +337,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
     setPrivateAccessUsersLoading(true);
     setPrivateAccessUsersError(null);
     try {
-      const { data, error } = await supabase.rpc('host_list_private_access_users', {
+      const { data, error } = await supabase.rpc('host_list_private_access_users_secure', {
         p_event_id: eventId,
       });
       if (error) throw error;
@@ -404,7 +398,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       setLookupCandidate(null);
       setLookupNotFound(false);
       setInAppShareMessage(null);
-      const { data, error } = await supabase.rpc('host_lookup_user_by_whatsapp', {
+      const { data, error } = await supabase.rpc('host_lookup_user_by_whatsapp_secure', {
         p_event_id: event.id,
         p_whatsapp: manualWhatsappLookup,
       });
@@ -423,31 +417,29 @@ export default function HostDashboard({ user }: { user: User | null }) {
     }
   };
 
-  const getAddedByLabel = (attendee: Attendee) => {
+  const getAddedByLabel = (attendee: HostAttendee) => {
     if (!attendee.added_by_type || attendee.added_by_type === 'self') return null;
     if (attendee.added_by_type === 'host') return 'added by host';
     if (attendee.added_by_type === 'proxy') {
       const adderId = attendee.added_by_attendee_profile_id || '';
       const adderName = adderNamesByProfileId[adderId];
-      const adderHasEmail = adderHasEmailByProfileId[adderId];
-      if (adderHasEmail === false) return `added by ${adderName || 'attendee'} (guest)`;
       return adderName ? `added by ${adderName}` : 'added by attendee';
     }
     return null;
   };
 
-  const isGuestAccountAttendee = (attendee: Attendee) => {
+  const isGuestAccountAttendee = (attendee: HostAttendee) => {
     if (attendee.user_id) return false;
     if (attendee.added_by_type && attendee.added_by_type !== 'self') return false;
-    return !attendee.guest_email || isSystemGuestEmail(attendee.guest_email);
+    return true;
   };
 
-  const getAttendeeDisplayName = (attendee: Attendee) => {
-    const baseName = getDisplayName(attendee.guest_name, attendee.guest_email);
+  const getAttendeeDisplayName = (attendee: HostAttendee) => {
+    const baseName = getDisplayName(attendee.guest_name);
     return isGuestAccountAttendee(attendee) ? `${baseName} (guest account)` : baseName;
   };
 
-  const hydrateAdderNames = async (attendeeRows: Attendee[]) => {
+  const hydrateAdderNames = async (attendeeRows: HostAttendee[]) => {
     const ids = Array.from(
       new Set(
         attendeeRows
@@ -458,25 +450,20 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
     if (ids.length === 0) {
       setAdderNamesByProfileId({});
-      setAdderHasEmailByProfileId({});
       return;
     }
 
     const { data } = await supabase
       .from('attendee_profiles')
-      .select('id, full_name, email')
+      .select('id, full_name')
       .in('id', ids);
 
     const map: Record<string, string> = {};
-    const hasEmailMap: Record<string, boolean> = {};
     (data || []).forEach((profile: any) => {
       const fullName = (profile.full_name || '').trim();
-      const fallback = ((profile.email || '').split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
-      map[profile.id] = fullName || fallback || 'attendee';
-      hasEmailMap[profile.id] = !!(profile.email && !isSystemGuestEmail(profile.email));
+      map[profile.id] = fullName || 'attendee';
     });
     setAdderNamesByProfileId(map);
-    setAdderHasEmailByProfileId(hasEmailMap);
   };
 
   useEffect(() => {
@@ -687,7 +674,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   };
 
   const fetchAttendees = async (eventId: string) => {
-    const { data, error } = await supabase.rpc('list_event_attendees_for_view', {
+    const { data, error } = await supabase.rpc('host_list_attendees_for_dashboard', {
       p_event_id: eventId,
     });
 
@@ -699,8 +686,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
     }
 
     if (data) {
-      setAttendees(data as Attendee[]);
-      await hydrateAdderNames(data as Attendee[]);
+      const attendeeRows = data as HostAttendee[];
+      setAttendees(attendeeRows);
+      await hydrateAdderNames(attendeeRows);
     }
     setLoading(false);
   };
@@ -716,7 +704,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   };
 
   const fetchJoinRequests = async (eventId: string) => {
-    const { data, error } = await supabase.rpc('list_event_join_requests_for_host', {
+    const { data, error } = await supabase.rpc('host_list_join_requests_for_dashboard', {
       p_event_id: eventId,
       p_status: null,
     });
@@ -727,11 +715,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
       return;
     }
 
-    if (data) setJoinRequests(data as EventJoinRequest[]);
+    if (data) setJoinRequests(data as HostJoinRequest[]);
   };
 
   const fetchInterests = async (eventId: string) => {
-    const { data, error } = await supabase.rpc('list_event_interests_for_view', {
+    const { data, error } = await supabase.rpc('host_list_interests_for_dashboard', {
       p_event_id: eventId,
     });
 
@@ -741,7 +729,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       return;
     }
 
-    if (data) setInterests(data as EventInterest[]);
+    if (data) setInterests(data as HostInterest[]);
   };
 
   const fetchHosts = async (eventId: string, fallbackHostUserId?: string | null, primaryHostName?: string | null) => {
@@ -763,7 +751,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
     const { data: profiles } = await supabase
       .from('attendee_profiles')
-      .select('user_id, full_name, first_name, last_name, email')
+      .select('user_id, full_name, first_name, last_name, whatsapp_number')
       .in('user_id', hostUserIds);
 
     const { data: latestHostedNames } = await supabase
@@ -788,18 +776,17 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
     const normalizedHosts = hostUserIds.map((userId) => {
       const profile = profileMap[userId];
-      const email = (profile?.email || '').trim().toLowerCase();
       const displayName = pickFirstNonEmpty(
         userId === user?.id ? getAccountNameFromUser(user) : '',
         getProfileName(profile),
         hostedNameByUserId[userId],
         userId === fallbackHostUserId ? primaryHostName : '',
-        getDisplayName('', email),
+        'Host',
       );
       return {
         user_id: userId,
         display_name: displayName,
-        email,
+        whatsapp_number: (profile?.whatsapp_number || '').trim() || null,
       };
     });
 
@@ -1415,7 +1402,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                       {host.display_name}
                       {host.user_id === user?.id ? <span className="text-xs text-slate-400 font-medium"> (you)</span> : null}
                     </p>
-                    <p className="text-[11px] text-slate-400">{host.email || 'No email'}</p>
+                    <p className="text-[11px] text-slate-400">{getDisplayWhatsapp(host.whatsapp_number)}</p>
                   </div>
                 ))}
                 {hosts.length === 0 && (
@@ -1571,7 +1558,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                     {privateAccessUsers.map((entry) => (
                       <div key={entry.user_id} className="border-b border-slate-200 px-3 py-3 last:border-b-0">
                         <p className="truncate text-sm font-bold text-slate-800">{entry.display_name}</p>
-                        <p className="truncate text-xs text-slate-500">{entry.email || entry.whatsapp_number || 'No contact details'}</p>
+                        <p className="truncate text-xs text-slate-500">{getDisplayWhatsapp(entry.whatsapp_number)}</p>
                         <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
                           {formatSharedSource(entry.source)} · {formatDate(entry.granted_at, event.timezone)}
                         </p>
@@ -1615,7 +1602,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                     {eventAccessLog.map((entry) => (
                       <div key={entry.user_id} className="border-b border-slate-200 px-3 py-3 last:border-b-0">
                         <p className="truncate text-sm font-bold text-slate-800">{entry.display_name}</p>
-                        <p className="truncate text-xs text-slate-500">{entry.email || entry.whatsapp_number || 'No contact details'}</p>
+                        <p className="truncate text-xs text-slate-500">{getDisplayWhatsapp(entry.whatsapp_number)}</p>
                         <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
                           Last opened {formatDate(entry.last_seen_at, event.timezone)}
                           {entry.view_count > 1 ? ` · ${entry.view_count} views` : ''}
@@ -1700,7 +1687,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div>
                         <p className="font-bold text-slate-800 text-sm">{request.guest_name}</p>
-                        <p className="text-xs text-slate-400">{getDisplayEmail(request.guest_email)}</p>
+                        <p className="text-xs text-slate-400">{getDisplayWhatsapp(request.whatsapp_number)}</p>
                         {request.request_note ? (
                           <p className="text-xs text-slate-500 mt-1">{request.request_note}</p>
                         ) : null}
@@ -1886,7 +1873,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                         <span className="text-[11px] text-slate-400">{getAddedByLabel(a)}</span>
                       )}
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{getDisplayEmail(a.guest_email)}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{getDisplayWhatsapp(a.whatsapp_number)}</p>
                   </div>
                   <button 
                     onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getAttendeeDisplayName(a) })} 
@@ -1903,7 +1890,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                       <p className="font-bold text-slate-800 text-sm">{getAttendeeDisplayName(a)}</p>
                       <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest">Pending host approval</span>
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{getDisplayEmail(a.guest_email)}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{getDisplayWhatsapp(a.whatsapp_number)}</p>
                   </div>
                 </div>
               ))}
@@ -1953,8 +1940,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <div className="mt-3 divide-y divide-slate-50">
               {namedInterests.slice(0, 6).map((interest) => (
                 <div key={interest.id} className="py-2.5">
-                  <p className="text-sm font-bold text-slate-800">{getDisplayName(interest.guest_name, interest.guest_email)}</p>
-                  <p className="text-[11px] text-slate-400">{getDisplayEmail(interest.guest_email)}</p>
+                  <p className="text-sm font-bold text-slate-800">{getDisplayName(interest.guest_name)}</p>
+                  <p className="text-[11px] text-slate-400">{getDisplayWhatsapp(interest.whatsapp_number)}</p>
                 </div>
               ))}
             </div>
@@ -2296,7 +2283,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-bold text-slate-800">{candidate.display_name}</p>
                             <p className="truncate text-xs text-slate-500">
-                              {candidate.email || candidate.whatsapp_number || 'No contact details'}
+                              {getDisplayWhatsapp(candidate.whatsapp_number)}
                             </p>
                             <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
                               {engagementLabel}
@@ -2368,7 +2355,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 {lookupCandidate ? (
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
                     <p className="text-sm font-bold text-slate-800">{lookupCandidate.display_name}</p>
-                    <p className="text-xs text-slate-500">{lookupCandidate.email || lookupCandidate.whatsapp_number || 'Linked account found'}</p>
+                    <p className="text-xs text-slate-500">{getDisplayWhatsapp(lookupCandidate.whatsapp_number)}</p>
                     <button
                       type="button"
                       onClick={() => void shareToSelectedUsers([lookupCandidate.user_id])}
@@ -2538,7 +2525,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                             />
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-bold text-slate-800">{recipient.display_name}</p>
-                              <p className="truncate text-xs text-slate-500">{recipient.email || 'No email'}</p>
+                              <p className="truncate text-xs text-slate-500">{getDisplayWhatsapp(recipient.whatsapp_number)}</p>
                               <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.11em] text-slate-400">
                                 {recipient.attendee_status || recipient.source}
                               </p>

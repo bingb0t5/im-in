@@ -27,3 +27,6 @@ verify_jwt = false
 
 [functions.merge-account]
 verify_jwt = false
+
+[functions.push-dispatch]
+verify_jwt = false

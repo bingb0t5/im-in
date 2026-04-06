@@ -213,6 +213,24 @@ Current behavior:
   - waitlist and attendance status transitions
 - Realtime updates are used for inbox/unread count while the app is open.
 
+## PWA Push Notifications
+
+The app includes a push-notification delivery pipeline for installed PWA usage.
+
+- Push controls live in `src/pages/ProfileSettings.tsx`.
+- Push is only available when:
+  - the app is opened in installed/standalone mode
+  - the signed-in profile has `attendee_profiles.lalo_user_id`
+- Browser subscriptions and push category preferences are stored in:
+  - `public.push_subscriptions`
+  - `public.notification_preferences`
+- New rows in `public.notifications` are queued for push via `public.push_dispatch_queue`.
+- Delivery is handled by the `push-dispatch` Supabase Edge Function.
+
+Operational note:
+
+- Run `push-dispatch` on an interval (cron/scheduler) with `x-push-dispatch-secret` so pending queue rows are delivered.
+
 ## Stack
 
 - Frontend: React 19 + TypeScript + Vite 6
@@ -259,12 +277,17 @@ Recommended:
 - `VITE_FEEDBACK_ADMIN_EMAILS`
   - optional comma-separated allowlist for `/admin` and `/admin/feedback`
   - can be omitted if you want to rely on the moderation frontend allowlist instead
+- `VITE_WEB_PUSH_PUBLIC_KEY`
+  - VAPID public key used by browser `PushManager.subscribe`
 
 Edge function runtime:
 
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY` is provided automatically by Supabase Edge Functions and should not be manually set with `supabase secrets set`
 - `OPENAI_API_KEY`
+- `WEB_PUSH_PUBLIC_KEY`
+- `WEB_PUSH_PRIVATE_KEY`
+- `PUSH_DISPATCH_SECRET`
 
 Optional edge function runtime:
 
@@ -288,6 +311,8 @@ Optional edge function runtime:
   - moving any card into this list triggers Codex prompt generation
 - `FEEDBACK_SCREENSHOT_BUCKET`
   - defaults to `feedback-screenshots`
+- `WEB_PUSH_SUBJECT`
+  - optional VAPID subject, defaults to `mailto:support@im-in.local`
 
 Legacy optional:
 
