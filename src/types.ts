@@ -1,6 +1,9 @@
 export interface Event {
   id: string;
   slug: string;
+  public_slug?: string;
+  private_slug?: string;
+  copied_from_event_id?: string | null;
   title: string;
   description?: string;
   public_summary?: string;
@@ -17,6 +20,7 @@ export interface Event {
   host_contact_text?: string;
   show_host_publicly?: boolean;
   access_code?: string;
+  join_code?: string;
   visibility?: 'public' | 'semi_public' | 'private';
   allow_waitlist: boolean;
   require_host_approval_for_join?: boolean;
@@ -37,6 +41,16 @@ export interface Event {
   updated_at: string;
   confirmed_count?: number;
   thinking_count?: number;
+}
+
+export type ActivityRelationshipState =
+  | 'SHARED_WITH_USER'
+  | 'REQUESTED'
+  | 'ATTENDING'
+  | 'HOSTING';
+
+export interface ActivityWithRelationship extends Event {
+  relationship_state: ActivityRelationshipState;
 }
 
 export interface PublicModerationLogEntry {
@@ -115,6 +129,7 @@ export interface FeedbackAdminItem {
 export interface EventAccessRequest {
   id: string;
   event_id: string;
+  requester_user_id?: string | null;
   requester_name: string;
   requester_whatsapp: string;
   requester_note?: string | null;
@@ -163,6 +178,30 @@ export interface EventInterest {
   visibility_mode: 'count_only' | 'named';
   created_at: string;
   updated_at: string;
+}
+
+export type NotificationType =
+  | 'activity_shared'
+  | 'activity_updated'
+  | 'waitlist_added'
+  | 'waitlist_promoted'
+  | 'attendance_changed'
+  | 'host_message'
+  | 'system';
+
+export interface NotificationItem {
+  id: string;
+  recipient_user_id: string;
+  actor_user_id?: string | null;
+  event_id?: string | null;
+  type: NotificationType | string;
+  title: string;
+  message: string;
+  metadata: Record<string, unknown>;
+  action_url?: string | null;
+  action_label?: string | null;
+  read_at?: string | null;
+  created_at: string;
 }
 
 export interface WaitlistPosition {

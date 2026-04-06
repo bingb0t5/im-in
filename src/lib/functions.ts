@@ -1,6 +1,11 @@
 import { supabase } from '../supabase';
 
 function extractFunctionErrorMessage(error: unknown) {
+  const response = (error as { context?: Response }).context;
+  if (response instanceof Response) {
+    return response.statusText || 'Function call failed.';
+  }
+
   if (error instanceof Error && error.message) {
     return error.message;
   }
@@ -8,7 +13,7 @@ function extractFunctionErrorMessage(error: unknown) {
   return 'Function call failed.';
 }
 
-async function throwDetailedFunctionError(error: unknown) {
+async function readFunctionErrorMessage(error: unknown) {
   const response = (error as { context?: Response }).context;
 
   if (response instanceof Response) {
@@ -16,29 +21,28 @@ async function throwDetailedFunctionError(error: unknown) {
       const cloned = response.clone();
       const json = await cloned.json();
       if (typeof json?.error === 'string') {
-        throw new Error(json.error);
+        return json.error;
       }
       if (typeof json?.message === 'string') {
-        throw new Error(json.message);
+        return json.message;
       }
-      throw new Error(JSON.stringify(json));
-    } catch (parseError) {
-      if (parseError instanceof Error && parseError.message) {
-        throw parseError;
-      }
-
+      return JSON.stringify(json);
+    } catch {
       try {
-        const text = await response.text();
-        if (text) {
-          throw new Error(text);
-        }
+        const cloned = response.clone();
+        const text = await cloned.text();
+        if (text) return text;
       } catch {
-        // Fall back to outer message below.
+        // Fall back to default extraction below.
       }
     }
   }
 
-  throw new Error(extractFunctionErrorMessage(error));
+  return extractFunctionErrorMessage(error);
+}
+
+async function throwDetailedFunctionError(error: unknown) {
+  throw new Error(await readFunctionErrorMessage(error));
 }
 
 export async function invokeAuthedFunction<T = unknown>(name: string, body: unknown) {
@@ -51,12 +55,27 @@ export async function invokeAuthedFunction<T = unknown>(name: string, body: unkn
     throw new Error('No active session token found. Try refreshing the page and signing in again.');
   }
 
-  const { data, error } = await supabase.functions.invoke(name, {
-    body,
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-    },
-  });
+  const invokeWithToken = async (accessToken: string) =>
+    supabase.functions.invoke(name, {
+      body,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+  let { data, error } = await invokeWithToken(session.access_token);
+
+  if (error) {
+    const errorMessage = await readFunctionErrorMessage(error);
+    if (/invalid jwt/i.test(errorMessage)) {
+      const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError || !refreshed.session?.access_token) {
+        throw new Error(refreshError?.message || errorMessage || 'Could not refresh your session. Try signing in again.');
+      }
+
+      ({ data, error } = await invokeWithToken(refreshed.session.access_token));
+    }
+  }
 
   if (error) {
     await throwDetailedFunctionError(error);

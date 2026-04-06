@@ -1,0 +1,109 @@
+/**
+ * Lalo Verify UI tokens and utility classes.
+ * Import in host apps: import 'lalo-verify/styles.css';
+ */
+
+:root {
+  --lv-brand-primary: #6b4da3;
+  --lv-brand-dark: #1a1a1a;
+  --lv-cta-gradient: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 52%, #5b21b6 100%);
+  --lv-cta-shadow: 0 14px 34px rgba(109, 40, 217, 0.28);
+  --lv-verify-overlay: radial-gradient(circle at top, rgba(139, 92, 246, 0.18), transparent 32%),
+    linear-gradient(180deg, rgba(28, 25, 36, 0.78), rgba(17, 24, 39, 0.86));
+}
+
+.lv-verify-overlay-gradient {
+  background: var(--lv-verify-overlay);
+}
+
+/*
+ * WhatsApp green "squircle" on the purple CTA.
+ * Defined fully in CSS (not Tailwind) so hosts that do not scan this package still render
+ * the same rounded green tile as Lalo /signup - avoids purged arbitrary utilities.
+ */
+.lv-wa-cta-tile {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  width: 4.35rem;
+  height: 4.35rem;
+  min-width: 4.35rem;
+  min-height: 4.35rem;
+  border-radius: 1.25rem;
+  background-color: #25d366 !important;
+  background-image: none !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+.lv-wa-cta-tile svg {
+  flex-shrink: 0;
+  color: #ffffff;
+}
+
+/* Matches Lalo web `btn-primary-action`: gradient, lift, pill radius */
+.lv-btn-primary-action {
+  position: relative;
+  /* Do not clip the green tile's shadow or rounded corners */
+  overflow: visible;
+  color: #fff;
+  font-weight: 700;
+  background: var(--lv-cta-gradient);
+  box-shadow: var(--lv-cta-shadow);
+  border-radius: 2rem;
+  border: none;
+  appearance: none;
+  transition:
+    transform 150ms ease,
+    box-shadow 150ms ease,
+    opacity 150ms ease;
+}
+
+.lv-btn-primary-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.lv-btn-primary-action:active:not(:disabled) {
+  transform: translateY(0) scale(0.99);
+}
+
+/* White overlay CTAs: tall enough for thumb + wrapped label on narrow screens */
+.lv-overlay-white-cta {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.75rem;
+  padding: 1rem 1.25rem;
+  border-radius: 1rem;
+  background: #fff;
+  color: var(--lv-brand-dark, #1a1a1a);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow:
+    0 10px 15px -3px rgba(0, 0, 0, 0.08),
+    0 4px 6px -4px rgba(0, 0, 0, 0.06);
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.lv-overlay-white-cta:hover {
+  transform: translateY(-1px);
+}
+
+.lv-overlay-white-cta:active {
+  transform: scale(0.99);
+}
+
+@media (min-width: 640px) {
+  .lv-overlay-white-cta {
+    min-height: 4rem;
+    padding: 1.125rem 1.5rem;
+    font-size: 0.875rem;
+  }
+}

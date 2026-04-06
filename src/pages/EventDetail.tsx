@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
-import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, MessageSquare, Mail, Copy, X, Plus, Download } from 'lucide-react';
+import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, MessageSquare, Mail, Copy, X, Plus, Download, ThumbsUp, CircleHelp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { buildGoogleCalendarEventUrl, buildIcsEventContent, formatDate, formatDay, formatDurationMinutes, generateSlug } from '../utils';
 import { Event, Attendee, EventInterest } from '../types';
@@ -13,9 +13,66 @@ import { findMyInterest, getNamedThinkingInterests, getThinkingCount } from '../
 import { goBackOr } from '../lib/navigation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 
+const URL_PATTERN = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+const TRAILING_PUNCTUATION_PATTERN = /[),.!?:;]+$/;
+
+function renderTextWithAutoLinks(text: string) {
+  const blocks = text.split('\n');
+
+  return blocks.map((block, blockIndex) => {
+    const matches = Array.from(block.matchAll(URL_PATTERN));
+    const children: React.ReactNode[] = [];
+    let lastIndex = 0;
+
+    matches.forEach((match, matchIndex) => {
+      const rawUrl = match[0];
+      const matchIndexInBlock = match.index ?? 0;
+      const trimmedUrl = rawUrl.replace(TRAILING_PUNCTUATION_PATTERN, '');
+      const trailingText = rawUrl.slice(trimmedUrl.length);
+
+      if (matchIndexInBlock > lastIndex) {
+        children.push(block.slice(lastIndex, matchIndexInBlock));
+      }
+
+      if (trimmedUrl) {
+        const href = trimmedUrl.startsWith('www.') ? `https://${trimmedUrl}` : trimmedUrl;
+        children.push(
+          <a
+            key={`link-${blockIndex}-${matchIndex}`}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-brand-600 underline decoration-brand-300 underline-offset-2 hover:text-brand-500"
+          >
+            {trimmedUrl}
+          </a>,
+        );
+      }
+
+      if (trailingText) {
+        children.push(trailingText);
+      }
+
+      lastIndex = matchIndexInBlock + rawUrl.length;
+    });
+
+    if (lastIndex < block.length) {
+      children.push(block.slice(lastIndex));
+    }
+
+    return (
+      <React.Fragment key={`description-line-${blockIndex}`}>
+        {children.length > 0 ? children : block}
+        {blockIndex < blocks.length - 1 ? <br /> : null}
+      </React.Fragment>
+    );
+  });
+}
+
 export default function EventDetail({ user }: { user: User | null }) {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const [event, setEvent] = useState<Event | null>(null);
   const [attendees, setAttendees] = useState<Attendee[]>([]);
@@ -486,6 +543,44 @@ export default function EventDetail({ user }: { user: User | null }) {
     }
 
     const nextEvent = data[0] as Event & { can_view_full_details?: boolean };
+    const requestedSlug = (slug || '').trim();
+    const canonicalPublicSlug = (nextEvent.public_slug || nextEvent.slug || '').trim();
+    const canonicalPrivateSlug = (nextEvent.private_slug || nextEvent.join_code || '').trim();
+    const legacyAccessToken = searchParams.get('access');
+    const visibility = nextEvent.visibility || (nextEvent.is_public ? 'public' : 'private');
+
+    if (legacyAccessToken && canonicalPrivateSlug) {
+      navigate(`/events/${canonicalPrivateSlug}`, { replace: true });
+      setLoading(false);
+      return;
+    }
+
+    const isKnownCanonicalSlug =
+      (canonicalPublicSlug && requestedSlug === canonicalPublicSlug)
+      || (canonicalPrivateSlug && requestedSlug === canonicalPrivateSlug);
+    const shouldPreservePrivatePath =
+      !!canonicalPrivateSlug
+      && (
+        requestedSlug === canonicalPrivateSlug
+        || !!legacyAccessToken
+        || (
+          requestedSlug !== canonicalPublicSlug
+          && visibility !== 'public'
+          && !!nextEvent.can_view_full_details
+        )
+      );
+    if (requestedSlug && !isKnownCanonicalSlug && (canonicalPublicSlug || canonicalPrivateSlug)) {
+      const targetSlug = shouldPreservePrivatePath ? canonicalPrivateSlug : canonicalPublicSlug;
+      if (!targetSlug) {
+        setLoading(false);
+        return;
+      }
+      const nextSearch = searchParams.toString();
+      navigate(`/events/${targetSlug}${nextSearch ? `?${nextSearch}` : ''}`, { replace: true });
+      setLoading(false);
+      return;
+    }
+
     setEvent(nextEvent);
     setCanViewFullDetails(!!nextEvent.can_view_full_details);
 
@@ -503,7 +598,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
     const { data } = await supabase.rpc('list_event_attendees_for_view', {
       p_event_id: id,
-      p_access_code: searchParams.get('access'),
+      p_access_code: searchParams.get('access') || slug || null,
     });
 
     if (data) {
@@ -521,7 +616,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
     const { data } = await supabase.rpc('list_event_interests_for_view', {
       p_event_id: id,
-      p_access_code: searchParams.get('access'),
+      p_access_code: searchParams.get('access') || slug || null,
     });
 
     if (data) {
@@ -876,6 +971,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       const { error } = await supabase.from('event_access_requests').insert([
         {
           event_id: event.id,
+          requester_user_id: user?.id || null,
           requester_name: name,
           requester_whatsapp: whatsapp,
           requester_note: requestNote.trim() || null,
@@ -955,14 +1051,20 @@ export default function EventDetail({ user }: { user: User | null }) {
 
   const eventVisibility = event.visibility || (event.is_public ? 'public' : 'private');
   const accessToken = searchParams.get('access');
+  const moderationHistoryParams = new URLSearchParams(location.search);
+  moderationHistoryParams.set('action', 'moderation');
+  moderationHistoryParams.set('activity', event.id);
+  const moderationHistoryHref = {
+    pathname: location.pathname,
+    search: `?${moderationHistoryParams.toString()}`,
+  };
   const hasAccessToken = !!(accessToken && event.access_code && accessToken === event.access_code);
   const isHostViewer = isEventHostViewer;
   const hasFullEventAccess = canViewFullDetails || hasAccessToken || isHostViewer;
-  const publicEventUrl = `${window.location.origin}/events/${event.slug}`;
-  const privateEventUrl =
-    eventVisibility === 'semi_public' && event.access_code
-      ? `${window.location.origin}/events/${event.slug}?access=${event.access_code}`
-      : publicEventUrl;
+  const publicEventSlug = event.public_slug || event.slug;
+  const privateEventSlug = event.private_slug || event.join_code || event.slug;
+  const publicEventUrl = `${window.location.origin}/events/${publicEventSlug}`;
+  const privateEventUrl = `${window.location.origin}/events/${privateEventSlug}`;
   const { confirmedCount, waitlistCount, isFull, spotsRemaining } = getAttendanceSummary(attendees, event.capacity);
   const approvalRequired = !!event.require_host_approval_for_join;
   const joinRequestPending = approvalRequired && myJoinRequestStatus === 'pending' && myRsvps.length === 0;
@@ -977,6 +1079,20 @@ export default function EventDetail({ user }: { user: User | null }) {
   const namedThinkingInterests = getNamedThinkingInterests(interests);
   const hasSelfRsvp = mySelfRsvps.length > 0;
   const hasManagedRsvps = myManagedRsvps.length > 0;
+  const rsvpButtonDisabled = rsvpLoading || joinRequestPending || (!approvalRequired && isFull && !event.allow_waitlist);
+  const rsvpButtonLabel = rsvpLoading
+    ? 'Saving'
+    : hasSelfRsvp
+      ? 'Going'
+      : joinRequestPending
+        ? 'Pending'
+        : approvalRequired
+          ? 'Request'
+          : isFull
+            ? 'Waitlist'
+            : "I'm in";
+  const thinkingButtonDisabled = thinkingLoading || hasSelfRsvp;
+  const thinkingButtonActive = Boolean(myInterest) && !hasSelfRsvp;
   const confirmedDetailsEmail = getDisplayEmail(user?.email || guestProfile?.email || guestInfo.email);
   const confirmedDetailsName =
     pickFirstNonEmpty(
@@ -1145,7 +1261,7 @@ export default function EventDetail({ user }: { user: User | null }) {
             <button onClick={() => goBackOr(navigate, '/calendar')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
               <ArrowLeft className="w-5 h-5 text-slate-600" />
             </button>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Activity Preview</span>
+            <span className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">Activity Preview</span>
             <button
               onClick={() => shareInvite(publicEventUrl)}
               className="px-3 py-2 hover:bg-slate-50 rounded-xl transition-all flex items-center gap-1.5"
@@ -1161,20 +1277,20 @@ export default function EventDetail({ user }: { user: User | null }) {
             <span className="inline-flex items-center gap-1.5 text-indigo-500 text-[10px] font-bold uppercase tracking-widest">
               <Users className="w-3 h-3" /> Semi Public
             </span>
-            <h1 className="text-3xl font-black tracking-tight leading-tight text-slate-900">{event.title}</h1>
+            <h1 className="text-[1.25rem] font-black tracking-tight leading-tight text-slate-900">{event.title}</h1>
 
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                  <Calendar className="w-4 h-4 text-brand-600 shrink-0" />
                 <p className="font-bold text-slate-800 text-sm">{dayOnly}</p>
               </div>
               <div className="flex items-center gap-3">
-                <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                  <MapPin className="w-4 h-4 text-brand-600 shrink-0" />
                 <p className="font-bold text-slate-800 text-sm">{previewLocation}</p>
               </div>
               {event.show_host_publicly && event.host_name && (
                 <div className="flex items-center gap-3">
-                  <Users className="w-4 h-4 text-slate-400 shrink-0" />
+                    <Users className="w-4 h-4 text-brand-600 shrink-0" />
                   <p className="font-bold text-slate-800 text-sm">Hosted by {event.host_name}</p>
                 </div>
               )}
@@ -1183,19 +1299,29 @@ export default function EventDetail({ user }: { user: User | null }) {
             <p className="text-slate-500 leading-relaxed whitespace-pre-wrap text-sm">{previewSummary}</p>
           </section>
 
-          <button
-            onClick={() => {
-              if (document.activeElement instanceof HTMLElement) {
-                document.activeElement.blur();
-              }
-              setRequestError(null);
-              setRequestSuccess(false);
-              setShowRequestModal(true);
-            }}
-            className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all active:scale-95"
-          >
-            Request to View
-          </button>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => {
+                if (document.activeElement instanceof HTMLElement) {
+                  document.activeElement.blur();
+                }
+                setRequestError(null);
+                setRequestSuccess(false);
+                setShowRequestModal(true);
+              }}
+              className="relative w-full overflow-hidden rounded-2xl border border-brand-600 bg-gradient-to-br from-teal-300 via-brand-500 to-teal-700 py-4 text-base font-bold text-white shadow-[0_10px_24px_rgba(13,148,136,0.34)] ring-1 ring-white/70 transition-all hover:brightness-105 active:scale-95"
+            >
+              <span className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/30 via-white/10 to-transparent" />
+              <span className="relative">Request to View</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/explore')}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-4 text-base font-bold text-brand-600 transition-all hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 active:scale-95"
+            >
+              Explore Activities
+            </button>
+          </div>
         </main>
 
         <AnimatePresence>
@@ -1285,10 +1411,10 @@ export default function EventDetail({ user }: { user: User | null }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-[calc(env(safe-area-inset-bottom)+19rem)] sm:pb-64">
+    <div className="min-h-screen bg-slate-50 pb-[calc(env(safe-area-inset-bottom)+11rem)] sm:pb-48">
       {/* Header */}
       <div className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
-        <div className="max-w-xl mx-auto px-6 h-16 flex items-center justify-between">
+        <div className="max-w-xl mx-auto px-6 h-11 flex items-center justify-between">
           <button onClick={() => goBackOr(navigate, '/calendar')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
@@ -1322,7 +1448,7 @@ export default function EventDetail({ user }: { user: User | null }) {
             )}
             {(eventVisibility === 'public' || eventVisibility === 'semi_public') && hasPublicModerationHistory ? (
               <Link
-                to={`/moderation?activity=${event.id}`}
+                to={moderationHistoryHref}
                 className="text-[10px] font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
               >
                 View moderation history
@@ -1330,14 +1456,14 @@ export default function EventDetail({ user }: { user: User | null }) {
             ) : null}
           </div>
 
-          <h1 className="text-3xl font-black tracking-tight leading-tight text-slate-900">
+          <h1 className="text-[1.4rem] font-black tracking-tight leading-tight text-slate-900">
             {event.title}
           </h1>
           
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-3 min-w-0 flex-1">
               <div className="flex items-center gap-3">
-                <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                <Calendar className="w-4 h-4 text-brand-600 shrink-0" />
                 <div>
                   <p className="font-bold text-slate-800 text-sm">{formatDate(event.starts_at, event.timezone)}</p>
                   <p className="text-xs text-slate-400">{formatDurationMinutes(event.duration_minutes)}</p>
@@ -1346,7 +1472,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
               {event.location_text && (
                 <div className="flex items-start gap-3">
-                  <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                  <MapPin className="w-4 h-4 text-brand-600 shrink-0 mt-0.5" />
                   <div>
                     <p className="font-bold text-slate-800 text-sm">{event.location_text}</p>
                     {event.google_maps_url && (
@@ -1363,7 +1489,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               )}
 
               <div className="flex items-center gap-3">
-                <Users className="w-4 h-4 text-slate-400 shrink-0" />
+                <Users className="w-4 h-4 text-brand-600 shrink-0" />
                 <div>
                   <p className="font-bold text-slate-800 text-sm">{confirmedCount} / {event.capacity} going</p>
                   {isFull ? (
@@ -1378,7 +1504,7 @@ export default function EventDetail({ user }: { user: User | null }) {
             </div>
 
             <div className="shrink-0 pt-0.5">
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 text-right">Save to calendar</p>
+              <p className="text-[9px] font-bold text-brand-600 uppercase tracking-widest mb-1.5 text-right">Save to calendar</p>
               <div className="flex flex-col gap-2">
                 <button
                   type="button"
@@ -1405,7 +1531,9 @@ export default function EventDetail({ user }: { user: User | null }) {
           </div>
 
           {event.description && (
-            <p className="text-slate-500 leading-relaxed whitespace-pre-wrap text-sm pt-2">{event.description}</p>
+            <div className="text-slate-500 leading-relaxed text-sm pt-2">
+              {renderTextWithAutoLinks(event.description)}
+            </div>
           )}
         </section>
 
@@ -1484,8 +1612,8 @@ export default function EventDetail({ user }: { user: User | null }) {
       </main>
 
       {/* Fixed CTA */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] bg-white/95 backdrop-blur-lg border-t border-slate-100 z-20">
-        <div className="max-w-xl mx-auto space-y-3">
+      <div className="fixed bottom-0 left-0 right-0 px-4 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+0.7rem)] bg-white/95 backdrop-blur-lg border-t border-slate-100 z-20">
+        <div className="max-w-xl mx-auto space-y-2">
           {approvalRequired && myRsvps.length === 0 ? (
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
               {myJoinRequestStatus === 'pending'
@@ -1526,77 +1654,72 @@ export default function EventDetail({ user }: { user: User | null }) {
                   </div>
                 ))}
               </div>
-              {!hasSelfRsvp && (
-                <button
-                  onClick={() => handleRsvp()}
-                  disabled={rsvpLoading || joinRequestPending || (!approvalRequired && isFull && !event.allow_waitlist)}
-                  className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
-                >
-                  {rsvpLoading
-                    ? 'Just a sec...'
-                    : joinRequestPending
-                      ? 'Request pending'
-                      : approvalRequired
-                        ? 'Request to join'
-                        : isFull
-                          ? 'Join Waitlist'
-                          : "I'm in"}
-                </button>
-              )}
-              <button
-                onClick={() => handleToggleThinking()}
-                disabled={thinkingLoading || hasSelfRsvp}
-                className="w-full text-sm font-bold text-indigo-500 hover:text-indigo-400 py-2 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 active:scale-95"
-              >
-                {thinkingLoading
-                  ? 'Saving...'
-                  : myInterest
-                    ? "Remove I'm thinking about it"
-                    : "I'm thinking about it"}
-              </button>
-              <button 
-                onClick={() => { setProxyError(null); setShowProxyModal(true); }}
-                className="w-full text-sm font-bold text-brand-600 hover:text-brand-500 py-2 transition-all flex items-center justify-center gap-1.5 active:scale-95"
-              >
-                <Plus className="w-4 h-4" /> Add someone else
-              </button>
             </>
-          ) : (
-            <>
-              <button
-                onClick={() => handleRsvp()}
-                disabled={rsvpLoading || joinRequestPending || (!approvalRequired && isFull && !event.allow_waitlist)}
-                className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold text-base py-4 rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
-              >
-                {rsvpLoading
-                  ? 'Just a sec...'
+          ) : null}
+
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (hasSelfRsvp || rsvpButtonDisabled) return;
+                handleRsvp();
+              }}
+              disabled={rsvpButtonDisabled}
+              aria-label={
+                hasSelfRsvp
+                  ? "You're already in this activity"
                   : joinRequestPending
-                    ? 'Request pending'
+                    ? 'Join request pending'
                     : approvalRequired
                       ? 'Request to join'
                       : isFull
-                        ? 'Join Waitlist'
-                        : "I'm in"}
-              </button>
-              <button
-                onClick={() => handleToggleThinking()}
-                disabled={thinkingLoading}
-                className="w-full text-sm font-bold text-indigo-500 hover:text-indigo-400 py-2 transition-all flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
-              >
-                {thinkingLoading
-                  ? 'Saving...'
-                  : myInterest
-                    ? "Remove I'm thinking about it"
-                    : "I'm thinking about it"}
-              </button>
-              <button
-                onClick={() => { setProxyError(null); setShowProxyModal(true); }}
-                className="w-full text-sm font-bold text-slate-400 hover:text-brand-600 py-2 transition-all flex items-center justify-center gap-1.5 active:scale-95"
-              >
-                <Plus className="w-4 h-4" /> Add someone else
-              </button>
-            </>
-          )}
+                        ? 'Join waitlist'
+                        : "I'm in"
+              }
+              className={[
+                'flex min-h-[3.45rem] w-full flex-col items-center justify-center gap-0.5 rounded-[1.15rem] border px-2 py-1.5 text-center backdrop-blur-md transition-all active:scale-[0.98]',
+                hasSelfRsvp
+                  ? 'border-white/70 bg-gradient-to-b from-brand-100/95 to-brand-50/90 text-brand-700 shadow-[0_14px_30px_rgba(20,184,166,0.18)]'
+                  : rsvpButtonDisabled
+                    ? 'cursor-not-allowed border-white/70 bg-gradient-to-b from-slate-100/95 to-slate-50/90 text-slate-400 shadow-sm'
+                    : 'border-white/45 bg-gradient-to-b from-brand-500 via-brand-600 to-cyan-600 text-white shadow-[0_18px_36px_rgba(13,148,136,0.3)] hover:from-brand-400 hover:via-brand-500 hover:to-cyan-500',
+              ].join(' ')}
+            >
+              <ThumbsUp className="h-4.5 w-4.5" />
+              <span className="text-[10px] font-bold leading-tight sm:text-[11px]">{rsvpButtonLabel}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleToggleThinking()}
+              disabled={thinkingButtonDisabled}
+              aria-pressed={thinkingButtonActive}
+              aria-label={thinkingButtonActive ? "Remove I'm thinking about it" : "I'm thinking about it"}
+              className={[
+                'flex min-h-[3.45rem] w-full flex-col items-center justify-center gap-0.5 rounded-[1.15rem] border px-2 py-1.5 text-center backdrop-blur-md transition-all active:scale-[0.98]',
+                thinkingButtonDisabled
+                  ? 'cursor-not-allowed border-white/70 bg-gradient-to-b from-slate-100/95 to-slate-50/90 text-slate-400 shadow-sm'
+                  : thinkingButtonActive
+                    ? 'border-white/70 bg-gradient-to-b from-brand-100/95 to-cyan-50/90 text-brand-600 shadow-[0_14px_30px_rgba(20,184,166,0.18)]'
+                    : 'border-white/70 bg-gradient-to-b from-white/95 to-brand-50/80 text-brand-600 shadow-[0_14px_30px_rgba(20,184,166,0.12)] hover:from-brand-50/95 hover:to-cyan-50/90',
+              ].join(' ')}
+            >
+              <CircleHelp className="h-4.5 w-4.5" />
+              <span className="text-[10px] font-bold leading-tight sm:text-[11px]">Thinking about it</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setProxyError(null);
+                setShowProxyModal(true);
+              }}
+              className="flex min-h-[3.45rem] w-full flex-col items-center justify-center gap-0.5 rounded-[1.15rem] border border-white/45 bg-gradient-to-b from-brand-500 via-brand-600 to-cyan-600 px-2 py-1.5 text-center text-white backdrop-blur-md shadow-[0_18px_36px_rgba(13,148,136,0.3)] transition-all hover:from-brand-400 hover:via-brand-500 hover:to-cyan-500 active:scale-[0.98]"
+            >
+              <Plus className="h-4.5 w-4.5" />
+              <span className="text-[10px] font-bold leading-tight sm:text-[11px]">My Kids in</span>
+            </button>
+          </div>
         </div>
       </div>
 

@@ -1,15 +1,56 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { Users, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Clock, Edit2, Plus, X, AlertCircle, Calendar, ChevronDown, ChevronUp, MessageSquare, Mail } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { formatDate, formatDurationMinutes, generateSlug } from '../utils';
+import { formatDate, formatDurationMinutes } from '../utils';
 import { Event, Attendee, EventAccessRequest, EventInterest, EventJoinRequest } from '../types';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/moderation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { guestService, getAccountNameFromUser, isSystemGuestEmail } from '../services/guestService';
+
+type InAppShareCandidate = {
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  whatsapp_number: string | null;
+  attended_previous: boolean;
+  viewed_previous: boolean;
+  engagement_tag: 'attended' | 'viewed_private' | 'both' | string;
+  already_shared: boolean;
+  selected_by_default: boolean;
+};
+
+type EventAccessLogEntry = {
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  whatsapp_number: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  view_count: number;
+};
+
+type NotificationRecipient = {
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  source: string;
+  attendee_status: string | null;
+};
+
+type PrivateAccessUser = {
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  whatsapp_number: string | null;
+  source: 'link' | 'code' | 'host_share' | string;
+  granted_at: string;
+};
+
+type HostDashboardTab = 'requests' | 'people' | 'share' | 'settings';
 
 export default function HostDashboard({ user }: { user: User | null }) {
   const CREATE_EVENT_SUCCESS_KEY = 'im_in_recently_created_event_id';
@@ -38,6 +79,34 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [showCreateSuccessModal, setShowCreateSuccessModal] = useState(false);
   const [showManualShareModal, setShowManualShareModal] = useState(false);
   const [manualShareUrl, setManualShareUrl] = useState('');
+  const [inAppShareCandidates, setInAppShareCandidates] = useState<InAppShareCandidate[]>([]);
+  const [selectedShareUserIds, setSelectedShareUserIds] = useState<string[]>([]);
+  const [inAppShareLoading, setInAppShareLoading] = useState(false);
+  const [inAppShareSaving, setInAppShareSaving] = useState(false);
+  const [inAppShareMessage, setInAppShareMessage] = useState<string | null>(null);
+  const [manualWhatsappLookup, setManualWhatsappLookup] = useState('');
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupCandidate, setLookupCandidate] = useState<InAppShareCandidate | null>(null);
+  const [lookupNotFound, setLookupNotFound] = useState(false);
+  const [showInAppSharePrompt, setShowInAppSharePrompt] = useState(false);
+  const [eventAccessLog, setEventAccessLog] = useState<EventAccessLogEntry[]>([]);
+  const [eventAccessLogLoading, setEventAccessLogLoading] = useState(false);
+  const [eventAccessLogError, setEventAccessLogError] = useState<string | null>(null);
+  const [notificationRecipients, setNotificationRecipients] = useState<NotificationRecipient[]>([]);
+  const [notificationRecipientsLoading, setNotificationRecipientsLoading] = useState(false);
+  const [privateAccessUsers, setPrivateAccessUsers] = useState<PrivateAccessUser[]>([]);
+  const [privateAccessUsersLoading, setPrivateAccessUsersLoading] = useState(false);
+  const [privateAccessUsersError, setPrivateAccessUsersError] = useState<string | null>(null);
+  const [notificationTarget, setNotificationTarget] = useState<'all_access' | 'confirmed' | 'waitlist' | 'selected'>('all_access');
+  const [selectedNotificationUserIds, setSelectedNotificationUserIds] = useState<string[]>([]);
+  const [notificationTitle, setNotificationTitle] = useState('');
+  const [notificationMessage, setNotificationMessage] = useState('');
+  const [notificationActionUrl, setNotificationActionUrl] = useState('');
+  const [notificationSending, setNotificationSending] = useState(false);
+  const [notificationSendMessage, setNotificationSendMessage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<HostDashboardTab>('requests');
+  const [showShareInsights, setShowShareInsights] = useState(false);
+  const inAppShareSectionRef = useRef<HTMLElement | null>(null);
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
     show: boolean;
@@ -71,11 +140,30 @@ export default function HostDashboard({ user }: { user: User | null }) {
     return email;
   };
 
+  const getEngagementTagLabel = (candidate: InAppShareCandidate) => {
+    if (candidate.attended_previous || candidate.engagement_tag === 'attended' || candidate.engagement_tag === 'both') {
+      return 'Has attended';
+    }
+    return 'Viewed link only';
+  };
+
   const normalizeWhatsapp = (value: string) => value.replace(/[^\d]/g, '');
+  const formatSharedSource = (source: PrivateAccessUser['source']) => {
+    if (source === 'host_share') return 'Shared by host';
+    if (source === 'code') return 'Unlocked via join code';
+    return 'Opened private link';
+  };
 
   const getPublicPreviewUrl = () => {
     if (!event) return '';
-    return `${window.location.origin}/events/${event.slug}`;
+    const publicSlug = event.public_slug || event.slug;
+    return `${window.location.origin}/events/${publicSlug}`;
+  };
+
+  const getPrivateShareUrl = () => {
+    if (!event) return '';
+    const privateSlug = event.private_slug || event.join_code || event.slug;
+    return `${window.location.origin}/events/${privateSlug}`;
   };
 
   const buildInviteText = (url: string) => {
@@ -126,33 +214,165 @@ export default function HostDashboard({ user }: { user: User | null }) {
     setShowManualShareModal(true);
   };
 
-  const generateAccessCode = () => {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-      return crypto.randomUUID();
-    }
-    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  };
-
   const ensurePrivateAccessUrl = async () => {
     if (!event) return '';
-    const base = getPublicPreviewUrl();
-    const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+    return getPrivateShareUrl();
+  };
 
-    if (visibility !== 'semi_public') return base;
+  const openWhatsAppToNumber = async (rawNumber: string) => {
+    if (!event) return;
+    const number = normalizeWhatsapp(rawNumber);
+    if (!number) {
+      alert('Please enter a valid WhatsApp number.');
+      return;
+    }
+    const url = await ensurePrivateAccessUrl();
+    if (!url) return;
+    const inviteText = buildInviteText(url);
+    window.location.href = `https://wa.me/${number}?text=${encodeURIComponent(inviteText)}`;
+  };
 
-    if (event.access_code && event.access_code.trim()) {
-      return `${base}?access=${event.access_code}`;
+  const fetchInAppShareCandidates = async (eventId: string) => {
+    setInAppShareLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('host_list_share_suggestions', {
+        p_event_id: eventId,
+      });
+      if (error) throw error;
+      const candidates = (data || []) as InAppShareCandidate[];
+      setInAppShareCandidates(candidates);
+      setSelectedShareUserIds(
+        candidates
+          .filter((candidate) => candidate.selected_by_default)
+          .map((candidate) => candidate.user_id),
+      );
+    } catch (error) {
+      console.warn('Could not load in-app share candidates:', error);
+      setInAppShareCandidates([]);
+      setSelectedShareUserIds([]);
+    } finally {
+      setInAppShareLoading(false);
+    }
+  };
+
+  const fetchEventAccessLog = async (eventId: string) => {
+    setEventAccessLogLoading(true);
+    setEventAccessLogError(null);
+    try {
+      const { data, error } = await supabase.rpc('host_list_event_access_log', {
+        p_event_id: eventId,
+      });
+      if (error) throw error;
+      setEventAccessLog((data || []) as EventAccessLogEntry[]);
+    } catch (error: any) {
+      setEventAccessLog([]);
+      setEventAccessLogError(error?.message || 'Could not load access log right now.');
+    } finally {
+      setEventAccessLogLoading(false);
+    }
+  };
+
+  const fetchNotificationRecipients = async (eventId: string) => {
+    setNotificationRecipientsLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('host_list_notification_recipients', {
+        p_event_id: eventId,
+      });
+      if (error) throw error;
+      const recipients = (data || []) as NotificationRecipient[];
+      setNotificationRecipients(recipients);
+      setSelectedNotificationUserIds((prev) => prev.filter((id) => recipients.some((recipient) => recipient.user_id === id)));
+    } catch (error) {
+      console.warn('Could not load notification recipients:', error);
+      setNotificationRecipients([]);
+      setSelectedNotificationUserIds([]);
+    } finally {
+      setNotificationRecipientsLoading(false);
+    }
+  };
+
+  const fetchPrivateAccessUsers = async (eventId: string) => {
+    setPrivateAccessUsersLoading(true);
+    setPrivateAccessUsersError(null);
+    try {
+      const { data, error } = await supabase.rpc('host_list_private_access_users', {
+        p_event_id: eventId,
+      });
+      if (error) throw error;
+      setPrivateAccessUsers((data || []) as PrivateAccessUser[]);
+    } catch (error: any) {
+      setPrivateAccessUsers([]);
+      setPrivateAccessUsersError(error?.message || 'Could not load shared private access list right now.');
+    } finally {
+      setPrivateAccessUsersLoading(false);
+    }
+  };
+
+  const shareToSelectedUsers = async (userIds: string[]) => {
+    if (!event || userIds.length === 0) return;
+    try {
+      setInAppShareSaving(true);
+      setInAppShareMessage(null);
+      const { data, error } = await supabase.rpc('host_share_event_with_users', {
+        p_event_id: event.id,
+        p_user_ids: userIds,
+        p_source: 'link',
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error as string);
+
+      const sharedCount = Number(data?.shared_count || 0);
+      const submittedCount = Number(data?.submitted_count || userIds.length);
+      if (sharedCount > 0) {
+        setInAppShareMessage(`Shared with ${sharedCount} account${sharedCount === 1 ? '' : 's'}.`);
+      } else {
+        setInAppShareMessage(
+          submittedCount > 0
+            ? 'Those people already had access.'
+            : 'No recipients selected.',
+        );
+      }
+      await fetchInAppShareCandidates(event.id);
+      await fetchPrivateAccessUsers(event.id);
+    } catch (error: any) {
+      setInAppShareMessage(error.message || 'Could not share in app right now.');
+    } finally {
+      setInAppShareSaving(false);
+    }
+  };
+
+  const lookupByWhatsapp = async () => {
+    if (!event) return;
+    const normalized = normalizeWhatsapp(manualWhatsappLookup);
+    if (!normalized) {
+      setLookupCandidate(null);
+      setLookupNotFound(false);
+      setInAppShareMessage('Enter a WhatsApp number first.');
+      return;
     }
 
-    const nextAccessCode = generateAccessCode();
-    const { error } = await supabase
-      .from('events')
-      .update({ access_code: nextAccessCode })
-      .eq('id', event.id);
+    try {
+      setLookupLoading(true);
+      setLookupCandidate(null);
+      setLookupNotFound(false);
+      setInAppShareMessage(null);
+      const { data, error } = await supabase.rpc('host_lookup_user_by_whatsapp', {
+        p_event_id: event.id,
+        p_whatsapp: manualWhatsappLookup,
+      });
+      if (error) throw error;
 
-    if (error) throw error;
-    setEvent((prev) => (prev ? { ...prev, access_code: nextAccessCode } : prev));
-    return `${base}?access=${nextAccessCode}`;
+      const rows = (data || []) as InAppShareCandidate[];
+      if (rows.length === 0) {
+        setLookupNotFound(true);
+        return;
+      }
+      setLookupCandidate(rows[0]);
+    } catch (error: any) {
+      setInAppShareMessage(error.message || 'Could not look up that WhatsApp number.');
+    } finally {
+      setLookupLoading(false);
+    }
   };
 
   const getAddedByLabel = (attendee: Attendee) => {
@@ -258,13 +478,27 @@ export default function HostDashboard({ user }: { user: User | null }) {
   }, [id, user]);
 
   useEffect(() => {
-    const routeState = location.state as { justCreated?: boolean } | null;
+    const routeState = location.state as { justCreated?: boolean; openInAppShare?: boolean } | null;
     const justCreatedEventId = sessionStorage.getItem(CREATE_EVENT_SUCCESS_KEY);
     const shouldOpenSuccessModal = routeState?.justCreated || (!!id && justCreatedEventId === id);
     if (!shouldOpenSuccessModal) return;
 
     setShowCreateSuccessModal(true);
   }, [id, location.state]);
+
+  useEffect(() => {
+    const routeState = location.state as { openInAppShare?: boolean } | null;
+    if (routeState?.openInAppShare) {
+      setActiveTab('share');
+      setShowInAppSharePrompt(true);
+    }
+  }, [location.state]);
+
+  useEffect(() => {
+    if (!showInAppSharePrompt) return;
+    setActiveTab('share');
+    inAppShareSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [showInAppSharePrompt]);
 
   const clearCreateSuccessState = () => {
     sessionStorage.removeItem(CREATE_EVENT_SUCCESS_KEY);
@@ -345,6 +579,51 @@ export default function HostDashboard({ user }: { user: User | null }) {
       fetchJoinRequests(normalizedEvent.id);
       fetchInterests(normalizedEvent.id);
       fetchHosts(normalizedEvent.id, normalizedEvent.host_user_id || null, normalizedEvent.host_name || null);
+      fetchInAppShareCandidates(normalizedEvent.id);
+      fetchPrivateAccessUsers(normalizedEvent.id);
+      fetchEventAccessLog(normalizedEvent.id);
+      fetchNotificationRecipients(normalizedEvent.id);
+    }
+  };
+
+  const sendHostNotification = async () => {
+    if (!event) return;
+    if (!notificationMessage.trim()) {
+      setNotificationSendMessage('Write a message first.');
+      return;
+    }
+    if (notificationTarget === 'selected' && selectedNotificationUserIds.length === 0) {
+      setNotificationSendMessage('Select at least one recipient.');
+      return;
+    }
+
+    try {
+      setNotificationSending(true);
+      setNotificationSendMessage(null);
+      const { data, error } = await supabase.rpc('host_send_activity_notification', {
+        p_event_id: event.id,
+        p_target: notificationTarget,
+        p_user_ids: notificationTarget === 'selected' ? selectedNotificationUserIds : [],
+        p_title: notificationTitle.trim() || null,
+        p_message: notificationMessage.trim(),
+        p_action_url: notificationActionUrl.trim() || null,
+        p_action_label: notificationActionUrl.trim() ? 'Open activity' : null,
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error as string);
+
+      const sentCount = Number(data?.sent_count || 0);
+      setNotificationSendMessage(`Notification sent to ${sentCount} account${sentCount === 1 ? '' : 's'}.`);
+      setNotificationTitle('');
+      setNotificationMessage('');
+      setNotificationActionUrl('');
+      if (notificationTarget === 'selected') {
+        setSelectedNotificationUserIds([]);
+      }
+    } catch (error: any) {
+      setNotificationSendMessage(error?.message || 'Could not send notification right now.');
+    } finally {
+      setNotificationSending(false);
     }
   };
 
@@ -675,8 +954,6 @@ export default function HostDashboard({ user }: { user: User | null }) {
       const durationMinutes = event.duration_minutes || 60;
       newEndsAt = new Date(newStartsAt.getTime() + durationMinutes * 60 * 1000).toISOString();
 
-      const newSlug = `${generateSlug(event.title)}-${Math.random().toString(36).substring(2, 7)}`;
-
       const { data: newEvent, error } = await supabase
         .from('events')
         .insert([{
@@ -698,9 +975,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
           allow_waitlist: event.allow_waitlist,
           is_public: event.is_public,
           require_guest_email_for_join: event.require_guest_email_for_join,
+          copied_from_event_id: event.id,
           host_user_id: user?.id,
           status: 'scheduled',
-          slug: newSlug
         }])
         .select()
         .single();
@@ -725,7 +1002,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
         if (hostCopyError) throw hostCopyError;
       }
 
-      navigate(`/host/events/${newEvent.id}/edit`);
+      navigate(`/host/events/${newEvent.id}`, {
+        state: { openInAppShare: true },
+      });
     } catch (error: any) {
       console.error('Copy Activity Error:', error);
       alert(error.message || 'Failed to copy activity');
@@ -808,11 +1087,15 @@ export default function HostDashboard({ user }: { user: User | null }) {
     try {
       setRequestActionLoadingId(request.id);
       if (status) {
-        const { error } = await supabase
-          .from('event_access_requests')
-          .update({ status })
-          .eq('id', request.id);
+        const { data, error } = await supabase.rpc('host_review_access_request', {
+          p_request_id: request.id,
+          p_action: status,
+        });
         if (error) throw error;
+        if (data?.error) throw new Error(data.error as string);
+        if (status === 'approved') {
+          await fetchPrivateAccessUsers(event.id);
+        }
       }
 
       const whatsappUrl = `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
@@ -915,6 +1198,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
       : joinRequestView === 'rejected'
         ? rejectedJoinRequests
         : pendingJoinRequests;
+  const pendingReviewCount = pendingJoinRequests.length + pendingRequests.length;
+  const canReviewJoinRequests = event.require_host_approval_for_join;
+  const canReviewAccessRequests = visibility === 'semi_public';
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
@@ -960,7 +1246,48 @@ export default function HostDashboard({ user }: { user: User | null }) {
           </div>
         </section>
 
-        {moderationStatusBadge ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-1">
+          <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+            <button
+              type="button"
+              onClick={() => setActiveTab('requests')}
+              className={`rounded-xl px-3 py-2 text-sm font-bold transition-all ${
+                activeTab === 'requests' ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Requests {pendingReviewCount > 0 ? `(${pendingReviewCount})` : ''}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('people')}
+              className={`rounded-xl px-3 py-2 text-sm font-bold transition-all ${
+                activeTab === 'people' ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              People
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('share')}
+              className={`rounded-xl px-3 py-2 text-sm font-bold transition-all ${
+                activeTab === 'share' ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Share
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('settings')}
+              className={`rounded-xl px-3 py-2 text-sm font-bold transition-all ${
+                activeTab === 'settings' ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Settings
+            </button>
+          </div>
+        </section>
+
+        {activeTab === 'settings' && moderationStatusBadge ? (
           <div className="flex justify-start">
             <span className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-bold ${moderationStatusBadge.className}`}>
               {moderationStatusBadge.label}
@@ -968,13 +1295,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
           </div>
         ) : null}
 
-        {moderationBanner ? (
+        {activeTab === 'settings' && moderationBanner ? (
           <section className="bg-slate-100 border border-slate-200 rounded-2xl p-4">
             <p className="text-sm font-bold text-slate-800">{moderationBanner.title}</p>
             <p className="text-sm text-slate-500 mt-1 leading-relaxed">{moderationBanner.body}</p>
           </section>
         ) : null}
 
+        {activeTab === 'people' ? (
         <section className="bg-white rounded-2xl p-4">
           <button
             type="button"
@@ -1036,19 +1364,30 @@ export default function HostDashboard({ user }: { user: User | null }) {
             </div>
           ) : null}
         </section>
+        ) : null}
 
-        {/* Share Tools */}
+        {activeTab === 'share' ? (
+        <>
+        {activeTab === 'share' ? (
+        <>
         <section className="bg-white rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
-            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Share Activity</p>
+            <p className="text-sm font-black text-brand-600 tracking-tight">Share Activity</p>
             <button
               type="button"
-              onClick={() => navigate(`/events/${event.slug}`)}
+              onClick={() => navigate(`/events/${event.public_slug || event.slug}`)}
               className="text-xs font-bold text-slate-400 hover:text-brand-600 transition-all active:scale-95"
             >
               View Activity
             </button>
           </div>
+          {event.join_code ? (
+            <div className="mb-4 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-brand-700">Join code</p>
+              <p className="mt-1 text-lg font-black tracking-[0.2em] text-slate-900">{event.join_code}</p>
+              <p className="mt-1 text-xs text-slate-500">People can enter this on Home to save the activity under Shared with you.</p>
+            </div>
+          ) : null}
           {(event.visibility || (event.is_public ? 'public' : 'private')) === 'semi_public' ? (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
@@ -1080,10 +1419,442 @@ export default function HostDashboard({ user }: { user: User | null }) {
           )}
         </section>
 
-        {event.require_host_approval_for_join ? (
+        <section className="bg-white rounded-2xl p-5" ref={inAppShareSectionRef}>
+          {showInAppSharePrompt ? (
+            <div className="mb-4 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-brand-700">Share in app</p>
+              <p className="mt-1 text-sm text-brand-700">
+                Pick from people who have engaged with your activities before. "Has attended" is prioritized over "Viewed link only".
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowInAppSharePrompt(false)}
+                className="mt-2 text-xs font-bold text-brand-700 underline"
+              >
+                Got it
+              </button>
+            </div>
+          ) : null}
+
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-black text-brand-600 tracking-tight">Share In App</p>
+            <button
+              type="button"
+              onClick={() => {
+                if (!event) return;
+                void fetchInAppShareCandidates(event.id);
+              }}
+              disabled={inAppShareLoading}
+              className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
+            >
+              Refresh
+            </button>
+          </div>
+
+          <p className="mt-1 text-xs text-slate-500">
+            Suggestions include people who attended or viewed private links for your activities.
+          </p>
+
+          {inAppShareLoading ? (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+              Loading recipients...
+            </div>
+          ) : inAppShareCandidates.length > 0 ? (
+            <div className="mt-3 space-y-3">
+              <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
+                {inAppShareCandidates.map((candidate) => {
+                  const checked = selectedShareUserIds.includes(candidate.user_id);
+                  const engagementLabel = getEngagementTagLabel(candidate);
+                  return (
+                    <label key={candidate.user_id} className="flex cursor-pointer items-start gap-3 border-b border-slate-200 px-3 py-3 last:border-b-0">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(evt) => {
+                          setSelectedShareUserIds((prev) => {
+                            if (evt.target.checked) {
+                              if (prev.includes(candidate.user_id)) return prev;
+                              return [...prev, candidate.user_id];
+                            }
+                            return prev.filter((id) => id !== candidate.user_id);
+                          });
+                        }}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-bold text-slate-800">{candidate.display_name}</p>
+                        <p className="truncate text-xs text-slate-500">
+                          {candidate.email || candidate.whatsapp_number || 'No contact details'}
+                        </p>
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                          {engagementLabel}
+                          {candidate.already_shared ? ' · already shared' : ''}
+                        </p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedShareUserIds(inAppShareCandidates.map((candidate) => candidate.user_id))}
+                    className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedShareUserIds([])}
+                    className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void shareToSelectedUsers(selectedShareUserIds)}
+                  disabled={inAppShareSaving || selectedShareUserIds.length === 0}
+                  className="rounded-xl bg-brand-600 px-3 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
+                >
+                  {inAppShareSaving ? 'Sharing...' : `Share selected (${selectedShareUserIds.length})`}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+              No share suggestions yet from your activity history.
+            </div>
+          )}
+
+          <div className="mt-4 space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Add by WhatsApp</p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={manualWhatsappLookup}
+                onChange={(evt) => {
+                  setManualWhatsappLookup(evt.target.value);
+                  setLookupCandidate(null);
+                  setLookupNotFound(false);
+                }}
+                placeholder="Enter WhatsApp number"
+                className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
+              />
+              <button
+                type="button"
+                onClick={() => void lookupByWhatsapp()}
+                disabled={lookupLoading}
+                className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+              >
+                {lookupLoading ? 'Checking...' : 'Find'}
+              </button>
+            </div>
+
+            {lookupCandidate ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p className="text-sm font-bold text-slate-800">{lookupCandidate.display_name}</p>
+                <p className="text-xs text-slate-500">{lookupCandidate.email || lookupCandidate.whatsapp_number || 'Linked account found'}</p>
+                <button
+                  type="button"
+                  onClick={() => void shareToSelectedUsers([lookupCandidate.user_id])}
+                  disabled={inAppShareSaving}
+                  className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
+                >
+                  {inAppShareSaving ? 'Sharing...' : 'Share with this account'}
+                </button>
+              </div>
+            ) : null}
+
+            {lookupNotFound ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p className="text-xs text-slate-500">No linked account found for that number.</p>
+                <button
+                  type="button"
+                  onClick={() => { void openWhatsAppToNumber(manualWhatsappLookup); }}
+                  className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500"
+                >
+                  Send link via WhatsApp instead
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          {inAppShareMessage ? (
+            <p className="mt-3 text-xs font-bold text-slate-500">{inAppShareMessage}</p>
+          ) : null}
+        </section>
+        </>
+        ) : null}
+
+        <section className="bg-white rounded-2xl p-5">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-black text-brand-600 tracking-tight">Send Notification</p>
+            <button
+              type="button"
+              onClick={() => {
+                if (!event) return;
+                void fetchNotificationRecipients(event.id);
+              }}
+              disabled={notificationRecipientsLoading}
+              className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
+            >
+              Refresh audience
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Send an in-app update to people who are related to this activity.
+          </p>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Audience</span>
+              <select
+                value={notificationTarget}
+                onChange={(evt) => setNotificationTarget(evt.target.value as 'all_access' | 'confirmed' | 'waitlist' | 'selected')}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
+              >
+                <option value="all_access">Everyone with access</option>
+                <option value="confirmed">Confirmed attendees</option>
+                <option value="waitlist">Waitlisted users</option>
+                <option value="selected">Selected users</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Optional title</span>
+              <input
+                type="text"
+                value={notificationTitle}
+                onChange={(evt) => setNotificationTitle(evt.target.value)}
+                placeholder={`Message from host: ${event.title}`}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
+              />
+            </label>
+          </div>
+
+          <label className="mt-3 block">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Message</span>
+            <textarea
+              value={notificationMessage}
+              onChange={(evt) => setNotificationMessage(evt.target.value)}
+              rows={3}
+              placeholder="Write a short message..."
+              className="mt-1 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
+            />
+          </label>
+
+          <label className="mt-3 block">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Optional action URL</span>
+            <input
+              type="text"
+              value={notificationActionUrl}
+              onChange={(evt) => setNotificationActionUrl(evt.target.value)}
+              placeholder={`/events/${event.private_slug || event.slug}`}
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600"
+            />
+          </label>
+
+          {notificationTarget === 'selected' ? (
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              {notificationRecipientsLoading ? (
+                <p className="text-sm text-slate-500">Loading recipients...</p>
+              ) : notificationRecipients.length === 0 ? (
+                <p className="text-sm text-slate-500">No eligible recipients found yet.</p>
+              ) : (
+                <>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Select recipients</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedNotificationUserIds(notificationRecipients.map((recipient) => recipient.user_id))}
+                        className="rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-100"
+                      >
+                        All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedNotificationUserIds([])}
+                        className="rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-100"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-52 space-y-2 overflow-y-auto">
+                    {notificationRecipients.map((recipient) => {
+                      const checked = selectedNotificationUserIds.includes(recipient.user_id);
+                      return (
+                        <label key={recipient.user_id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(evt) => {
+                              setSelectedNotificationUserIds((prev) => {
+                                if (evt.target.checked) return prev.includes(recipient.user_id) ? prev : [...prev, recipient.user_id];
+                                return prev.filter((id) => id !== recipient.user_id);
+                              });
+                            }}
+                            className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-bold text-slate-800">{recipient.display_name}</p>
+                            <p className="truncate text-xs text-slate-500">{recipient.email || 'No email'}</p>
+                            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.11em] text-slate-400">
+                              {recipient.attendee_status || recipient.source}
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-xs text-slate-500">
+              {notificationTarget === 'selected'
+                ? `${selectedNotificationUserIds.length} selected`
+                : `${notificationRecipients.length} eligible recipients`}
+            </p>
+            <button
+              type="button"
+              onClick={() => void sendHostNotification()}
+              disabled={notificationSending || !notificationMessage.trim()}
+              className="rounded-xl bg-brand-600 px-4 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
+            >
+              {notificationSending ? 'Sending...' : 'Send notification'}
+            </button>
+          </div>
+
+          {notificationSendMessage ? (
+            <p className="mt-2 text-xs font-bold text-slate-500">{notificationSendMessage}</p>
+          ) : null}
+        </section>
+
+        <section className="bg-white rounded-2xl p-4">
+          <button
+            type="button"
+            onClick={() => setShowShareInsights((value) => !value)}
+            className="flex w-full items-center justify-between text-left"
+            aria-expanded={showShareInsights}
+          >
+            <p className="text-sm font-bold text-slate-800">Advanced Share Insights</p>
+            {showShareInsights ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+          </button>
+          {showShareInsights ? (
+            <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
+              <section className="rounded-2xl border border-slate-100 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Shared Private Access</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!event) return;
+                      void fetchPrivateAccessUsers(event.id);
+                    }}
+                    disabled={privateAccessUsersLoading}
+                    className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">People who currently have direct private/shared access to this activity.</p>
+
+                {privateAccessUsersLoading ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                    Loading shared access list...
+                  </div>
+                ) : privateAccessUsersError ? (
+                  <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-3 text-sm text-red-600">
+                    {privateAccessUsersError}
+                  </div>
+                ) : privateAccessUsers.length > 0 ? (
+                  <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
+                    {privateAccessUsers.map((entry) => (
+                      <div key={entry.user_id} className="border-b border-slate-200 px-3 py-3 last:border-b-0">
+                        <p className="truncate text-sm font-bold text-slate-800">{entry.display_name}</p>
+                        <p className="truncate text-xs text-slate-500">{entry.email || entry.whatsapp_number || 'No contact details'}</p>
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                          {formatSharedSource(entry.source)} · {formatDate(entry.granted_at, event.timezone)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                    Nobody has shared private access yet.
+                  </div>
+                )}
+              </section>
+
+              <section className="rounded-2xl border border-slate-100 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[9px] font-medium uppercase tracking-widest text-slate-400">Private Link Access Log</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!event) return;
+                      void fetchEventAccessLog(event.id);
+                    }}
+                    disabled={eventAccessLogLoading}
+                    className="text-xs font-bold text-slate-500 hover:text-brand-600 transition-all disabled:opacity-50"
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">Shows signed-in people who opened this activity’s private link.</p>
+
+                {eventAccessLogLoading ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                    Loading access log...
+                  </div>
+                ) : eventAccessLogError ? (
+                  <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-3 text-sm text-red-600">
+                    {eventAccessLogError}
+                  </div>
+                ) : eventAccessLog.length > 0 ? (
+                  <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
+                    {eventAccessLog.map((entry) => (
+                      <div key={entry.user_id} className="border-b border-slate-200 px-3 py-3 last:border-b-0">
+                        <p className="truncate text-sm font-bold text-slate-800">{entry.display_name}</p>
+                        <p className="truncate text-xs text-slate-500">{entry.email || entry.whatsapp_number || 'No contact details'}</p>
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                          Last opened {formatDate(entry.last_seen_at, event.timezone)}
+                          {entry.view_count > 1 ? ` · ${entry.view_count} views` : ''}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                    No signed-in private-link visits recorded yet.
+                  </div>
+                )}
+              </section>
+            </div>
+          ) : null}
+        </section>
+        </>
+        ) : null}
+
+        {activeTab === 'requests' && !canReviewJoinRequests && !canReviewAccessRequests ? (
+          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+            <p className="text-sm font-bold text-slate-800">No request workflows enabled.</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Turn on host approval in activity settings or use a semi-public activity to manage request queues here.
+            </p>
+          </section>
+        ) : null}
+
+        {activeTab === 'requests' && canReviewJoinRequests ? (
           <section className="bg-white rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Join Requests</p>
+              <p className="text-sm font-black text-brand-600 tracking-tight">Join Requests</p>
               <div className="flex items-center gap-3">
                 <button
                   type="button"
@@ -1176,10 +1947,10 @@ export default function HostDashboard({ user }: { user: User | null }) {
           </section>
         ) : null}
 
-        {(event.visibility || (event.is_public ? 'public' : 'private')) === 'semi_public' && (
+        {activeTab === 'requests' && canReviewAccessRequests && (
           <section className="bg-white rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Access Requests</p>
+              <p className="text-sm font-black text-brand-600 tracking-tight">Access Requests</p>
               <div className="flex items-center gap-3">
                 <button
                   type="button"
@@ -1288,10 +2059,12 @@ export default function HostDashboard({ user }: { user: User | null }) {
           </section>
         )}
 
+        {activeTab === 'people' ? (
+        <>
         {/* Attendee List */}
         <section className="bg-white rounded-2xl overflow-hidden">
           <div className="flex items-center justify-between px-5 pt-4 pb-3">
-            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Going</p>
+            <p className="text-sm font-black text-brand-600 tracking-tight">Going</p>
             <button 
               onClick={() => setShowAddModal(true)}
               className="text-brand-600 font-bold text-xs flex items-center gap-1 hover:text-brand-500 transition-all active:scale-95"
@@ -1349,7 +2122,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
         {event.allow_waitlist && waitlist.length > 0 && (
           <section className="bg-white rounded-2xl overflow-hidden">
             <div className="flex items-center justify-between px-5 pt-4 pb-3">
-              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Waitlist</p>
+              <p className="text-sm font-black text-brand-600 tracking-tight">Waitlist</p>
               <span className="text-xs text-slate-400">{waitlist.length}</span>
             </div>
             <div className="divide-y divide-slate-50">
@@ -1378,7 +2151,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
         <section className="bg-white rounded-2xl p-5">
           <div className="flex items-center justify-between">
-            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Thinking About It</p>
+            <p className="text-sm font-black text-brand-600 tracking-tight">Thinking About It</p>
             <span className="text-sm font-bold text-slate-800">{interests.length}</span>
           </div>
           {visibility === 'public' ? (
@@ -1396,8 +2169,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <p className="text-xs text-slate-400 mt-2">No named interest yet.</p>
           )}
         </section>
+        </>
+        ) : null}
 
         {/* Secondary actions */}
+        {activeTab === 'settings' ? (
         <section className="pt-2 pb-12 flex flex-col items-center gap-4">
           <button
             onClick={copyEvent}
@@ -1416,6 +2192,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
             Delete activity
           </button>
         </section>
+        ) : null}
       </main>
 
       {/* Delete Confirmation Modal */}
@@ -1651,6 +2428,19 @@ export default function HostDashboard({ user }: { user: User | null }) {
               </div>
 
               <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearCreateSuccessState();
+                    setShowCreateSuccessModal(false);
+                    setActiveTab('share');
+                    setShowInAppSharePrompt(true);
+                    inAppShareSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-brand-700 font-black py-4 rounded-2xl transition-all active:scale-95"
+                >
+                  Share in app
+                </button>
                 <button
                   type="button"
                   onClick={() => {

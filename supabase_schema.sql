@@ -252,6 +252,483 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
+-- -------------------------------------------------------------------
+-- Access model overrides (aligned with latest private/public rules)
+-- -------------------------------------------------------------------
+ALTER TABLE public.event_shared_with_users
+    ADD COLUMN IF NOT EXISTS unlock_private_slug TEXT,
+    ADD COLUMN IF NOT EXISTS unlock_join_code TEXT;
+
+ALTER TABLE public.event_shared_with_users
+    DROP CONSTRAINT IF EXISTS event_shared_with_users_source_check;
+
+ALTER TABLE public.event_shared_with_users
+    ADD CONSTRAINT event_shared_with_users_source_check
+    CHECK (source IN ('link', 'code', 'host_share'));
+
+CREATE OR REPLACE FUNCTION public.is_event_shared_with_user_active(
+    p_event_id UUID,
+    p_user_id UUID
+) RETURNS BOOLEAN AS $$
+DECLARE
+    v_private_slug TEXT;
+    v_join_code TEXT;
+BEGIN
+    IF p_event_id IS NULL OR p_user_id IS NULL THEN
+        RETURN false;
+    END IF;
+
+    SELECT
+        nullif(trim(coalesce(e.private_slug, '')), ''),
+        nullif(trim(coalesce(e.join_code, '')), '')
+    INTO
+        v_private_slug,
+        v_join_code
+    FROM public.events e
+    WHERE e.id = p_event_id;
+
+    RETURN EXISTS (
+        SELECT 1
+        FROM public.event_shared_with_users es
+        WHERE es.event_id = p_event_id
+          AND es.user_id = p_user_id
+          AND (
+              (es.unlock_private_slug IS NULL AND es.unlock_join_code IS NULL)
+              OR (
+                  COALESCE(es.unlock_private_slug, '') = COALESCE(v_private_slug, '')
+                  AND COALESCE(es.unlock_join_code, '') = COALESCE(v_join_code, '')
+              )
+          )
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.list_my_shared_activities()
+RETURNS SETOF public.events AS $$
+    SELECT DISTINCT e.*
+    FROM public.event_shared_with_users es
+    JOIN public.events e
+      ON e.id = es.event_id
+    WHERE auth.uid() IS NOT NULL
+      AND es.user_id = auth.uid()
+      AND public.is_event_shared_with_user_active(es.event_id, es.user_id)
+      AND NOT public.is_event_host(e.id, auth.uid())
+      AND NOT EXISTS (
+          SELECT 1
+          FROM public.event_attendees ea
+          LEFT JOIN public.attendee_profiles ap
+            ON ap.id = ea.attendee_profile_id
+          LEFT JOIN public.attendee_profiles added_by_ap
+            ON added_by_ap.id = ea.added_by_attendee_profile_id
+          WHERE ea.event_id = e.id
+            AND ea.status <> 'cancelled'
+            AND (
+                ea.user_id = auth.uid()
+                OR ap.user_id = auth.uid()
+                OR lower(coalesce(ap.email, '')) = lower(coalesce(auth.jwt() ->> 'email', ''))
+                OR lower(coalesce(ea.guest_email, '')) = lower(coalesce(auth.jwt() ->> 'email', ''))
+                OR added_by_ap.user_id = auth.uid()
+                OR lower(coalesce(added_by_ap.email, '')) = lower(coalesce(auth.jwt() ->> 'email', ''))
+            )
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM public.event_join_requests jr
+          LEFT JOIN public.attendee_profiles ap
+            ON ap.id = jr.attendee_profile_id
+          WHERE jr.event_id = e.id
+            AND jr.status = 'pending'
+            AND (
+                jr.user_id = auth.uid()
+                OR ap.user_id = auth.uid()
+                OR lower(coalesce(ap.email, '')) = lower(coalesce(auth.jwt() ->> 'email', ''))
+                OR lower(coalesce(jr.guest_email, '')) = lower(coalesce(auth.jwt() ->> 'email', ''))
+            )
+      )
+    ORDER BY e.starts_at ASC;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.get_event_for_view(
+    p_slug TEXT,
+    p_access_code TEXT DEFAULT NULL
+) RETURNS TABLE (
+    id UUID,
+    slug TEXT,
+    public_slug TEXT,
+    private_slug TEXT,
+    join_code TEXT,
+    title TEXT,
+    description TEXT,
+    public_summary TEXT,
+    location_text TEXT,
+    public_location_text TEXT,
+    google_maps_url TEXT,
+    starts_at TIMESTAMPTZ,
+    timezone TEXT,
+    duration_minutes INTEGER,
+    ends_at TIMESTAMPTZ,
+    capacity INTEGER,
+    host_user_id UUID,
+    host_name TEXT,
+    host_contact_text TEXT,
+    show_host_publicly BOOLEAN,
+    access_code TEXT,
+    visibility TEXT,
+    allow_waitlist BOOLEAN,
+    require_host_approval_for_join BOOLEAN,
+    require_guest_email_for_join BOOLEAN,
+    is_public BOOLEAN,
+    public_discovery_enabled BOOLEAN,
+    moderation_status TEXT,
+    moderation_risk_level TEXT,
+    moderation_action TEXT,
+    moderation_confidence NUMERIC,
+    moderation_reasons TEXT[],
+    moderation_input_hash TEXT,
+    moderated_at TIMESTAMPTZ,
+    moderation_archived_at TIMESTAMPTZ,
+    moderation_override TEXT,
+    status TEXT,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
+    can_view_full_details BOOLEAN
+) AS $$
+DECLARE
+    v_event public.events%ROWTYPE;
+    v_requested_slug TEXT := trim(coalesce(p_slug, ''));
+    v_private_slug TEXT;
+    v_visibility TEXT;
+    v_is_host BOOLEAN := false;
+    v_has_access_code BOOLEAN := false;
+    v_is_shared BOOLEAN := false;
+    v_is_attendee BOOLEAN := false;
+    v_is_private_slug BOOLEAN := false;
+    v_has_legacy_private_token BOOLEAN := false;
+    v_can_view_full BOOLEAN := false;
+BEGIN
+    SELECT *
+    INTO v_event
+    FROM public.events e
+    WHERE e.slug = v_requested_slug
+       OR e.public_slug = v_requested_slug
+       OR e.private_slug = v_requested_slug
+       OR e.legacy_slug = v_requested_slug
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    v_private_slug := COALESCE(nullif(trim(v_event.private_slug), ''), nullif(trim(v_event.join_code), ''));
+    v_is_private_slug := v_private_slug IS NOT NULL AND v_requested_slug = v_private_slug;
+    v_has_legacy_private_token := nullif(trim(coalesce(p_access_code, '')), '') IS NOT NULL
+        AND p_access_code = v_private_slug;
+    v_visibility := COALESCE(v_event.visibility, CASE WHEN v_event.is_public THEN 'public' ELSE 'private' END);
+    v_is_host := auth.uid() IS NOT NULL AND public.is_event_host(v_event.id, auth.uid());
+    v_has_access_code := nullif(trim(coalesce(p_access_code, '')), '') IS NOT NULL
+        AND p_access_code = v_event.access_code;
+    v_is_shared := auth.uid() IS NOT NULL AND public.is_event_shared_with_user_active(v_event.id, auth.uid());
+    v_is_attendee := auth.uid() IS NOT NULL AND EXISTS (
+        SELECT 1
+        FROM public.event_attendees ea
+        LEFT JOIN public.attendee_profiles ap ON ap.id = ea.attendee_profile_id
+        WHERE ea.event_id = v_event.id
+          AND ea.status IN ('confirmed', 'waitlist', 'pending_approval')
+          AND (
+              ea.user_id = auth.uid()
+              OR ap.user_id = auth.uid()
+          )
+    );
+
+    v_can_view_full := (
+        v_visibility = 'public'
+        OR v_is_host
+        OR v_is_shared
+        OR v_is_attendee
+        OR v_is_private_slug
+        OR v_has_legacy_private_token
+        OR v_has_access_code
+    );
+
+    IF v_can_view_full
+       AND auth.uid() IS NOT NULL
+       AND NOT v_is_host
+       AND (v_is_private_slug OR v_has_legacy_private_token) THEN
+        BEGIN
+            PERFORM public.mark_event_shared_with_me(v_event.id, 'link');
+        EXCEPTION
+            WHEN OTHERS THEN
+                NULL;
+        END;
+
+        BEGIN
+            PERFORM public.record_event_private_view(v_event.id, auth.uid());
+        EXCEPTION
+            WHEN OTHERS THEN
+                NULL;
+        END;
+    END IF;
+
+    RETURN QUERY
+    SELECT
+        coalesce(v_event.id, NULL),
+        coalesce(v_event.public_slug, v_event.slug),
+        coalesce(v_event.public_slug, v_event.slug),
+        v_event.private_slug,
+        v_event.join_code,
+        v_event.title,
+        CASE
+            WHEN v_visibility = 'semi_public' AND NOT v_can_view_full THEN NULL
+            ELSE v_event.description
+        END,
+        v_event.public_summary,
+        CASE
+            WHEN v_visibility = 'semi_public' AND NOT v_can_view_full THEN NULL
+            ELSE v_event.location_text
+        END,
+        v_event.public_location_text,
+        CASE
+            WHEN v_visibility = 'semi_public' AND NOT v_can_view_full THEN NULL
+            ELSE v_event.google_maps_url
+        END,
+        v_event.starts_at,
+        v_event.timezone,
+        v_event.duration_minutes,
+        v_event.ends_at,
+        v_event.capacity,
+        v_event.host_user_id,
+        CASE
+            WHEN v_visibility = 'semi_public' AND NOT v_can_view_full AND NOT coalesce(v_event.show_host_publicly, false) THEN NULL
+            ELSE v_event.host_name
+        END,
+        CASE
+            WHEN v_visibility = 'semi_public' AND NOT v_can_view_full THEN NULL
+            ELSE v_event.host_contact_text
+        END,
+        v_event.show_host_publicly,
+        CASE
+            WHEN v_visibility = 'semi_public' AND NOT v_can_view_full THEN NULL
+            ELSE v_event.access_code
+        END,
+        v_event.visibility,
+        v_event.allow_waitlist,
+        coalesce(v_event.require_host_approval_for_join, false),
+        coalesce(v_event.require_guest_email_for_join, false),
+        v_event.is_public,
+        v_event.public_discovery_enabled,
+        v_event.moderation_status,
+        v_event.moderation_risk_level,
+        v_event.moderation_action,
+        v_event.moderation_confidence,
+        v_event.moderation_reasons,
+        v_event.moderation_input_hash,
+        v_event.moderated_at,
+        v_event.moderation_archived_at,
+        v_event.moderation_override,
+        v_event.status,
+        v_event.created_at,
+        v_event.updated_at,
+        v_can_view_full;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER VOLATILE SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.list_public_calendar_events(
+    p_now TIMESTAMPTZ DEFAULT now()
+) RETURNS TABLE (
+    id UUID,
+    slug TEXT,
+    title TEXT,
+    location_text TEXT,
+    public_location_text TEXT,
+    starts_at TIMESTAMPTZ,
+    timezone TEXT,
+    duration_minutes INTEGER,
+    capacity INTEGER,
+    visibility TEXT,
+    is_public BOOLEAN,
+    public_discovery_enabled BOOLEAN,
+    status TEXT,
+    access_code TEXT,
+    confirmed_count INTEGER,
+    thinking_count INTEGER
+) AS $$
+    SELECT
+        e.id,
+        COALESCE(e.public_slug, e.slug) AS slug,
+        e.title,
+        CASE
+            WHEN COALESCE(e.visibility, CASE WHEN e.is_public THEN 'public' ELSE 'private' END) = 'semi_public' THEN NULL
+            ELSE e.location_text
+        END AS location_text,
+        e.public_location_text,
+        e.starts_at,
+        e.timezone,
+        e.duration_minutes,
+        e.capacity,
+        e.visibility,
+        e.is_public,
+        e.public_discovery_enabled,
+        e.status,
+        NULL::TEXT AS access_code,
+        (
+            SELECT count(*)::INTEGER
+            FROM public.event_attendees ea
+            WHERE ea.event_id = e.id
+              AND ea.status = 'confirmed'
+        ) AS confirmed_count,
+        (
+            SELECT count(*)::INTEGER
+            FROM public.event_interests ei
+            WHERE ei.event_id = e.id
+        ) AS thinking_count
+    FROM public.events e
+    WHERE e.status = 'scheduled'
+      AND e.is_public = true
+      AND e.public_discovery_enabled = true
+      AND e.starts_at >= COALESCE(p_now, now())
+    ORDER BY e.starts_at ASC;
+$$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.list_event_attendees_for_view(
+    p_event_id UUID,
+    p_access_code TEXT DEFAULT NULL
+) RETURNS SETOF public.event_attendees AS $$
+DECLARE
+    v_visibility TEXT;
+    v_event_access_code TEXT;
+    v_private_slug TEXT;
+    v_can_view BOOLEAN := false;
+    v_is_shared BOOLEAN := false;
+    v_is_attendee BOOLEAN := false;
+BEGIN
+    SELECT
+        COALESCE(e.visibility, CASE WHEN e.is_public THEN 'public' ELSE 'private' END),
+        e.access_code,
+        COALESCE(nullif(trim(e.private_slug), ''), nullif(trim(e.join_code), ''))
+    INTO
+        v_visibility,
+        v_event_access_code,
+        v_private_slug
+    FROM public.events e
+    WHERE e.id = p_event_id;
+
+    IF v_visibility IS NULL THEN
+        RETURN;
+    END IF;
+
+    v_is_shared := auth.uid() IS NOT NULL AND public.is_event_shared_with_user_active(p_event_id, auth.uid());
+
+    v_is_attendee := auth.uid() IS NOT NULL AND EXISTS (
+        SELECT 1
+        FROM public.event_attendees ea
+        LEFT JOIN public.attendee_profiles ap ON ap.id = ea.attendee_profile_id
+        WHERE ea.event_id = p_event_id
+          AND ea.status IN ('confirmed', 'waitlist', 'pending_approval')
+          AND (
+              ea.user_id = auth.uid()
+              OR ap.user_id = auth.uid()
+          )
+    );
+
+    v_can_view := v_visibility = 'public'
+        OR (auth.uid() IS NOT NULL AND public.is_event_host(p_event_id, auth.uid()))
+        OR v_is_shared
+        OR v_is_attendee
+        OR (
+            nullif(trim(coalesce(p_access_code, '')), '') IS NOT NULL
+            AND (
+                p_access_code = v_event_access_code
+                OR p_access_code = coalesce(v_private_slug, '')
+            )
+        );
+
+    IF NOT v_can_view THEN
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+    SELECT ea.*
+    FROM public.event_attendees ea
+    WHERE ea.event_id = p_event_id
+      AND ea.status <> 'cancelled'
+    ORDER BY ea.joined_at ASC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.list_event_interests_for_view(
+    p_event_id UUID,
+    p_access_code TEXT DEFAULT NULL
+) RETURNS SETOF public.event_interests AS $$
+DECLARE
+    v_visibility TEXT;
+    v_event_access_code TEXT;
+    v_private_slug TEXT;
+    v_can_view_named BOOLEAN := false;
+    v_is_shared BOOLEAN := false;
+    v_is_attendee BOOLEAN := false;
+BEGIN
+    SELECT
+        COALESCE(e.visibility, CASE WHEN e.is_public THEN 'public' ELSE 'private' END),
+        e.access_code,
+        COALESCE(nullif(trim(e.private_slug), ''), nullif(trim(e.join_code), ''))
+    INTO
+        v_visibility,
+        v_event_access_code,
+        v_private_slug
+    FROM public.events e
+    WHERE e.id = p_event_id;
+
+    IF v_visibility IS NULL THEN
+        RETURN;
+    END IF;
+
+    IF v_visibility = 'public' THEN
+        RETURN QUERY
+        SELECT ei.*
+        FROM public.event_interests ei
+        WHERE ei.event_id = p_event_id
+          AND ei.visibility_mode = 'count_only'
+        ORDER BY ei.created_at ASC;
+        RETURN;
+    END IF;
+
+    v_is_shared := auth.uid() IS NOT NULL AND public.is_event_shared_with_user_active(p_event_id, auth.uid());
+
+    v_is_attendee := auth.uid() IS NOT NULL AND EXISTS (
+        SELECT 1
+        FROM public.event_attendees ea
+        LEFT JOIN public.attendee_profiles ap ON ap.id = ea.attendee_profile_id
+        WHERE ea.event_id = p_event_id
+          AND ea.status IN ('confirmed', 'waitlist', 'pending_approval')
+          AND (
+              ea.user_id = auth.uid()
+              OR ap.user_id = auth.uid()
+          )
+    );
+
+    v_can_view_named := (auth.uid() IS NOT NULL AND public.is_event_host(p_event_id, auth.uid()))
+        OR v_is_shared
+        OR v_is_attendee
+        OR (
+            nullif(trim(coalesce(p_access_code, '')), '') IS NOT NULL
+            AND (
+                p_access_code = v_event_access_code
+                OR p_access_code = coalesce(v_private_slug, '')
+            )
+        );
+
+    IF NOT v_can_view_named THEN
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+    SELECT ei.*
+    FROM public.event_interests ei
+    WHERE ei.event_id = p_event_id
+    ORDER BY ei.created_at ASC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
+
 -- Runtime moderation policy controls
 CREATE TABLE IF NOT EXISTS public.moderation_policy_settings (
     id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id = TRUE),

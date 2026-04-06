@@ -1,0 +1,337 @@
+import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { User } from '@supabase/supabase-js';
+import { CircleHelp, LogIn, LogOut, Menu, MessageSquarePlus, Search, Shield, UserPlus, UserRoundCog, X } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { supabase } from '../supabase';
+import { clearAllLaloStateForSignOut } from '../integrations/lalo/laloAuth';
+import { cn } from '../utils';
+import { useNotifications } from '../hooks/useNotifications';
+import { NotificationItem } from '../types';
+import { NotificationBell } from './system/NotificationBell';
+import { NotificationsSheet } from './system/NotificationsSheet';
+import { NotificationDetailModal } from './system/NotificationDetailModal';
+
+type AppTopBarProps = {
+  user: User | null;
+};
+
+export function AppTopBar({ user }: AppTopBarProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchValue, setSearchValue] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [selectedNotification, setSelectedNotification] = useState<NotificationItem | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const {
+    notifications,
+    unreadCount,
+    loading: notificationsLoading,
+    error: notificationsError,
+    refresh: refreshNotifications,
+    markRead,
+    markAllRead,
+  } = useNotifications(user);
+
+  const isHome = location.pathname === '/';
+  const isExplore = location.pathname === '/explore' || location.pathname === '/calendar';
+  const showHeaderSearch = isHome || isExplore;
+  const currentQuery = new URLSearchParams(location.search).get('q') || '';
+
+  useEffect(() => {
+    if (showHeaderSearch) {
+      setSearchValue(currentQuery);
+    }
+  }, [showHeaderSearch, currentQuery, location.pathname]);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    setNotificationsOpen(false);
+    setSelectedNotification(null);
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onEscape);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onEscape);
+    };
+  }, [menuOpen]);
+
+  const getTitle = () => {
+    if (location.pathname === '/') return 'Home';
+    if (location.pathname === '/explore' || location.pathname === '/calendar') return 'Public Activities';
+    if (location.pathname === '/my-activities') return 'My Activities';
+    if (location.pathname === '/profile') return 'Profile';
+    if (location.pathname === '/login') return 'Sign In';
+    return '';
+  };
+
+  const title = getTitle();
+  const searchPlaceholder = "See what's on. Say I'm In.";
+
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+
+    const root = document.documentElement;
+    const updateHeaderHeight = () => {
+      root.style.setProperty('--app-topbar-height', `${header.offsetHeight}px`);
+    };
+
+    updateHeaderHeight();
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateHeaderHeight();
+    });
+    resizeObserver.observe(header);
+
+    window.addEventListener('resize', updateHeaderHeight);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateHeaderHeight);
+    };
+  }, [showHeaderSearch, title, user]);
+
+  const handleHeaderSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const query = searchValue.trim();
+    navigate(query ? `/explore?q=${encodeURIComponent(query)}` : '/explore');
+  };
+
+  const handleHeaderSearchChange = (value: string) => {
+    setSearchValue(value);
+    if (!isExplore && !isHome) return;
+    const query = value.trim();
+    navigate(query ? `/explore?q=${encodeURIComponent(query)}` : '/explore', { replace: isExplore });
+  };
+
+  const handleMenuNavigate = (to: string) => {
+    setMenuOpen(false);
+    navigate(to);
+  };
+
+  const handleMenuAction = (action: string) => {
+    const nextParams = new URLSearchParams(location.search);
+    nextParams.set('action', action);
+    setMenuOpen(false);
+    navigate({
+      pathname: location.pathname,
+      search: `?${nextParams.toString()}`,
+    });
+  };
+
+  const handleOpenNotification = async (notification: NotificationItem) => {
+    const readAt = notification.read_at || new Date().toISOString();
+    if (!notification.read_at) {
+      await markRead(notification.id);
+    }
+    setSelectedNotification({
+      ...notification,
+      read_at: readAt,
+    });
+  };
+
+  const handleMenuSignOut = async () => {
+    setMenuOpen(false);
+    await supabase.auth.signOut();
+    clearAllLaloStateForSignOut();
+    navigate('/login', { replace: true });
+  };
+
+  return (
+    <header ref={headerRef} className="fixed inset-x-0 top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur-md">
+      <div className={cn('mx-auto max-w-2xl px-6', showHeaderSearch ? 'pt-1 pb-1.5' : '')}>
+        <div className={cn('relative flex items-center justify-between', showHeaderSearch ? 'h-10' : 'h-14')}>
+          <Link to="/" className="transition-opacity hover:opacity-80">
+            <img
+              src="/im-in-svg-logo-size.svg"
+              alt="I'm In"
+              className="h-9 w-auto max-w-[112px] object-contain object-left"
+            />
+          </Link>
+          {title ? (
+            <div className="pointer-events-none absolute inset-x-0 flex justify-center">
+              {title === 'Public Activities' ? (
+                <span className="text-center text-[10px] font-bold uppercase leading-tight tracking-[0.22em] text-brand-600">
+                  Public
+                  <br />
+                  Activities
+                </span>
+              ) : title === 'My Activities' ? (
+                <span className="text-center text-[10px] font-bold uppercase leading-tight tracking-[0.22em] text-brand-600">
+                  My
+                  <br />
+                  Activities
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-brand-600">
+                  {title}
+                </span>
+              )}
+            </div>
+          ) : null}
+          <div className="flex items-center gap-1.5">
+            {user ? (
+              <NotificationBell
+                unreadCount={unreadCount}
+                onClick={() => {
+                  setNotificationsOpen(true);
+                  void refreshNotifications();
+                }}
+              />
+            ) : null}
+            <div className="relative" ref={menuRef}>
+              <button
+                type="button"
+                aria-label="Open menu"
+                onClick={() => setMenuOpen((open) => !open)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-[1.15rem] border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:text-brand-700"
+              >
+                {menuOpen ? <X className="h-4.5 w-4.5" /> : <Menu className="h-4.5 w-4.5" />}
+              </button>
+            {menuOpen ? (
+              <div className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[calc(100vw-3rem)] max-w-[calc(100vw-3rem)] overflow-hidden rounded-3xl border border-slate-200 bg-white p-3 shadow-[0_20px_50px_rgba(15,23,42,0.16)] sm:w-[320px] sm:max-w-[320px]">
+                {!user ? (
+                  <button
+                    type="button"
+                    onClick={() => handleMenuNavigate('/login')}
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    <LogIn className="h-4.5 w-4.5 shrink-0 text-brand-600" />
+                    Sign In
+                  </button>
+                ) : null}
+                {!user ? <div className="my-1 h-px bg-slate-100" /> : null}
+                {!user ? (
+                  <button
+                    type="button"
+                    onClick={() => handleMenuNavigate('/login?create=true')}
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    <UserPlus className="h-4.5 w-4.5 shrink-0 text-brand-600" />
+                    Create Account
+                  </button>
+                ) : null}
+                {!user ? <div className="my-1 h-px bg-slate-100" /> : null}
+                <button
+                  type="button"
+                  onClick={() => handleMenuNavigate('/?action=why')}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  <CircleHelp className="h-4.5 w-4.5 shrink-0 text-brand-600" />
+                  Why <span className="italic">I&apos;m In</span> Exists
+                </button>
+                <div className="my-1 h-px bg-slate-100" />
+                <button
+                  type="button"
+                  onClick={() => handleMenuNavigate('/?action=build')}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  <UserRoundCog className="h-4.5 w-4.5 shrink-0 text-brand-600" />
+                  Help Build <span className="italic">I&apos;m In</span>
+                </button>
+                <div className="my-1 h-px bg-slate-100" />
+                <button
+                  type="button"
+                  onClick={() => handleMenuAction('moderation')}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  <Shield className="h-4.5 w-4.5 shrink-0 text-brand-600" />
+                  Moderation Transparency
+                </button>
+                <div className="my-1 h-px bg-slate-100" />
+                <button
+                  type="button"
+                  onClick={() => handleMenuNavigate('/?action=feedback')}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  <MessageSquarePlus className="h-4.5 w-4.5 shrink-0 text-brand-600" />
+                  Send feedback
+                </button>
+                {user ? (
+                  <>
+                    <div className="my-1 h-px bg-slate-100" />
+                    <button
+                      type="button"
+                      onClick={() => void handleMenuSignOut()}
+                      className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                    >
+                      <LogOut className="h-4.5 w-4.5 shrink-0 text-brand-600" />
+                      Sign out
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+            </div>
+          </div>
+        </div>
+        {showHeaderSearch ? (
+          <div className="mt-1.5">
+            <form onSubmit={handleHeaderSearchSubmit} className="relative">
+              <Search className="absolute left-4 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-slate-300" />
+              <input
+                type="text"
+                value={searchValue}
+                onChange={(event) => handleHeaderSearchChange(event.target.value)}
+                placeholder={searchPlaceholder}
+                className="ui-input min-h-[2.7rem] rounded-2xl border-slate-200 bg-white py-1.5 pl-11 pr-4 text-sm shadow-sm"
+              />
+            </form>
+          </div>
+        ) : null}
+      </div>
+      <NotificationsSheet
+        open={notificationsOpen}
+        notifications={notifications}
+        loading={notificationsLoading}
+        error={notificationsError}
+        onClose={() => {
+          setNotificationsOpen(false);
+          setSelectedNotification(null);
+        }}
+        onRefresh={() => void refreshNotifications()}
+        onOpenNotification={(notification) => {
+          void handleOpenNotification(notification);
+        }}
+        onMarkAllRead={() => void markAllRead()}
+      />
+      <NotificationDetailModal
+        open={!!selectedNotification}
+        notification={selectedNotification}
+        onClose={() => setSelectedNotification(null)}
+        onAction={(notification) => {
+          if (!notification.action_url) return;
+          if (notification.action_url.startsWith('/')) {
+            navigate(notification.action_url);
+          } else {
+            window.location.href = notification.action_url;
+          }
+          setSelectedNotification(null);
+          setNotificationsOpen(false);
+        }}
+      />
+    </header>
+  );
+}

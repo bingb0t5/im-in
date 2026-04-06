@@ -298,7 +298,7 @@ export default function AdminModerationSettings({ user }: { user: User | null })
           ) : null}
 
           {savedMessage ? (
-            <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3">
+            <p className="text-sm text-brand-700 bg-brand-50 border border-brand-100 rounded-xl px-4 py-3">
               {savedMessage}
             </p>
           ) : null}

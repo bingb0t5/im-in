@@ -1,619 +1,629 @@
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { User } from '@supabase/supabase-js';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { Calendar as CalendarIcon, ChevronRight, Eye, LogOut, MessageSquare, Plus, Search, Users } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { ChevronDown, ChevronUp, Eye, MapPin, UserRound, Users } from 'lucide-react';
 import { supabase } from '../supabase';
-import { formatDate, isOnOrAfterTodayInTimeZone } from '../utils';
+import { formatDate, formatDay, formatTime, isOnOrAfterTodayInTimeZone } from '../utils';
 import { Event } from '../types';
-import { groupBookingsByEvent } from '../lib/bookings';
-import { withConfirmedCounts, buildEventPath } from '../lib/events';
-import { guestService } from '../services/guestService';
+import { buildEventPath, withConfirmedCounts } from '../lib/events';
+import { BookingRow, groupBookingsByEvent } from '../lib/bookings';
+import { AuthPromptModal } from '../components/AuthPromptModal';
+import { Card } from '../components/ui/Card';
 
-interface PendingAccessRequestRow {
+type JoinedRow = BookingRow & {
+  status: string;
+  events: Event;
+};
+
+type PendingAccessRequestRow = {
   id: string;
   event_id: string;
   requester_name: string;
   created_at: string;
   status: 'pending' | 'approved' | 'declined' | 'contacted';
-  events?: {
-    id: string;
-    title: string;
-    host_user_id?: string;
-  } | null;
-}
+  events?: { id: string; title: string }[] | { id: string; title: string } | null;
+};
 
-interface PendingJoinRequestRow {
+type PendingJoinRequestRow = {
   id: string;
   event_id: string;
   guest_name: string;
   created_at: string;
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
-  events?: {
-    id: string;
-    title: string;
-    host_user_id?: string;
-  } | null;
+  events?: { id: string; title: string }[] | { id: string; title: string } | null;
+};
+
+function upcomingOnly(events: Event[]) {
+  return events.filter((event) => isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone));
+}
+
+function pastOnly(events: Event[]) {
+  return events.filter((event) => !isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone));
+}
+
+function normalizeEventRef(
+  value?: { id: string; title: string }[] | { id: string; title: string } | null,
+): { id: string; title: string } | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] || null : value;
+}
+
+function getVisibilityMeta(event: Event) {
+  const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+
+  if (visibility === 'semi_public') {
+    return {
+      label: 'Semi public',
+      className: 'bg-indigo-50 text-indigo-500',
+    };
+  }
+
+  if (visibility === 'private') {
+    return {
+      label: 'Private',
+      className: 'bg-slate-100 text-slate-500',
+    };
+  }
+
+  return {
+    label: 'Public',
+    className: 'bg-brand-50 text-brand-700',
+  };
+}
+
+function getPreviewLocation(event: Event) {
+  const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+  return visibility === 'semi_public'
+    ? event.public_location_text || 'Location shared by host'
+    : event.location_text || event.public_location_text || '';
+}
+
+function ActivityEventList({
+  events,
+  emptyLabel,
+  pathForEvent,
+}: {
+  events: Event[];
+  emptyLabel: string;
+  pathForEvent?: (event: Event) => string;
+}) {
+  if (events.length === 0) {
+    return <div className="ui-muted-panel text-sm text-slate-500">{emptyLabel}</div>;
+  }
+
+  return (
+    <div>
+      {events.map((event, index) => (
+        (() => {
+          const path = pathForEvent ? pathForEvent(event) : buildEventPath(event, { preferPrivateAccess: true });
+          const dayOnly = formatDay(event.starts_at, event.timezone);
+          const timeOnly = formatTime(event.starts_at, event.timezone);
+          const previewLocation = getPreviewLocation(event);
+          const visibilityMeta = getVisibilityMeta(event);
+          const confirmedCount = event.confirmed_count || 0;
+          const thinkingCount = event.thinking_count || 0;
+
+          return (
+            <Link
+              key={event.id}
+              to={path}
+              className={`block px-5 py-4 transition-colors hover:bg-slate-50 ${index < events.length - 1 ? 'border-b border-slate-100' : ''}`}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="space-y-1">
+                    <h3 className="text-[15px] font-black leading-tight text-slate-900">{event.title}</h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.16em] ${visibilityMeta.className}`}>
+                        {visibilityMeta.label}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                    {previewLocation ? (
+                      <span className="flex min-w-0 items-center gap-1 truncate">
+                        <MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" />
+                        <span className="truncate">{previewLocation}</span>
+                      </span>
+                    ) : null}
+                    <span className="flex shrink-0 items-center gap-1">
+                      <Users className="h-3.5 w-3.5 text-brand-600" />
+                      {confirmedCount}/{event.capacity} going
+                    </span>
+                    <span className="shrink-0">{thinkingCount} thinking about it</span>
+                  </div>
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-bold text-slate-700">{dayOnly}</p>
+                  <p className="mt-0.5 text-xs text-slate-400">{timeOnly}</p>
+                </div>
+              </div>
+            </Link>
+          );
+        })()
+      ))}
+    </div>
+  );
+}
+
+function ActivitySection({
+  cta,
+  description,
+  emptyLabel,
+  events,
+  pathForEvent,
+  title,
+}: {
+  cta?: { label: string; to: string };
+  description: string;
+  emptyLabel: string;
+  events: Event[];
+  pathForEvent?: (event: Event) => string;
+  title: string;
+}) {
+  return (
+    <Card padded={false} className="overflow-hidden">
+      <div className="flex items-start justify-between gap-4 px-4 py-4">
+        <div className="space-y-1">
+          <p className="ui-eyebrow">{title}</p>
+          <p className="text-sm text-slate-500">{description}</p>
+        </div>
+        {cta ? (
+          <Link to={cta.to} className="text-sm font-bold text-brand-700">
+            {cta.label}
+          </Link>
+        ) : null}
+      </div>
+
+      <div className="border-t border-slate-100">
+        <ActivityEventList events={events} emptyLabel={emptyLabel} pathForEvent={pathForEvent} />
+      </div>
+    </Card>
+  );
+}
+
+function CollapsibleActivitySection({
+  cta,
+  description,
+  emptyLabel,
+  events,
+  expanded,
+  onToggle,
+  pathForEvent,
+  title,
+}: {
+  cta?: { label: string; to: string };
+  description: string;
+  emptyLabel: string;
+  events: Event[];
+  expanded: boolean;
+  onToggle: () => void;
+  pathForEvent?: (event: Event) => string;
+  title: string;
+}) {
+  return (
+    <Card padded={false} className="overflow-hidden">
+      <div className="flex items-start justify-between gap-4 px-4 py-4">
+        <div className="space-y-1">
+          <p className="ui-eyebrow">{title}</p>
+          <p className="text-sm text-slate-500">{description}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {cta ? (
+            <Link to={cta.to} className="text-sm font-bold text-brand-700">
+              {cta.label}
+            </Link>
+          ) : null}
+          <button
+            type="button"
+            onClick={onToggle}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100"
+            aria-expanded={expanded}
+            aria-label={expanded ? `Collapse ${title}` : `Expand ${title}`}
+          >
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        </div>
+      </div>
+      {expanded ? (
+        <div className="border-t border-slate-100">
+          <ActivityEventList events={events} emptyLabel={emptyLabel} pathForEvent={pathForEvent} />
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+function PendingRequestAccordion({
+  icon,
+  title,
+  emptyLabel,
+  rows,
+  expanded,
+  onToggle,
+}: {
+  icon: ReactNode;
+  title: string;
+  emptyLabel: string;
+  rows: Array<PendingAccessRequestRow | PendingJoinRequestRow>;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const pendingLabel = `${rows.length} pending`;
+
+  return (
+    <Card className="overflow-hidden p-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between px-4 py-3 transition-colors hover:bg-slate-50"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="text-slate-400">{icon}</span>
+          <span className="truncate text-[13px] font-bold uppercase tracking-[0.14em] text-slate-400">{title}</span>
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="text-sm font-bold text-slate-500">{pendingLabel}</span>
+          {expanded ? <ChevronUp className="h-4 w-4 text-slate-300" /> : <ChevronDown className="h-4 w-4 text-slate-300" />}
+        </span>
+      </button>
+      {expanded ? rows.length === 0 ? (
+        <div className="border-t border-slate-100 px-4 py-3 text-sm text-slate-400">{emptyLabel}</div>
+      ) : (
+        <div className="space-y-2 border-t border-slate-100 p-3">
+          {rows.slice(0, 4).map((row) => {
+            const eventRef = normalizeEventRef((row as PendingAccessRequestRow | PendingJoinRequestRow).events);
+            const person = 'requester_name' in row ? row.requester_name : row.guest_name;
+            return (
+              <Link
+                key={row.id}
+                to={eventRef ? `/host/events/${eventRef.id}` : '/my-activities'}
+                className="block rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 transition-colors hover:bg-white"
+              >
+                <p className="truncate text-sm font-bold text-slate-900">{eventRef?.title || 'Activity'}</p>
+                <p className="truncate text-xs text-slate-500">{person || 'Guest'} · {formatDate(row.created_at)}</p>
+              </Link>
+            );
+          })}
+        </div>
+      ) : null}
+    </Card>
+  );
 }
 
 export default function MyActivities({ user }: { user: User | null }) {
-  const [hostedEvents, setHostedEvents] = useState<Event[]>([]);
-  const [joinedEvents, setJoinedEvents] = useState<any[]>([]);
-  const [pendingAccessRequests, setPendingAccessRequests] = useState<PendingAccessRequestRow[]>([]);
-  const [pendingJoinRequests, setPendingJoinRequests] = useState<PendingJoinRequestRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'hosting' | 'attending'>('hosting');
-  const [publicSearchQuery, setPublicSearchQuery] = useState('');
-  const [showRequestsPanel, setShowRequestsPanel] = useState(false);
-  const [showJoinRequestsPanel, setShowJoinRequestsPanel] = useState(false);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<'hosting' | 'attending'>('hosting');
   const [showPastHosting, setShowPastHosting] = useState(false);
   const [showPastAttending, setShowPastAttending] = useState(false);
-  const navigate = useNavigate();
+  const [showPendingViewRequests, setShowPendingViewRequests] = useState(false);
+  const [showPendingJoinRequests, setShowPendingJoinRequests] = useState(false);
+  const [showAttendingEvents, setShowAttendingEvents] = useState<boolean | null>(null);
+  const [showRequestedEvents, setShowRequestedEvents] = useState<boolean | null>(null);
+  const [showSharedEvents, setShowSharedEvents] = useState<boolean | null>(null);
+  const [hosting, setHosting] = useState<Event[]>([]);
+  const [attending, setAttending] = useState<Event[]>([]);
+  const [requested, setRequested] = useState<Event[]>([]);
+  const [shared, setShared] = useState<Event[]>([]);
+  const [pendingViewRequests, setPendingViewRequests] = useState<PendingAccessRequestRow[]>([]);
+  const [pendingJoinRequests, setPendingJoinRequests] = useState<PendingJoinRequestRow[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
-    void fetchAllData();
-  }, [user?.id, user?.email]);
+
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [hostedResult, joinedResult, sharedResult] = await Promise.all([
+          supabase.rpc('list_my_hosted_events'),
+          supabase.rpc('list_my_joined_activities'),
+          supabase.rpc('list_my_shared_activities'),
+        ]);
+
+        if (cancelled) return;
+
+        const hosted = (hostedResult.data || []) as Event[];
+        const joinedRows = (joinedResult.data || []) as JoinedRow[];
+        const sharedRows = (sharedResult.data || []) as Event[];
+
+        const hostedIds = hosted.map((event) => event.id);
+        const { data: attendeeRows } = hostedIds.length
+          ? await supabase
+              .from('event_attendees')
+              .select('event_id, status')
+              .in('event_id', hostedIds)
+              .neq('status', 'cancelled')
+          : { data: [] };
+
+        const hostedWithCounts = withConfirmedCounts(
+          hosted.map((event) => ({
+            ...event,
+            event_attendees: ((attendeeRows || []) as Array<{ event_id: string; status: string }>)
+              .filter((row) => row.event_id === event.id)
+              .map((row) => ({ status: row.status })),
+          })),
+        );
+
+        const requestedRows = joinedRows.filter((row) => row.status === 'pending_approval');
+        const attendingRows = joinedRows.filter((row) => row.status !== 'pending_approval');
+
+        const hostedUpcoming = upcomingOnly(hostedWithCounts);
+        const hostedUpcomingIds = hostedUpcoming.map((event) => event.id);
+        const [pendingAccessResult, pendingJoinResult] = await Promise.all([
+          hostedUpcomingIds.length
+            ? supabase
+                .from('event_access_requests')
+                .select('id,event_id,requester_name,created_at,status,events!inner(id,title)')
+                .eq('status', 'pending')
+                .in('event_id', hostedUpcomingIds)
+                .order('created_at', { ascending: false })
+            : Promise.resolve({ data: [], error: null }),
+          hostedUpcomingIds.length
+            ? supabase
+                .from('event_join_requests')
+                .select('id,event_id,guest_name,created_at,status,events!inner(id,title)')
+                .eq('status', 'pending')
+                .in('event_id', hostedUpcomingIds)
+                .order('created_at', { ascending: false })
+            : Promise.resolve({ data: [], error: null }),
+        ]);
+
+        if (pendingAccessResult.error) {
+          console.warn('Could not load pending view requests:', pendingAccessResult.error);
+        }
+        if (pendingJoinResult.error) {
+          console.warn('Could not load pending join requests:', pendingJoinResult.error);
+        }
+
+        setHosting(hostedWithCounts);
+        setRequested(
+          groupBookingsByEvent(requestedRows as BookingRow[]).map((row) => row.events as Event),
+        );
+        setAttending(
+          groupBookingsByEvent(attendingRows as BookingRow[]).map((row) => row.events as Event),
+        );
+        setShared(sharedRows);
+        setPendingViewRequests((pendingAccessResult.data || []) as PendingAccessRequestRow[]);
+        setPendingJoinRequests((pendingJoinResult.data || []) as PendingJoinRequestRow[]);
+      } catch (error) {
+        console.error('Could not load activity state:', error);
+        setHosting([]);
+        setRequested([]);
+        setAttending([]);
+        setShared([]);
+        setPendingViewRequests([]);
+        setPendingJoinRequests([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const upcomingHosting = useMemo(() => upcomingOnly(hosting), [hosting]);
+  const pastHosting = useMemo(() => pastOnly(hosting), [hosting]);
+  const upcomingAttending = useMemo(() => upcomingOnly(attending), [attending]);
+  const pastAttending = useMemo(() => pastOnly(attending), [attending]);
+  const upcomingRequested = useMemo(() => upcomingOnly(requested), [requested]);
+  const pastRequested = useMemo(() => pastOnly(requested), [requested]);
+  const upcomingShared = useMemo(() => upcomingOnly(shared), [shared]);
+  const pastShared = useMemo(() => pastOnly(shared), [shared]);
+  const attendingExpanded = showAttendingEvents ?? (upcomingAttending.length > 0);
+  const requestedExpanded = showRequestedEvents ?? (upcomingRequested.length > 0);
+  const sharedExpanded = showSharedEvents ?? (upcomingShared.length > 0);
+  const pastCombinedAttending = useMemo(() => {
+    const deduped = new Map<string, Event>();
+    [...pastAttending, ...pastRequested, ...pastShared].forEach((event) => {
+      if (!deduped.has(event.id)) deduped.set(event.id, event);
+    });
+    return Array.from(deduped.values());
+  }, [pastAttending, pastRequested, pastShared]);
+
+  const pastAttendingCount = pastAttending.length + pastRequested.length + pastShared.length;
+  const showAuthPrompt = !user && searchParams.get('signin') === 'true';
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <main className="mx-auto max-w-2xl px-6 pb-10 pt-2">
+          <div className="space-y-6">
+            <Card className="space-y-3">
+              <p className="text-sm text-slate-500">Guests can browse, but activities you host, attend, request, or open by link appear here after you sign in.</p>
+            </Card>
+            <ActivitySection
+              title="Hosting"
+              description="Activities you are running."
+              emptyLabel="No hosted activities yet."
+              events={[]}
+            />
+            <ActivitySection
+              title="Attending"
+              description="Activities you have already joined."
+              emptyLabel="No attending activities yet."
+              events={[]}
+            />
+            <ActivitySection
+              title="Requested"
+              description="Requests waiting on host approval."
+              emptyLabel="No pending requests right now."
+              events={[]}
+            />
+            <ActivitySection
+              title="Shared with you"
+              description="Activities opened by link or join code."
+              emptyLabel="No shared activities yet."
+              events={[]}
+            />
+          </div>
+        </main>
+        <AuthPromptModal
+          open={showAuthPrompt}
+          onClose={() => navigate('/my-activities', { replace: true })}
+          title="Sign in to see your activities"
+          message="Track what you’re hosting, attending, requesting, or what has been shared with you."
+          postAuthRedirect="/my-activities"
+        />
+      </div>
+    );
   }
 
-  const fetchAllData = async () => {
-    setLoading(true);
-
-    try {
-      const guestSessionToken = guestService.getStoredSession();
-      const {
-        data: hostedByOwner,
-        error: hostedByOwnerError,
-      } = await supabase
-        .rpc('list_my_hosted_events');
-
-      if (hostedByOwnerError) throw hostedByOwnerError;
-
-      const {
-        data: joinedRows,
-        error: joinedError,
-      } = await supabase
-        .rpc('list_my_joined_activities');
-
-      if (joinedError) throw joinedError;
-
-      const {
-        data: thinkingRows,
-        error: thinkingError,
-      } = await supabase
-        .rpc('list_my_interested_activities');
-
-      if (thinkingError) throw thinkingError;
-
-      let guestJoinedRows: any[] = [];
-      let guestThinkingRows: any[] = [];
-
-      if (guestSessionToken) {
-        try {
-          const [guestBookings, guestInterests] = await Promise.all([
-            guestService.getMyBookings(guestSessionToken),
-            guestService.getMyInterests(guestSessionToken),
-          ]);
-          guestJoinedRows = guestBookings;
-          guestThinkingRows = guestInterests;
-        } catch (guestActivityError) {
-          console.warn('Could not load guest session activity for My Activities:', guestActivityError);
-        }
-      }
-
-      const hostedById = ((hostedByOwner || []) as any[]).reduce((acc: Record<string, any>, event: any) => {
-        if (!event?.id) return acc;
-        acc[event.id] = event;
-        return acc;
-      }, {});
-
-      const hostedIds = Object.keys(hostedById);
-      const { data: hostedAttendeeRows, error: hostedAttendeeRowsError } = hostedIds.length > 0
-        ? await supabase
-            .from('event_attendees')
-            .select('event_id, status')
-            .in('event_id', hostedIds)
-            .neq('status', 'cancelled')
-        : { data: [], error: null };
-
-      if (hostedAttendeeRowsError) {
-        console.warn('Could not load hosted attendee counts for My Activities:', hostedAttendeeRowsError);
-      }
-
-      const hostedEventsWithAttendees = Object.values(hostedById).map((event: any) => ({
-        ...event,
-        event_attendees: ((hostedAttendeeRows || []) as Array<{ event_id: string; status: string }>)
-          .filter((row) => row.event_id === event.id)
-          .map((row) => ({ status: row.status })),
-      }));
-
-      const hostedWithCounts = withConfirmedCounts(hostedEventsWithAttendees);
-      const hostedEventIds = hostedWithCounts.map((event) => event.id);
-
-      const { data: pendingRequests, error: pendingRequestsError } = await supabase
-        .from('event_access_requests')
-        .select(`
-          id,
-          event_id,
-          requester_name,
-          created_at,
-          status,
-          events!inner(
-            id,
-            title,
-            host_user_id
-          )
-        `)
-        .eq('status', 'pending')
-        .in('event_id', hostedEventIds.length > 0 ? hostedEventIds : ['00000000-0000-0000-0000-000000000000'])
-        .order('created_at', { ascending: false });
-
-      if (pendingRequestsError) {
-        console.warn('Could not load pending access requests for My Activities:', pendingRequestsError);
-      }
-
-      const { data: pendingMembershipRequests, error: pendingMembershipRequestsError } = await supabase
-        .from('event_join_requests')
-        .select(`
-          id,
-          event_id,
-          guest_name,
-          created_at,
-          status,
-          events!inner(
-            id,
-            title,
-            host_user_id
-          )
-        `)
-        .eq('status', 'pending')
-        .in('event_id', hostedEventIds.length > 0 ? hostedEventIds : ['00000000-0000-0000-0000-000000000000'])
-        .order('created_at', { ascending: false });
-
-      if (pendingMembershipRequestsError) {
-        console.warn('Could not load pending join requests for My Activities:', pendingMembershipRequestsError);
-      }
-
-      const normalizedJoinedRows = [...(joinedRows || []), ...guestJoinedRows]
-        .filter((row: any) => row.events);
-
-      const normalizedThinkingRows = [...(thinkingRows || []), ...guestThinkingRows]
-        .filter((row: any) => row.events);
-
-      const dedupeActivityRows = (rows: any[]) => {
-        const seen = new Set<string>();
-        return rows.filter((row: any) => {
-          const key = row?.id
-            || [
-              row?.event_id || row?.events?.id || '',
-              row?.guest_name || '',
-              row?.guest_email || '',
-              row?.status || '',
-            ].join('::');
-          if (!key || seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-      };
-
-      const thinkingRowsWithStatus = dedupeActivityRows(normalizedThinkingRows).map((row: any) => ({
-        ...row,
-        status: 'thinking',
-      }));
-
-      const combinedJoined = dedupeActivityRows([
-        ...normalizedJoinedRows,
-        ...thinkingRowsWithStatus,
-      ]);
-
-      setHostedEvents(hostedWithCounts);
-      setJoinedEvents(combinedJoined);
-      setPendingAccessRequests(((pendingRequests || []) as any[]).map((row: any) => ({
-        id: row.id,
-        event_id: row.event_id,
-        requester_name: row.requester_name,
-        created_at: row.created_at,
-        status: row.status,
-        events: Array.isArray(row.events) ? row.events[0] || null : row.events || null,
-      })));
-      setPendingJoinRequests(((pendingMembershipRequests || []) as any[]).map((row: any) => ({
-        id: row.id,
-        event_id: row.event_id,
-        guest_name: row.guest_name,
-        created_at: row.created_at,
-        status: row.status,
-        events: Array.isArray(row.events) ? row.events[0] || null : row.events || null,
-      })));
-
-      if (hostedWithCounts.length === 0 && combinedJoined.length > 0) {
-        setView('attending');
-      }
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate('/login', { replace: true });
-  };
-
-  const handlePublicSearchChange = (value: string) => {
-    setPublicSearchQuery(value);
-    const nextPath = value.trim() ? `/calendar?q=${encodeURIComponent(value)}` : '/calendar';
-    navigate(nextPath);
-  };
-
-  const getVisibilityBadge = (visibility?: Event['visibility']) => {
-    if (visibility === 'public') {
-      return {
-        label: 'Public',
-        className: 'bg-emerald-50 text-emerald-700 border border-emerald-100',
-      };
-    }
-
-    if (visibility === 'private') {
-      return {
-        label: 'Private',
-        className: 'bg-slate-100 text-slate-600 border border-slate-200',
-      };
-    }
-
-    return {
-      label: 'Semi-public',
-      className: 'bg-indigo-50 text-indigo-600 border border-indigo-100',
-    };
-  };
-
-  const groupedJoinedEvents = groupBookingsByEvent(joinedEvents);
-  const upcomingHostedEvents = hostedEvents.filter((event) =>
-    isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone),
-  );
-  const pastHostedEvents = hostedEvents.filter((event) =>
-    !isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone),
-  );
-  const upcomingJoinedEvents = groupedJoinedEvents.filter((groupedBooking) =>
-    isOnOrAfterTodayInTimeZone(groupedBooking.events.starts_at, groupedBooking.events.timezone),
-  );
-  const pastJoinedEvents = groupedJoinedEvents.filter((groupedBooking) =>
-    !isOnOrAfterTodayInTimeZone(groupedBooking.events.starts_at, groupedBooking.events.timezone),
-  );
-
   return (
-    <div className="min-h-screen bg-slate-50 pb-32">
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link to="/" className="flex flex-col hover:opacity-80 transition-opacity">
-            <h1 className="text-lg font-black tracking-tight text-brand-600 leading-none">I'm In</h1>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">My Activities</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link to="/" className="text-slate-600 hover:text-brand-600 text-xs font-black transition-colors">
-              Home
-            </Link>
-            <Link to="/calendar" className="text-slate-600 hover:text-brand-600 text-xs font-black flex items-center gap-1.5 transition-colors">
-              <CalendarIcon className="w-4 h-4" /> What's On
-            </Link>
-            <Link to="/profile" className="text-slate-600 hover:text-brand-600 text-xs font-black transition-colors">
-              Profile
-            </Link>
-            <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition-all">
-              <LogOut className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-2xl mx-auto px-6 pt-5">
-        <div className="relative group mb-4">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-brand-600 transition-colors" />
-          <input
-            type="text"
-            placeholder="Search public activities"
-            className="w-full pl-12 pr-4 py-3.5 bg-white rounded-2xl border border-slate-100 shadow-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-medium"
-            value={publicSearchQuery}
-            onChange={(e) => handlePublicSearchChange(e.target.value)}
-          />
-        </div>
-
-        <div className="flex p-1 bg-slate-200/50 rounded-2xl mb-5">
-          <button
-            onClick={() => setView('hosting')}
-            className={`flex-1 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${
-              view === 'hosting' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
-            }`}
-          >
-            Hosting
-          </button>
-          <button
-            onClick={() => setView('attending')}
-            className={`flex-1 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${
-              view === 'attending' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
-            }`}
-          >
-            Attending
-          </button>
-        </div>
-
-        {view === 'hosting' && !loading ? (
-          <div className="space-y-3 mb-5">
-            <section className="bg-white rounded-2xl overflow-hidden">
-              {(() => {
-                const hasPendingAccess = pendingAccessRequests.length > 0;
-                return (
-              <button
-                type="button"
-                onClick={() => setShowRequestsPanel((prev) => !prev)}
-                className="w-full px-5 py-3 border-b border-slate-50 flex items-center justify-between hover:bg-slate-50 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <Eye className={`w-4 h-4 ${hasPendingAccess ? 'text-brand-600' : 'text-slate-400'}`} />
-                  <p className={`text-[10px] font-black uppercase tracking-widest ${hasPendingAccess ? 'text-brand-600' : 'text-slate-400'}`}>Requests to View</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs font-bold ${hasPendingAccess ? 'text-brand-600' : 'text-slate-500'}`}>{pendingAccessRequests.length} pending</span>
-                  <ChevronRight className={`w-4 h-4 ${hasPendingAccess ? 'text-brand-400' : 'text-slate-300'} transition-transform ${showRequestsPanel ? 'rotate-90' : ''}`} />
-                </div>
-              </button>
-                );
-              })()}
-              {showRequestsPanel ? (
-                pendingAccessRequests.length === 0 ? (
-                  <p className="px-5 py-4 text-sm text-slate-400">No pending requests right now.</p>
-                ) : (
-                  <div className="divide-y divide-slate-50">
-                    {pendingAccessRequests.slice(0, 3).map((request) => (
-                      <button
-                        key={request.id}
-                        onClick={() => navigate(`/host/events/${request.event_id}`)}
-                        className="w-full text-left px-5 py-3 hover:bg-slate-50 transition-all active:scale-[0.99]"
-                      >
-                        <p className="text-sm font-bold text-slate-900 leading-tight truncate">
-                          {request.requester_name} requested access to {request.events?.title || 'your activity'}
-                        </p>
-                        <p className="text-xs text-slate-400 mt-0.5">{formatDate(request.created_at)}</p>
-                      </button>
-                    ))}
-                  </div>
-                )
-              ) : null}
-            </section>
-
-            <section className="bg-white rounded-2xl overflow-hidden">
-              {(() => {
-                const hasPendingJoin = pendingJoinRequests.length > 0;
-                return (
-              <button
-                type="button"
-                onClick={() => setShowJoinRequestsPanel((prev) => !prev)}
-                className="w-full px-5 py-3 border-b border-slate-50 flex items-center justify-between hover:bg-slate-50 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <Users className={`w-4 h-4 ${hasPendingJoin ? 'text-brand-600' : 'text-slate-400'}`} />
-                  <p className={`text-[10px] font-black uppercase tracking-widest ${hasPendingJoin ? 'text-brand-600' : 'text-slate-400'}`}>Requests to Join</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs font-bold ${hasPendingJoin ? 'text-brand-600' : 'text-slate-500'}`}>{pendingJoinRequests.length} pending</span>
-                  <ChevronRight className={`w-4 h-4 ${hasPendingJoin ? 'text-brand-400' : 'text-slate-300'} transition-transform ${showJoinRequestsPanel ? 'rotate-90' : ''}`} />
-                </div>
-              </button>
-                );
-              })()}
-              {showJoinRequestsPanel ? (
-                pendingJoinRequests.length === 0 ? (
-                  <p className="px-5 py-4 text-sm text-slate-400">No pending join requests right now.</p>
-                ) : (
-                  <div className="divide-y divide-slate-50">
-                    {pendingJoinRequests.slice(0, 3).map((request) => (
-                      <button
-                        key={request.id}
-                        onClick={() => navigate(`/host/events/${request.event_id}`)}
-                        className="w-full text-left px-5 py-3 hover:bg-slate-50 transition-all active:scale-[0.99]"
-                      >
-                        <p className="text-sm font-bold text-slate-900 leading-tight truncate">
-                          {request.guest_name} requested to join {request.events?.title || 'your activity'}
-                        </p>
-                        <p className="text-xs text-slate-400 mt-0.5">{formatDate(request.created_at)}</p>
-                      </button>
-                    ))}
-                  </div>
-                )
-              ) : null}
-            </section>
-          </div>
-        ) : null}
-
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-            {view === 'hosting' ? 'My Activities' : "Activities I'm In"}
-          </h2>
-          {view === 'hosting' ? (
-            <Link to="/create-event" className="bg-brand-600 hover:bg-brand-500 text-white px-4 py-2 rounded-xl text-sm font-black flex items-center gap-2 shadow-sm transition-all active:scale-[0.98]">
-              <Plus className="w-4 h-4" /> New
-            </Link>
-          ) : null}
-        </div>
-
-        {loading ? (
-          <div className="bg-white rounded-2xl overflow-hidden">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="px-5 py-4 border-b border-slate-50 last:border-0 space-y-2 animate-pulse">
-                <div className="h-4 bg-slate-100 rounded-full w-1/2" />
-                <div className="h-3 bg-slate-100 rounded-full w-1/3" />
-              </div>
-            ))}
-          </div>
-        ) : view === 'hosting' ? (
-          upcomingHostedEvents.length === 0 ? (
-            <div className="text-center py-16">
-              <MessageSquare className="w-8 h-8 text-slate-200 mx-auto mb-4" />
-              <h3 className="text-base font-bold text-slate-900 mb-1">Nothing scheduled</h3>
-              <p className="text-slate-400 mb-6 text-sm">Create an activity and share the link.</p>
-              <Link to="/create-event" className="text-brand-600 font-bold text-sm hover:text-brand-500 transition-colors inline-flex items-center gap-1.5">
-                Create your first activity <ChevronRight className="w-4 h-4" />
-              </Link>
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl overflow-hidden">
-              {upcomingHostedEvents.map((event, idx) => (
-                <Link
-                  key={event.id}
-                  to={`/host/events/${event.id}`}
-                  className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${idx < upcomingHostedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-bold text-slate-900 leading-tight truncate">{event.title}</h3>
-                      <p className="text-xs text-slate-400 mt-0.5">{formatDate(event.starts_at, event.timezone)}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{event.location_text || 'No location'} · {(event as any).confirmed_count || 0} going</p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0 ml-2">
-                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide whitespace-nowrap ${getVisibilityBadge(event.visibility).className}`}>
-                        {getVisibilityBadge(event.visibility).label}
-                      </span>
-                      <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )
-        ) : (
-          upcomingJoinedEvents.length === 0 ? (
-            <div className="text-center py-16">
-              <CalendarIcon className="w-8 h-8 text-slate-200 mx-auto mb-4" />
-              <h3 className="text-base font-bold text-slate-900 mb-1">No activities yet</h3>
-              <p className="text-slate-400 mb-6 text-sm">Browse to find something to join.</p>
-              <Link to="/calendar" className="text-brand-600 font-bold text-sm hover:text-brand-500 transition-colors inline-flex items-center gap-1.5">
-                What's On <ChevronRight className="w-4 h-4" />
-              </Link>
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl overflow-hidden">
-              {upcomingJoinedEvents.map((groupedBooking: any, idx: number) => (
-                <Link
-                  key={groupedBooking.events.id}
-                  to={buildEventPath(groupedBooking.events, { preferPrivateAccess: true })}
-                  className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${groupedBooking.status === 'thinking' ? 'bg-indigo-50/60' : ''} ${idx < upcomingJoinedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-bold text-slate-900 leading-tight truncate">{groupedBooking.events.title}</h3>
-                      {groupedBooking.status === 'thinking' ? (
-                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-0.5">I'm thinking about it</p>
-                      ) : null}
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {groupedBooking.attendees.map((attendee: { name: string; status: string }, i: number) => (
-                          <span
-                            key={i}
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                              attendee.status === 'thinking'
-                                ? 'text-indigo-600 bg-indigo-50'
-                                : 'text-brand-600 bg-brand-50'
-                            }`}
-                          >
-                            {attendee.name}
-                          </span>
-                        ))}
-                      </div>
-                      <p className="text-xs text-slate-400 mt-1">{formatDate(groupedBooking.events.starts_at, groupedBooking.events.timezone)}</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )
-        )}
-
-        {!loading && view === 'hosting' && pastHostedEvents.length > 0 ? (
-          <section className="pt-1">
+    <div className="min-h-screen bg-slate-50">
+      <main className="mx-auto max-w-2xl px-6 pb-10 pt-2">
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 rounded-2xl border border-slate-200 bg-white p-1">
             <button
               type="button"
-              onClick={() => setShowPastHosting((prev) => !prev)}
-              className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
+              onClick={() => setActiveTab('hosting')}
+              className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${
+                activeTab === 'hosting' ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:text-slate-700'
+              }`}
             >
-              {showPastHosting ? 'Hide past activities' : `Past activities (${pastHostedEvents.length})`}
+              Hosting
             </button>
-            {showPastHosting ? (
-              <div className="mt-3 bg-white rounded-2xl overflow-hidden">
-                {pastHostedEvents.map((event, idx) => (
-                  <Link
-                    key={event.id}
-                    to={`/host/events/${event.id}`}
-                    className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${idx < pastHostedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-bold text-slate-900 leading-tight truncate">{event.title}</h3>
-                        <p className="text-xs text-slate-400 mt-0.5">{formatDate(event.starts_at, event.timezone)}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">{event.location_text || 'No location'} · {(event as any).confirmed_count || 0} going</p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0 ml-2">
-                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide whitespace-nowrap ${getVisibilityBadge(event.visibility).className}`}>
-                          {getVisibilityBadge(event.visibility).label}
-                        </span>
-                        <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
-        {!loading && view === 'attending' && pastJoinedEvents.length > 0 ? (
-          <section className="pt-1">
             <button
               type="button"
-              onClick={() => setShowPastAttending((prev) => !prev)}
-              className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
+              onClick={() => setActiveTab('attending')}
+              className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${
+                activeTab === 'attending' ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:text-slate-700'
+              }`}
             >
-              {showPastAttending ? 'Hide past activities' : `Past activities (${pastJoinedEvents.length})`}
+              Attending
             </button>
-            {showPastAttending ? (
-              <div className="mt-3 bg-white rounded-2xl overflow-hidden">
-                {pastJoinedEvents.map((groupedBooking: any, idx: number) => (
-                  <Link
-                    key={groupedBooking.events.id}
-                    to={buildEventPath(groupedBooking.events, { preferPrivateAccess: true })}
-                    className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${groupedBooking.status === 'thinking' ? 'bg-indigo-50/60' : ''} ${idx < pastJoinedEvents.length - 1 ? 'border-b border-slate-50' : ''}`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-bold text-slate-900 leading-tight truncate">{groupedBooking.events.title}</h3>
-                        {groupedBooking.status === 'thinking' ? (
-                          <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-0.5">I'm thinking about it</p>
-                        ) : null}
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {groupedBooking.attendees.map((attendee: { name: string; status: string }, i: number) => (
-                            <span
-                              key={i}
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                                attendee.status === 'thinking'
-                                  ? 'text-indigo-600 bg-indigo-50'
-                                  : 'text-brand-600 bg-brand-50'
-                              }`}
-                            >
-                              {attendee.name}
-                            </span>
-                          ))}
+          </div>
+
+          {loading ? (
+            <Card className="space-y-3">
+              {[1, 2, 3].map((item) => (
+                <div key={item} className="h-20 animate-pulse rounded-2xl bg-slate-100" />
+              ))}
+            </Card>
+          ) : (
+            <>
+              {activeTab === 'hosting' ? (
+                <>
+                  <div className="space-y-1.5">
+                    <PendingRequestAccordion
+                      icon={<Eye className="h-4 w-4" />}
+                      title="Requested to view"
+                      emptyLabel="No pending requests right now."
+                      rows={pendingViewRequests}
+                      expanded={showPendingViewRequests}
+                      onToggle={() => setShowPendingViewRequests((value) => !value)}
+                    />
+                    <PendingRequestAccordion
+                      icon={<UserRound className="h-4 w-4" />}
+                      title="Requested to join"
+                      emptyLabel="No pending join requests right now."
+                      rows={pendingJoinRequests}
+                      expanded={showPendingJoinRequests}
+                      onToggle={() => setShowPendingJoinRequests((value) => !value)}
+                    />
+                    <ActivitySection
+                      title="Hosting"
+                      description="Activities you are running."
+                      emptyLabel="You are not hosting anything yet."
+                      events={upcomingHosting}
+                      pathForEvent={(event) => `/host/events/${event.id}`}
+                      cta={{ label: 'Create', to: '/create-event' }}
+                    />
+                  </div>
+                  {pastHosting.length > 0 ? (
+                    <Card className="space-y-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowPastHosting((value) => !value)}
+                        className="flex w-full items-center justify-between text-left text-sm font-bold text-slate-600"
+                      >
+                        <span>Past activities ({pastHosting.length})</span>
+                        {showPastHosting ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </button>
+                      {showPastHosting ? (
+                        <div className="space-y-3 border-t border-slate-100 pt-3">
+                          <p className="text-sm text-slate-500">Previous activities you hosted.</p>
+                          <ActivityEventList
+                          emptyLabel="No past hosted activities."
+                          events={pastHosting}
+                          pathForEvent={(event) => `/host/events/${event.id}`}
+                        />
                         </div>
-                        <p className="text-xs text-slate-400 mt-1">{formatDate(groupedBooking.events.starts_at, groupedBooking.events.timezone)}</p>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            ) : null}
-          </section>
-        ) : null}
+                      ) : null}
+                    </Card>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <CollapsibleActivitySection
+                    title="Attending"
+                    description="Activities you have already joined."
+                    emptyLabel="You are not attending anything yet."
+                    events={upcomingAttending}
+                    cta={{ label: 'Explore', to: '/explore' }}
+                    expanded={attendingExpanded}
+                    onToggle={() =>
+                      setShowAttendingEvents((value) => !(value ?? (upcomingAttending.length > 0)))
+                    }
+                  />
+                  <CollapsibleActivitySection
+                    title="Requested"
+                    description="Activities you requested to join and are waiting on host approval."
+                    emptyLabel="No pending requests right now."
+                    events={upcomingRequested}
+                    expanded={requestedExpanded}
+                    onToggle={() =>
+                      setShowRequestedEvents((value) => !(value ?? (upcomingRequested.length > 0)))
+                    }
+                  />
+                  <CollapsibleActivitySection
+                    title="Shared with me"
+                    description="Activities opened by link or join code."
+                    emptyLabel="Nothing has been shared with you yet."
+                    events={upcomingShared}
+                    expanded={sharedExpanded}
+                    onToggle={() =>
+                      setShowSharedEvents((value) => !(value ?? (upcomingShared.length > 0)))
+                    }
+                  />
+                  {pastAttendingCount > 0 ? (
+                    <Card className="space-y-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowPastAttending((value) => !value)}
+                        className="flex w-full items-center justify-between text-left text-sm font-bold text-slate-600"
+                      >
+                        <span>Past activities ({pastAttendingCount})</span>
+                        {showPastAttending ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </button>
+                      {showPastAttending ? (
+                        <div className="space-y-3 border-t border-slate-100 pt-3">
+                          <p className="text-sm text-slate-500">
+                            Older attending, requested, and shared activities.
+                          </p>
+                          <ActivityEventList
+                            emptyLabel="No past activities."
+                            events={pastCombinedAttending}
+                          />
+                        </div>
+                      ) : null}
+                    </Card>
+                  ) : null}
+                </>
+              )}
+
+            </>
+          )}
+        </div>
       </main>
     </div>
   );

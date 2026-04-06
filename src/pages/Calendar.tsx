@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { Calendar as CalendarIcon, ChevronRight, MapPin, Users, ArrowLeft, Search } from 'lucide-react';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { Calendar as CalendarIcon, MapPin, Users } from 'lucide-react';
 import { motion } from 'motion/react';
-import { formatDay, formatTime } from '../utils';
+import { formatDay, formatTime, isOnOrAfterTodayInTimeZone } from '../utils';
 import { Event } from '../types';
 import { buildEventPath } from '../lib/events';
-import { goBackOr } from '../lib/navigation';
 import { User } from '@supabase/supabase-js';
+import { BookingRow, groupBookingsByEvent } from '../lib/bookings';
+import { filterEventsForQuery } from '../lib/activityRelations';
+import { Card } from '../components/ui/Card';
 
 type CalendarGroup = {
   key: string;
@@ -26,6 +28,10 @@ function getDayDifference(from: Date, to: Date) {
 
 function getWeekdayLabel(date: Date) {
   return new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(date);
+}
+
+function upcomingOnly(events: Event[]) {
+  return events.filter((event) => isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone));
 }
 
 function groupCalendarEvents(events: Event[]) {
@@ -85,27 +91,170 @@ function groupCalendarEvents(events: Event[]) {
   return groups;
 }
 
+type JoinedRow = BookingRow & {
+  status: string;
+  events: Event;
+};
+
+function getVisibilityMeta(event: Event) {
+  const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+
+  if (visibility === 'semi_public') {
+    return {
+      label: 'Semi public',
+      className: 'bg-indigo-50 text-indigo-500',
+    };
+  }
+
+  if (visibility === 'private') {
+    return {
+      label: 'Private',
+      className: 'bg-slate-100 text-slate-500',
+    };
+  }
+
+  return {
+    label: 'Public',
+    className: 'bg-brand-50 text-brand-700',
+  };
+}
+
+function getPreviewLocation(event: Event) {
+  const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+  return visibility === 'semi_public'
+    ? event.public_location_text || 'Location shared by host'
+    : event.location_text || event.public_location_text || '';
+}
+
+function ExploreEventRow({
+  event,
+  index,
+  path,
+  total,
+}: {
+  event: Event;
+  index: number;
+  path: string;
+  total: number;
+}) {
+  const dayOnly = formatDay(event.starts_at, event.timezone);
+  const timeOnly = formatTime(event.starts_at, event.timezone);
+  const previewLocation = getPreviewLocation(event);
+  const visibilityMeta = getVisibilityMeta(event);
+  const confirmedCount = event.confirmed_count || 0;
+  const thinkingCount = event.thinking_count || 0;
+
+  return (
+    <Link
+      to={path}
+      className={`block px-5 py-4 transition-colors hover:bg-slate-50 ${index < total - 1 ? 'border-b border-slate-100' : ''}`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="space-y-1">
+            <h3 className="text-[15px] font-black leading-tight text-slate-900">{event.title}</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.16em] ${visibilityMeta.className}`}>
+                {visibilityMeta.label}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+            {previewLocation ? (
+              <span className="flex min-w-0 items-center gap-1 truncate">
+                <MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" />
+                <span className="truncate">{previewLocation}</span>
+              </span>
+            ) : null}
+            <span className="flex shrink-0 items-center gap-1">
+              <Users className="h-3.5 w-3.5 text-brand-600" />
+              {confirmedCount}/{event.capacity} going
+            </span>
+            <span className="shrink-0">{thinkingCount} thinking about it</span>
+          </div>
+        </div>
+
+        <div className="shrink-0 text-right">
+          <p className="text-sm font-bold text-slate-700">{dayOnly}</p>
+          <p className="mt-0.5 text-xs text-slate-400">{timeOnly}</p>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function ExploreResultSection({
+  events,
+  label,
+  pathForEvent,
+}: {
+  events: Event[];
+  label: string;
+  pathForEvent: (event: Event) => string;
+}) {
+  if (events.length === 0) return null;
+
+  const sectionDescription =
+    label === 'Hosting'
+      ? 'Activities you are running.'
+      : label === 'Attending'
+        ? 'Activities you have already joined.'
+        : label === 'Shared with you'
+          ? 'Activities opened by link or join code.'
+          : 'Public activities matching your search.';
+
+  return (
+    <section>
+      <Card padded={false} className="overflow-hidden">
+        <div className="space-y-1 px-4 py-4">
+          <p className="ui-eyebrow">{label}</p>
+          <p className="text-sm text-slate-500">{sectionDescription}</p>
+        </div>
+        <div className="border-t border-slate-100">
+        {events.map((event, index) => {
+          return (
+            <Fragment key={event.id}>
+              <ExploreEventRow
+                event={event}
+                index={index}
+                total={events.length}
+                path={pathForEvent(event)}
+              />
+            </Fragment>
+          );
+        })}
+        </div>
+      </Card>
+    </section>
+  );
+}
+
 export default function Calendar({ user }: { user: User | null }) {
   const [events, setEvents] = useState<Event[]>([]);
-  const [privateAccessByEventId, setPrivateAccessByEventId] = useState<Record<string, string>>({});
+  const [hostingEvents, setHostingEvents] = useState<Event[]>([]);
+  const [attendingEvents, setAttendingEvents] = useState<Event[]>([]);
+  const [sharedEvents, setSharedEvents] = useState<Event[]>([]);
   const [hiddenUpcomingCount, setHiddenUpcomingCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const queryParam = searchParams.get('q') || '';
-  const [searchQuery, setSearchQuery] = useState(queryParam);
-  const navigate = useNavigate();
-
+  const moderationTransparencyHref = (() => {
+    const nextParams = new URLSearchParams(location.search);
+    nextParams.set('action', 'moderation');
+    return {
+      pathname: location.pathname,
+      search: `?${nextParams.toString()}`,
+    };
+  })();
   useEffect(() => {
     fetchPublicEvents();
   }, []);
 
   useEffect(() => {
-    fetchMyPrivateAccessMap();
+    void fetchRelatedActivitySearchPools();
   }, [user?.id, user?.email]);
-
-  useEffect(() => {
-    setSearchQuery(queryParam);
-  }, [queryParam]);
 
   const fetchPublicEvents = async () => {
     const nowIso = new Date().toISOString();
@@ -141,45 +290,35 @@ export default function Calendar({ user }: { user: User | null }) {
     setLoading(false);
   };
 
-  const fetchMyPrivateAccessMap = async () => {
-    if (!user?.email) {
-      setPrivateAccessByEventId({});
+  const fetchRelatedActivitySearchPools = async () => {
+    if (!user) {
+      setHostingEvents([]);
+      setAttendingEvents([]);
+      setSharedEvents([]);
       return;
     }
 
-    const { data, error } = await supabase
-      .from('event_attendees')
-      .select(`
-        event_id,
-        events (
-          id,
-          slug,
-          visibility,
-          is_public,
-          access_code
-        )
-      `)
-      .or(`user_id.eq.${user.id},guest_email.eq.${user.email}`)
-      .neq('status', 'cancelled');
+    const [hostedResult, joinedResult, sharedResult] = await Promise.all([
+      supabase.rpc('list_my_hosted_events'),
+      supabase.rpc('list_my_joined_activities'),
+      supabase.rpc('list_my_shared_activities'),
+    ]);
 
-    if (error || !data) {
-      setPrivateAccessByEventId({});
+    if (hostedResult.error || joinedResult.error || sharedResult.error) {
+      console.warn('Could not load related activity search pools.', hostedResult.error || joinedResult.error || sharedResult.error);
       return;
     }
 
-    const map: Record<string, string> = {};
-    (data as any[]).forEach((row) => {
-      const eventRow = row.events;
-      if (!eventRow?.id) return;
-      const path = buildEventPath(eventRow, { preferPrivateAccess: true });
-      if (path.includes('?access=')) {
-        map[eventRow.id] = path;
-      }
-    });
-    setPrivateAccessByEventId(map);
+    const groupedAttending = groupBookingsByEvent(
+      ((joinedResult.data || []) as JoinedRow[]).filter((row) => row.status !== 'pending_approval') as BookingRow[],
+    ).map((row) => row.events as Event);
+
+    setHostingEvents((hostedResult.data || []) as Event[]);
+    setAttendingEvents(groupedAttending);
+    setSharedEvents((sharedResult.data || []) as Event[]);
   };
 
-  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const normalizedSearch = queryParam.trim().toLowerCase();
   const filteredEvents = normalizedSearch
     ? events.filter(event => 
         event.title.toLowerCase().includes(normalizedSearch) ||
@@ -189,50 +328,19 @@ export default function Calendar({ user }: { user: User | null }) {
     : events;
   const groupedEvents = groupCalendarEvents(filteredEvents);
 
-  const handleSearchChange = (value: string) => {
-    setSearchQuery(value);
-    const nextParams = new URLSearchParams(searchParams);
-    if (value.trim()) {
-      nextParams.set('q', value);
-    } else {
-      nextParams.delete('q');
-    }
-    setSearchParams(nextParams, { replace: true });
-  };
-
   const hiddenUpcomingLabel = hiddenUpcomingCount === 1
     ? 'There is 1 other activity happening this week.'
     : `There are ${hiddenUpcomingCount} other activities happening this week.`;
 
+  const searchedHosting = filterEventsForQuery(upcomingOnly(hostingEvents), normalizedSearch);
+  const searchedAttending = filterEventsForQuery(upcomingOnly(attendingEvents), normalizedSearch);
+  const searchedShared = filterEventsForQuery(upcomingOnly(sharedEvents), normalizedSearch);
+  const ownEventIds = new Set([...searchedHosting, ...searchedAttending, ...searchedShared].map((event) => event.id));
+  const searchedPublic = upcomingOnly(filteredEvents).filter((event) => !ownEventIds.has(event.id));
+
   return (
     <div className="min-h-screen bg-slate-50 pb-32">
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto px-6 h-16 flex items-center justify-between">
-          <button onClick={() => goBackOr(navigate, '/')} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
-            <ArrowLeft className="w-5 h-5 text-slate-600" />
-          </button>
-          <div className="flex flex-col items-center">
-            <h1 className="text-base font-black text-slate-900 tracking-tight">Public Activities</h1>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">See what's on</span>
-          </div>
-          <div className="w-10" />
-        </div>
-      </header>
-
-      <main className="max-w-2xl mx-auto px-6 pt-8 space-y-8">
-        {/* Search Bar */}
-        <div className="relative group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-brand-600 transition-colors" />
-          <input 
-            type="text"
-            autoFocus={!!queryParam}
-            placeholder="Search public activities"
-            className="w-full pl-12 pr-4 py-4 bg-white rounded-2xl border border-slate-100 shadow-sm outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-medium"
-            value={searchQuery}
-            onChange={(e) => handleSearchChange(e.target.value)}
-          />
-        </div>
-
+      <main className="max-w-2xl mx-auto px-6 pt-2 space-y-6">
         {loading ? (
           <div className="bg-white rounded-2xl overflow-hidden">
             {[1,2,3,4].map(i => (
@@ -244,6 +352,29 @@ export default function Calendar({ user }: { user: User | null }) {
                 <div className="h-3 bg-slate-100 rounded-full w-1/3" />
               </div>
             ))}
+          </div>
+        ) : normalizedSearch && (searchedHosting.length > 0 || searchedAttending.length > 0 || searchedShared.length > 0 || searchedPublic.length > 0) ? (
+          <div className="space-y-4">
+            <ExploreResultSection
+              label="Hosting"
+              events={searchedHosting}
+              pathForEvent={(event) => buildEventPath(event, { preferPrivateAccess: true })}
+            />
+            <ExploreResultSection
+              label="Attending"
+              events={searchedAttending}
+              pathForEvent={(event) => buildEventPath(event, { preferPrivateAccess: true })}
+            />
+            <ExploreResultSection
+              label="Shared with you"
+              events={searchedShared}
+              pathForEvent={(event) => buildEventPath(event, { preferPrivateAccess: true })}
+            />
+            <ExploreResultSection
+              label="Public activities"
+              events={searchedPublic}
+              pathForEvent={(event) => buildEventPath(event)}
+            />
           </div>
         ) : filteredEvents.length === 0 ? (
           <div className="text-center py-20">
@@ -264,7 +395,7 @@ export default function Calendar({ user }: { user: User | null }) {
             ) : null}
             <div className="mt-4">
               <Link
-                to="/moderation"
+                to={moderationTransparencyHref}
                 className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
               >
                 Moderation transparency
@@ -281,60 +412,22 @@ export default function Calendar({ user }: { user: User | null }) {
                   </p>
                   <div className="h-px flex-1 bg-slate-200" />
                 </div>
-                <div className="bg-white rounded-2xl overflow-hidden">
+                <Card padded={false} className="overflow-hidden">
                   {group.events.map((event, idx) => (
                     <motion.div
                       key={event.id}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                     >
-                      {(() => {
-                        const visibility = event.visibility || (event.is_public ? 'public' : 'private');
-                        const isSemiPublic = visibility === 'semi_public';
-                        const dayOnly = formatDay(event.starts_at, event.timezone);
-                        const timeOnly = formatTime(event.starts_at, event.timezone);
-                        const previewLocation = isSemiPublic
-                          ? event.public_location_text || 'Location shared by host'
-                          : event.location_text || event.public_location_text || '';
-                        const eventPath = privateAccessByEventId[event.id] || buildEventPath(event);
-
-                        return (
-                          <Link 
-                            to={eventPath}
-                            className={`block px-5 py-4 hover:bg-slate-50 transition-all active:scale-[0.99] ${idx < group.events.length - 1 ? 'border-b border-slate-50' : ''}`}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex-1 min-w-0">
-                                <h3 className="text-sm font-bold text-slate-900 leading-tight">{event.title}</h3>
-                                <div className="flex items-center gap-3 mt-1">
-                                  {previewLocation && (
-                                    <span className="text-xs text-slate-400 flex items-center gap-1 truncate">
-                                      <MapPin className="w-3 h-3 shrink-0" />{previewLocation}
-                                    </span>
-                                  )}
-                                  <span className="text-xs text-slate-400 flex items-center gap-1 shrink-0">
-                                    <Users className="w-3 h-3" />{event.confirmed_count}/{event.capacity}
-                                  </span>
-                                  <span className="text-xs text-slate-400 shrink-0">
-                                    {event.thinking_count || 0} thinking about it
-                                  </span>
-                                </div>
-                              </div>
-                              <div className="text-right shrink-0">
-                                <p className="text-xs font-bold text-slate-700">{dayOnly}</p>
-                                {!isSemiPublic ? (
-                                  <p className="text-xs text-slate-400">{timeOnly}</p>
-                                ) : (
-                                  <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest mt-0.5">Semi public</p>
-                                )}
-                              </div>
-                            </div>
-                          </Link>
-                        );
-                      })()}
+                      <ExploreEventRow
+                        event={event}
+                        index={idx}
+                        total={group.events.length}
+                        path={buildEventPath(event)}
+                      />
                     </motion.div>
                   ))}
-                </div>
+                </Card>
               </section>
             ))}
             {!normalizedSearch && hiddenUpcomingCount > 0 ? (
@@ -342,7 +435,7 @@ export default function Calendar({ user }: { user: User | null }) {
             ) : null}
             <div className="px-1 text-center">
               <Link
-                to="/moderation"
+                to={moderationTransparencyHref}
                 className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors"
               >
                 Moderation transparency

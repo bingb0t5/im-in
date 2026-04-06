@@ -168,6 +168,51 @@ This means the app currently has a **dual identity model**, not a fully unified 
 
 For the longer-term migration direction, see `AUTH_UNIFICATION_PLAN.md`.
 
+## Webview Guidance Prompts
+
+The app includes a global, lightweight prompt system for users who open links inside in-app browsers/webviews.
+
+- Runtime detection lives in `src/utils/runtimeEnvironment.ts`.
+- Prompt eligibility logic lives in `src/utils/installPromptEligibility.ts`.
+- Local prompt persistence (dismiss timers + one-time post-verify follow-up) lives in `src/utils/inAppBrowserPromptState.ts`.
+- Shared profile input for prompt eligibility lives in `src/hooks/useAttendeeProfile.ts`.
+- Shared post-verify install-prompt request helper lives in `src/utils/postVerifyInstallPrompt.ts`.
+- Global UI/controller lives in `src/components/system/InAppBrowserPrompt.tsx`.
+
+Current behavior:
+
+- Prompts are considered in browser sessions generally (not only in-app browsers).
+- Prompts are suppressed in standalone/installed PWA display mode.
+- If not WhatsApp-verified, users see the Verify prompt.
+- If WhatsApp-verified, users see the Add to Home Screen prompt.
+- After successful WhatsApp verification, a one-time install follow-up can appear.
+- Banner dismissals are stored locally with a 7-day cooldown.
+- If WhatsApp verification is disabled by environment flags, the Verify prompt can still appear, but its Verify CTA is disabled so guidance does not silently disappear.
+- WhatsApp completion paths use one shared handoff (`src/integrations/lalo/completeWhatsAppAuth.ts`) so install follow-up prompt logic is not duplicated per page.
+
+Detection caveat:
+
+- In-app-browser/webview detection still uses user-agent plus referrer heuristics for instruction tailoring, and remains intentionally best-effort. The prompts themselves are non-blocking and fully dismissible.
+
+## In-App Notifications
+
+The app includes a Supabase-backed in-app notification system for signed-in users.
+
+- Notification UX is mounted in the main top header (`AppTopBar`) with bell + unread badge (capped at `9+`), bottom-sheet inbox, and detail modal.
+- Client state and live updates are handled in `src/hooks/useNotifications.ts`.
+- Notification UI components live in `src/components/system/NotificationBell.tsx`, `src/components/system/NotificationsSheet.tsx`, and `src/components/system/NotificationDetailModal.tsx`.
+- Notification schema, RLS, host-send RPCs, and automatic notification triggers are defined in `supabase/migrations/20260406113000_add_in_app_notifications.sql`.
+
+Current behavior:
+
+- Users can only read or mark read their own notifications.
+- Hosts can send notifications to valid, event-related users from `HostDashboard`.
+- Automatic notifications are generated for:
+  - activity shared
+  - important activity updates (title/time/timezone/duration/location/description/public summary)
+  - waitlist and attendance status transitions
+- Realtime updates are used for inbox/unread count while the app is open.
+
 ## Stack
 
 - Frontend: React 19 + TypeScript + Vite 6

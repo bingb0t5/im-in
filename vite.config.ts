@@ -12,13 +12,16 @@ export default defineConfig(({mode}) => {
       'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(env.VITE_SUPABASE_ANON_KEY),
     },
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-      },
+      alias: [
+        { find: '@', replacement: path.resolve(__dirname, '.') },
+      ],
     },
     server: {
       // Optional: disable HMR in constrained environments.
       hmr: process.env.DISABLE_HMR !== 'true',
+      fs: {
+        allow: [path.resolve(__dirname, '.')],
+      },
     },
   };
 });

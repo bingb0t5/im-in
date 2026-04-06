@@ -224,7 +224,7 @@ export default function AdminFeedback({ user }: { user: User | null }) {
                         bucket === 'blocked'
                           ? 'bg-red-50 text-red-700 border border-red-100'
                           : bucket === 'passed'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                            ? 'bg-brand-50 text-brand-700 border border-brand-100'
                           : bucket === 'failed'
                             ? 'bg-amber-50 text-amber-700 border border-amber-100'
                             : bucket === 'archived'

@@ -1,10 +1,19 @@
-import React, { useState, useEffect } from 'react';
-import { supabase } from '../supabase';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { User } from '@supabase/supabase-js';
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { Mail, ArrowRight, CheckCircle2, ArrowLeft, Search } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Mail } from 'lucide-react';
 import { motion } from 'motion/react';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { LaloVerifyPanel } from '../vendor/lalo-verify/react';
 import { buildAuthRedirectUrl } from '../lib/authRedirect';
+import { Button } from '../components/ui/Button';
+import {
+  clearAllLaloAuthState,
+  getStoredLaloAuthAttempt,
+  isLaloWhatsAppAuthEnabled,
+} from '../integrations/lalo/laloAuth';
+import { completeWhatsAppAuth } from '../integrations/lalo/completeWhatsAppAuth';
+import { createImInLaloVerifyClient } from '../integrations/lalo/laloVerifyImInClient';
+import { supabase } from '../supabase';
 
 export default function Login({ user }: { user: User | null }) {
   const [searchParams] = useSearchParams();
@@ -15,214 +24,293 @@ export default function Login({ user }: { user: User | null }) {
   const [showRecovery, setShowRecovery] = useState(searchParams.get('recovery') === 'true');
   const [recoveryEmail, setRecoveryEmail] = useState('');
   const [recoverySent, setRecoverySent] = useState(false);
+  const [showEmailLogin, setShowEmailLogin] = useState(false);
   const navigate = useNavigate();
+  const laloEnabled = isLaloWhatsAppAuthEnabled();
+  const redirectFrom = searchParams.get('from') || '/';
+  const imInVerifyClient = useMemo(
+    () => createImInLaloVerifyClient({ redirectTo: redirectFrom, imInMode: 'sign_in' }),
+    [redirectFrom],
+  );
+
+  const handleWhatsAppVerified = useCallback(async () => {
+    try {
+      const attempt = getStoredLaloAuthAttempt();
+      if (!attempt) {
+        setError('Verification finished but the session was lost. Try again.');
+        return;
+      }
+      const result = await completeWhatsAppAuth(attempt);
+      navigate(result.redirectTo || '/', { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not finish signing in.');
+    }
+  }, [navigate]);
 
   useEffect(() => {
     if (searchParams.get('recovery') === 'true') {
       setShowRecovery(true);
     }
+    if (searchParams.get('withEmail') === '1' || searchParams.get('withEmail') === 'true') {
+      setShowEmailLogin(true);
+    }
   }, [searchParams]);
 
-  if (user) return <Navigate to="/my-activities" replace />;
+  useEffect(() => {
+    if (showRecovery) {
+      setShowEmailLogin(false);
+    }
+  }, [showRecovery]);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  useEffect(() => {
+    if (!laloEnabled) {
+      setShowEmailLogin(true);
+      clearAllLaloAuthState();
+    }
+  }, [laloEnabled]);
+
+  if (user) return <Navigate to="/" replace />;
+
+  const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signInWithOtp({
+    const { error: loginError } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: buildAuthRedirectUrl('/'),
+        emailRedirectTo: buildAuthRedirectUrl(redirectFrom.startsWith('/') ? redirectFrom : '/'),
       },
     });
 
-    if (error) {
-      setError(error.message);
+    if (loginError) {
+      setError(loginError.message);
     } else {
       setSent(true);
     }
     setLoading(false);
   };
 
-  const handleRecovery = async (e: React.FormEvent) => {
+  const handleRecovery = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
       const normalizedEmail = recoveryEmail.trim().toLowerCase();
-      const { error } = await supabase.auth.signInWithOtp({
+      const { error: recoveryError } = await supabase.auth.signInWithOtp({
         email: normalizedEmail,
         options: {
           emailRedirectTo: buildAuthRedirectUrl('/'),
         },
       });
-      if (error) throw error;
+      if (recoveryError) throw recoveryError;
       setRecoverySent(true);
       setRecoveryEmail(normalizedEmail);
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : 'Failed to send recovery link');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to send recovery link');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10 w-full">
-        <div className="max-w-2xl mx-auto px-6 h-16 flex items-center justify-between">
-          <button onClick={() => navigate('/', { replace: true })} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
-            <ArrowLeft className="w-5 h-5 text-slate-600" />
+    <div className="min-h-[calc(100svh-7rem)] bg-slate-50">
+      <header className="sticky top-0 z-10 border-b border-slate-100 bg-white/80 backdrop-blur-md">
+        <div className="mx-auto flex h-16 w-full max-w-lg items-center justify-between px-6">
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="rounded-xl p-2 transition-all hover:bg-slate-50"
+            aria-label="Back to home"
+          >
+            <ArrowLeft className="h-5 w-5 text-slate-600" />
           </button>
-          <div className="flex flex-col items-center">
-            <h1 className="text-base font-black text-slate-900 tracking-tight">Sign In</h1>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Manage your activities</span>
-          </div>
+          <h1 className="text-lg font-black tracking-tight text-slate-900">Sign In</h1>
           <div className="w-10" />
         </div>
       </header>
-
-      <div className="flex-1 flex flex-col items-center justify-center p-6">
-        <motion.div 
+      <div className="flex min-h-[calc(100svh-7rem)] flex-col justify-center py-4">
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md bg-white rounded-3xl shadow-sm p-8 border border-slate-100"
-      >
-        <div className="mb-8 text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-brand-50 rounded-2xl mb-4">
-            {showRecovery ? <Search className="w-8 h-8 text-brand-600" /> : <Mail className="w-8 h-8 text-brand-600" />}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex w-full flex-col"
+        >
+          <div className="mx-auto w-full max-w-lg space-y-4 px-6 pb-6 text-center">
+            <div className="flex justify-center">
+              <img src="/im-in-svg-logo-size.svg" alt="I'm In" className="h-24 w-auto" />
+            </div>
+            <p className="text-center text-sm font-semibold leading-tight text-slate-500">
+              See what&apos;s on. Say <span className="italic">I&apos;m In.</span>
+            </p>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-black tracking-tight text-slate-900">
+                {showRecovery ? 'Find my bookings' : 'Sign In'}
+              </h2>
+              <p className="text-sm font-medium leading-relaxed text-slate-500">
+                {showRecovery
+                  ? 'Enter your email to get a recovery link.'
+                  : laloEnabled
+                    ? 'Sign in (or create an account) securely using WhatsApp below. Alternatively you can sign in with email.'
+                    : 'Sign in (or create an account) securely using your email below.'}
+              </p>
+            </div>
           </div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900">
-            {showRecovery ? 'Find my bookings' : 'Welcome Back'}
-          </h1>
-          <p className="text-slate-500 mt-2 font-medium text-sm">
-            {showRecovery ? 'Enter your email to get a recovery link.' : 'Sign in to manage your activities.'}
-          </p>
-        </div>
 
-        {showRecovery ? (
-          <div className="space-y-6">
-            {recoverySent ? (
-              <div className="text-center space-y-4">
-                <div className="flex justify-center">
-                  <CheckCircle2 className="w-12 h-12 text-brand-600" />
+          <div className="w-full space-y-6 px-4 sm:px-5">
+            {showRecovery ? (
+              recoverySent ? (
+                <div className="space-y-5 text-center">
+                  <div className="flex justify-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-700">
+                      <CheckCircle2 className="h-7 w-7" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-black text-slate-900">Link sent</h3>
+                    <p className="text-sm font-medium leading-relaxed text-slate-600">
+                      If an account exists for <span className="font-black text-slate-900">{recoveryEmail}</span>, recovery has
+                      been requested.
+                    </p>
+                  </div>
+                  <Button variant="secondary" onClick={() => setShowRecovery(false)}>
+                    Back to login
+                  </Button>
                 </div>
-                <h2 className="text-lg font-black text-slate-900">Link Sent</h2>
-                <p className="text-slate-600 text-sm font-medium">
-                  If an account exists for <span className="font-black text-slate-900">{recoveryEmail}</span>, recovery has been requested.
-                </p>
-                <button 
-                  onClick={() => setShowRecovery(false)}
-                  className="text-brand-600 font-black text-sm hover:underline"
-                >
-                  Back to Login
-                </button>
+              ) : (
+                <form onSubmit={handleRecovery} className="space-y-5">
+                  <div>
+                    <label htmlFor="recovery-email" className="ui-label">
+                      Email address
+                    </label>
+                    <input
+                      id="recovery-email"
+                      type="email"
+                      required
+                      value={recoveryEmail}
+                      onChange={(e) => setRecoveryEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      className="ui-input"
+                    />
+                  </div>
+                  {error ? <p className="ui-feedback ui-feedback-error">{error}</p> : null}
+                  <div className="space-y-3">
+                    <Button type="submit" loading={loading}>
+                      Send recovery link
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={() => setShowRecovery(false)}>
+                      Back to login
+                    </Button>
+                  </div>
+                </form>
+              )
+            ) : sent ? (
+              <div className="space-y-5 text-center">
+                <div className="flex justify-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-700">
+                    <CheckCircle2 className="h-7 w-7" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-black text-slate-900">Check your email</h3>
+                  <p className="text-sm font-medium leading-relaxed text-slate-600">
+                    We&apos;ve sent a magic link to <span className="font-black text-slate-900">{email}</span>. Click the link to
+                    finish signing in.
+                  </p>
+                </div>
+                <Button variant="secondary" onClick={() => setSent(false)}>
+                  Try another email
+                </Button>
               </div>
             ) : (
-              <form onSubmit={handleRecovery} className="space-y-6">
-                <div>
-                  <label htmlFor="recovery-email" className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">
-                    Email Address
-                  </label>
-                  <input
-                    id="recovery-email"
-                    type="email"
-                    required
-                    value={recoveryEmail}
-                    onChange={(e) => setRecoveryEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 outline-none transition-all font-bold text-sm"
-                  />
+              <div className="space-y-5">
+                <div className="space-y-3">
+                  {laloEnabled ? (
+                    <>
+                      <LaloVerifyPanel
+                        client={imInVerifyClient}
+                        storageKeyPrefix="im_in_lalo_verify_ui"
+                        flowType="login"
+                        layout="cta"
+                        platformName="I'm In"
+                        title="Sign in with WhatsApp"
+                        description="Powered by Lalo Verify"
+                        buttonLabel="Continue with WhatsApp"
+                        successTitle="WhatsApp verified"
+                        successDescription="Your WhatsApp number was recognized. Completing your sign-in now."
+                        idleBadge={null}
+                        onCompleted={handleWhatsAppVerified}
+                      />
+                      {error && !showEmailLogin ? (
+                        <p className="ui-feedback ui-feedback-error text-center text-sm">{error}</p>
+                      ) : null}
+                    </>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEmailLogin((prev) => !prev || !laloEnabled);
+                      setError(null);
+                    }}
+                    className="block w-full max-w-none rounded-[2rem] border border-slate-200/90 bg-white px-4 py-4 text-left shadow-[0_14px_34px_rgba(15,23,42,0.08)] transition-transform duration-150 hover:-translate-y-0.5 sm:px-5 sm:py-4"
+                  >
+                    <span className="flex items-center gap-4">
+                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.15rem] border border-brand-100/80 bg-brand-50 text-brand-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+                        <Mail className="h-6 w-6" strokeWidth={2} />
+                      </span>
+                      <span className="min-w-0 flex-1 text-left">
+                        <span className="block text-lg font-black tracking-tight text-slate-900">Continue with email</span>
+                        <span className="mt-0.5 block text-sm font-medium text-slate-500">Backup sign-in options</span>
+                      </span>
+                    </span>
+                  </button>
                 </div>
-                {error && (
-                  <p className="text-red-500 text-xs font-bold bg-red-50 p-3 rounded-xl border border-red-100">
-                    {error}
-                  </p>
-                )}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-xl shadow-lg shadow-brand-600/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
-                >
-                  {loading ? 'Sending...' : 'Send Recovery Link'}
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setShowRecovery(false)}
-                  className="w-full text-slate-400 font-bold text-xs uppercase tracking-widest hover:text-slate-600 transition-colors"
-                >
-                  Back to Login
-                </button>
-              </form>
+
+                {showEmailLogin ? (
+                  <div className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50/70 p-5">
+                    <div className="space-y-1">
+                      <h3 className="text-base font-black text-slate-900">Email sign-in</h3>
+                      <p className="text-sm font-medium text-slate-500">Use a magic link if you prefer email.</p>
+                    </div>
+                    <form onSubmit={handleLogin} className="space-y-4">
+                      <div>
+                        <label htmlFor="email" className="ui-label">
+                          Email address
+                        </label>
+                        <input
+                          id="email"
+                          type="email"
+                          required
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="you@example.com"
+                          className="ui-input"
+                        />
+                      </div>
+
+                      {error ? <p className="ui-feedback ui-feedback-error">{error}</p> : null}
+
+                      <Button type="submit" loading={loading}>
+                        Send magic link
+                      </Button>
+                    </form>
+                  </div>
+                ) : null}
+              </div>
             )}
           </div>
-        ) : sent ? (
-          <div className="text-center space-y-4">
-            <div className="flex justify-center">
-              <CheckCircle2 className="w-12 h-12 text-brand-600" />
-            </div>
-            <h2 className="text-lg font-black text-slate-900">Check your email</h2>
-            <p className="text-slate-600 text-sm font-medium">
-              We've sent a magic link to <span className="font-black text-slate-900">{email}</span>. 
-              Click the link to sign in instantly.
+
+          <div className="mt-6 space-y-3 px-6 text-center">
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+              No account? One will be created for you.
             </p>
-            <button 
-              onClick={() => setSent(false)}
-              className="text-brand-600 font-black text-sm hover:underline"
-            >
-              Try another email
-            </button>
+            {!showRecovery ? (
+              <Button variant="ghost" onClick={() => setShowRecovery(true)}>
+                Lost your guest bookings?
+              </Button>
+            ) : null}
           </div>
-        ) : (
-          <div className="space-y-6">
-            <form onSubmit={handleLogin} className="space-y-6">
-              <div>
-                <label htmlFor="email" className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">
-                  Email Address
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 outline-none transition-all font-bold text-sm"
-                />
-              </div>
-
-              {error && (
-                <p className="text-red-500 text-xs font-bold bg-red-50 p-3 rounded-xl border border-red-100">
-                  {error}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-xl shadow-lg shadow-brand-600/10 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95"
-              >
-                {loading ? 'Sending...' : 'Send Magic Link'}
-                {!loading && <ArrowRight className="w-5 h-5" />}
-              </button>
-            </form>
-          </div>
-        )}
-      </motion.div>
-      
-      <div className="mt-8 flex flex-col items-center gap-4">
-        <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">
-          No account? One will be created for you.
-        </p>
-        {!showRecovery && (
-          <button 
-            onClick={() => setShowRecovery(true)}
-            className="text-brand-600 font-black text-xs uppercase tracking-widest hover:bg-brand-50 px-4 py-2 rounded-lg transition-all"
-          >
-            Lost your guest bookings?
-          </button>
-        )}
-      </div>
+        </motion.div>
       </div>
     </div>
   );

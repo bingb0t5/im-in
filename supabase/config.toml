@@ -12,3 +12,18 @@ verify_jwt = false
 
 [functions.resolve-google-maps-link]
 verify_jwt = false
+
+[functions.lalo-auth-start]
+verify_jwt = false
+
+[functions.lalo-auth-status]
+verify_jwt = false
+
+[functions.lalo-auth-complete]
+verify_jwt = false
+
+[functions.lalo-auth-link-account]
+verify_jwt = false
+
+[functions.merge-account]
+verify_jwt = false
