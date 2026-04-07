@@ -81,7 +81,7 @@ export default function WhatsAppAuthVerify() {
 
   const backLabel = isLinkMode ? 'Back to profile' : 'Back to login';
   const title = 'Sign in with WhatsApp';
-  const description = 'Powered by Lalo Verify';
+  const description = 'Secure verification for your account';
   const buttonLabel = 'Continue with WhatsApp';
   const successDescription = isLinkMode
     ? 'Your WhatsApp number was recognized. Linking it to this account now.'

@@ -51,6 +51,7 @@ Can:
 - manage hosted activities if authorized
 - use the signed-in dashboard on `/my-activities`
 - update their profile name/email on `/profile`
+- link WhatsApp verification and, when returned by Lalo, see the verified WhatsApp number on `/profile`
 
 ### 3. Guest-session user
 
@@ -185,9 +186,12 @@ Features:
 - remove attendee
 - share/copy links
 - WhatsApp share actions
+- see WhatsApp numbers more consistently across hosts, attendees, join requests, interests, lookup matches, and notification recipients when available on linked profiles
 - post-create success modal with quick actions for WhatsApp sharing, returning to `My Activities`, or returning `Home`
 - access request review
 - join request review (when host approval is enabled)
+- send manual in-app activity notifications to eligible recipients
+- receive guest replies back as `guest_reply` notifications when attendees respond to host messages
 - host/co-host management
 - duplicate activity
 - delete activity
@@ -201,6 +205,8 @@ Features:
 - signed-in profile page at `/profile`
 - locked-by-default name display with an edit toggle
 - email update form for signed-in users
+- WhatsApp verification/link state
+- verified WhatsApp number display when returned by Lalo
 - name propagation across hosted activities and self-joined records where sync succeeds
 
 ### Guest bookings / recovery

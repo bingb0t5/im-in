@@ -20,10 +20,10 @@ export function LaloVerifyFlow({ children }: LaloVerifyFlowProps) {
             <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-[2rem] border border-white/70 bg-white/78 shadow-[0_18px_46px_rgba(107,77,163,0.14)] backdrop-blur-xl">
               <ShieldCheck className="h-11 w-11 text-[var(--lalo-primary)]" strokeWidth={1.8} />
             </div>
-            <p className="mt-6 text-[11px] font-black uppercase tracking-[0.34em] text-[var(--lalo-primary)]/70">Lalo Verify</p>
+            <p className="mt-6 text-[11px] font-black uppercase tracking-[0.34em] text-[var(--lalo-primary)]/70">Secure verification</p>
             <h1 className="mt-3 text-4xl font-black tracking-tight text-[var(--lalo-text-dark)] sm:text-5xl">WhatsApp verification</h1>
             <p className="mx-auto mt-3 max-w-md text-sm font-medium leading-6 text-slate-600 sm:text-[15px]">
-              I&apos;m In is using the Lalo Verify flow here so the sign-in handoff and verification steps stay consistent end to end.
+              Confirm your WhatsApp account to continue securely with I&apos;m In.
             </p>
           </div>
         </div>

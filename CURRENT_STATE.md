@@ -65,6 +65,9 @@ The weakest / least finished areas are:
 - hidden `/admin/feedback` page now also includes a passed-to-Trello bucket and permanent delete actions with typed confirmation
 - feedback submission success now includes a direct link to the public dev board
 - long and form-heavy modals now use cleaner mobile behavior, including sticky headers, internal sheet scrolling, background-page scroll lock, and no forced keyboard pop on open
+- WhatsApp verification now persists the verified WhatsApp number on linked attendee profiles when returned by Lalo
+- host dashboard contact and notification-recipient surfaces now show WhatsApp numbers more broadly when available
+- host-sent in-app activity messages now support guest replies back to hosts through `guest_reply` notifications
 - Google Calendar link
 - `.ics` download
 - co-host support
@@ -77,6 +80,7 @@ The weakest / least finished areas are:
 - signed-in users synchronized into the guest/profile-backed identity model
 - guests can join without email when host settings allow it, then add email later for recovery
 - email upgrades now use a dedicated merge RPC so profile/session references move together instead of relying on fragile client-side multi-table updates
+- linked profiles can now carry both a `lalo_user_id` and a verified `whatsapp_number` from the Lalo verification flow
 
 ### Backend/data behavior
 
@@ -97,6 +101,7 @@ The weakest / least finished areas are:
 - webhook-compatible Trello prompt generation with manual admin fallback support
 - feedback screenshots reviewed privately through signed URLs in admin tooling
 - feedback-item deletion removes the internal row, related prompt-job rows, and stored screenshot object
+- in-app host messaging now includes a guest reply path via `reply_to_event_hosts(...)`
 
 ## Partial Or Awkward
 

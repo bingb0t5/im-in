@@ -1718,7 +1718,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
                       layout="cta"
                       platformName="I'm In"
                       title="Sign in with WhatsApp"
-                      description="Powered by Lalo Verify"
+                      description="Secure verification for your account"
                       buttonLabel="Continue with WhatsApp"
                       successTitle="WhatsApp verified"
                       successDescription="Completing your sign-in now."

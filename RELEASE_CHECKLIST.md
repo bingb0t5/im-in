@@ -23,6 +23,8 @@ Use this before shipping a new build of `I'm In`.
   - `cancel_attendee_with_promotion(...)`
   - `add_proxy_attendee(...)`
   - `toggle_event_interest(...)`
+  - `host_send_activity_notification(...)`
+  - `reply_to_event_hosts(...)`
 - Verify expected core tables/columns exist:
   - `events`
   - `event_attendees`
@@ -47,6 +49,12 @@ Use this before shipping a new build of `I'm In`.
 - **Thinking about it:** public and non-public activity interest flows still work.
 - **Semi-public:** request-to-view, private link access, and host request actions still work.
 - **Host dashboard:** co-host access still works and host list loads correctly.
+- **WhatsApp verify/link:** the Lalo verification/link flow completes successfully and persists the verified WhatsApp number when one is returned.
+- **Profile:** `/profile` shows the linked WhatsApp state and verified WhatsApp number correctly after verification.
+- **Host contacts:** host dashboard people/lookup/recipient surfaces show WhatsApp numbers correctly where profile data exists.
+- **Host notifications:** manual host notification send still works from `HostDashboard`.
+- **Guest reply:** replying to a host-sent activity message creates a `guest_reply` notification for the host and opens the expected host-side follow-up path.
+- **Account merge:** merge completion preserves linked WhatsApp identity data, including the verified number when present.
 - **Bookings:** guest bookings page loads with active guest session.
 - **Recovery:** recovery link restores a guest session.
 

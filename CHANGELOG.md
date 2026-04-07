@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 2026-04-07
+
+### WhatsApp number capture, host contact visibility, and guest replies
+
+- updated the Lalo Verify flow so successful WhatsApp verification now captures and persists the verified WhatsApp number on the linked attendee profile instead of only storing the linked identity id
+- updated the signed-in `/profile` experience so linked accounts can now show the verified WhatsApp number directly when Lalo returns it
+- expanded host dashboard people/contact surfaces so hosts can see available WhatsApp numbers more consistently across hosts, attendees, join requests, interests, lookup candidates, and notification recipient lists
+- tightened the WhatsApp auth prep/verify and account-merge completion flows so linked identity data, including the returned WhatsApp number, is preserved more reliably across linking and merge completion
+- added a guest-to-host in-app reply path through `reply_to_event_hosts(...)`, creating `guest_reply` notifications for hosts when someone replies to a host-sent activity message
+- updated notification detail/top-bar behavior so host message threads can support the new guest reply action cleanly from the inbox flow
+
 ## 2026-03-30
 
 ### Optional guest email + name-first join flow

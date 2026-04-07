@@ -151,6 +151,7 @@ The route table lives in `src/App.tsx`.
 - signed-in profile management page
 - hydrates the canonical attendee profile row for the current auth user
 - updates profile name/email through `guestService.updateSignedInProfile(...)`
+- shows linked WhatsApp verification state and the verified WhatsApp number when the Lalo flow returns it
 - softens success messaging when downstream name sync is only partially confirmed
 
 ### `CreateEvent.tsx`
@@ -204,8 +205,10 @@ The route table lives in `src/App.tsx`.
 - add/remove attendee actions
 - copy/share public and private links
 - post-create modal offers WhatsApp share, `My Activities`, and `Home` actions
+- host-facing people and lookup surfaces can expose profile-backed WhatsApp numbers when available
 - access-request review
 - join-request review and approve/reject actions when enabled
+- manual host notification sending now works alongside a guest-reply path that returns `guest_reply` notifications back to hosts
 - host list and add-host flow
 - duplicate activity
 - delete activity
@@ -544,6 +547,7 @@ This is one of the highest-risk architecture areas because changes can drift bet
 - subscribes to `event_attendees` filtered by `event_id`
 - subscribes to `event_access_requests` filtered by `event_id`
 - subscribes to `event_interests` filtered by `event_id`
+- host notification inbox behavior itself is not driven by this page's event subscriptions; it depends on the shared notification system mounted in the top bar
 
 ## SQL / Schema Architecture
 
@@ -563,6 +567,7 @@ In practice:
 - `supabase_schema.sql` is a starter snapshot
 - `supabase_reconcile_live_schema.sql` contains many of the current reliability/RPC expectations
 - `supabase_guest_identity_migration.sql` bootstraps guest/profile/session structures
+- newer feature-specific migrations also carry live contract changes, including notification/reply behavior and WhatsApp-linked identity enrichment
 - `SCHEMA_ALIGNMENT.md` documents some known drift and historical caveats
 
 Contributors should not assume `supabase_schema.sql` alone fully represents the live database.

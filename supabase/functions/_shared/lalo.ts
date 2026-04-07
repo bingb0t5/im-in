@@ -89,16 +89,51 @@ function isSystemProfileEmail(value: string | null | undefined) {
   return email.endsWith('@guest.im-in.local') || email.endsWith('@proxy.im-in.local') || email.endsWith('@auth.im-in.local');
 }
 
-function scoreAuthProfileCandidate(profile: AttendeeProfileRow, preferredEmail: string) {
+function hasVerifiedWhatsAppIdentity(profile?: AttendeeProfileRow | null) {
+  if (!profile) return false;
+  return !!(
+    normalizeWhatsappNumber(profile.lalo_user_id)
+    || profile.auth_provider === LALO_PROVIDER
+    || profile.whatsapp_verified_at
+  );
+}
+
+function dedupeProfileRows(rows: Array<AttendeeProfileRow | null | undefined>) {
+  const seen = new Set<string>();
+  return rows.filter((row): row is AttendeeProfileRow => {
+    const id = row?.id?.trim();
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+function scoreAuthProfileCandidate(profile: AttendeeProfileRow, preferredEmail: string, preferredUserId?: string | null) {
   let score = 0;
   const email = normalizeEmail(profile.email);
 
+  if (hasVerifiedWhatsAppIdentity(profile)) score += 140;
+  if (normalizeWhatsappNumber(profile.lalo_user_id)) score += 40;
+  if (profile.whatsapp_verified_at) score += 20;
+  if (profile.auth_provider === LALO_PROVIDER) score += 10;
+  if (preferredUserId && profile.user_id === preferredUserId) score += 60;
   if (preferredEmail && email === preferredEmail) score += 100;
   if (email && !isSystemProfileEmail(email)) score += 50;
   if (`${profile.first_name || ''} ${profile.last_name || ''}`.trim()) score += 10;
-  if (!profile.lalo_user_id) score += 5;
 
   return score;
+}
+
+function selectCanonicalProfile(
+  rows: Array<AttendeeProfileRow | null | undefined>,
+  preferredEmail: string,
+  preferredUserId?: string | null,
+) {
+  const candidates = dedupeProfileRows(rows);
+  if (candidates.length === 0) return null;
+  return candidates.sort(
+    (a, b) => scoreAuthProfileCandidate(b, preferredEmail, preferredUserId) - scoreAuthProfileCandidate(a, preferredEmail, preferredUserId),
+  )[0] || null;
 }
 
 export function json(data: unknown, init: ResponseInit = {}) {
@@ -340,6 +375,37 @@ async function deleteEventHostDuplicates(admin: SupabaseClient, sourceUserId: st
   }
 }
 
+async function backfillProfileLinkedRecords(
+  admin: SupabaseClient,
+  profileId: string,
+  userId: string,
+) {
+  if (!profileId || !userId) return;
+
+  const updates = await Promise.all([
+    admin
+      .from('event_attendees')
+      .update({ user_id: userId })
+      .eq('attendee_profile_id', profileId)
+      .is('user_id', null),
+    admin
+      .from('event_interests')
+      .update({ user_id: userId })
+      .eq('attendee_profile_id', profileId)
+      .is('user_id', null),
+    admin
+      .from('event_join_requests')
+      .update({ user_id: userId })
+      .eq('attendee_profile_id', profileId)
+      .is('user_id', null),
+  ]);
+
+  const failedUpdate = updates.find((result) => result.error);
+  if (failedUpdate?.error) {
+    throw Object.assign(new Error(failedUpdate.error.message), { status: 500 });
+  }
+}
+
 async function mergeProfileRecords(
   admin: SupabaseClient,
   sourceProfile: AttendeeProfileRow,
@@ -431,6 +497,8 @@ async function mergeProfileRecords(
   if (updateProfileError) {
     throw Object.assign(new Error(updateProfileError.message), { status: 500 });
   }
+
+  await backfillProfileLinkedRecords(admin, targetProfile.id, nextUserId);
 
   if (sourceProfile.id !== targetProfile.id) {
     const { error: deleteSourceProfileError } = await admin
@@ -605,9 +673,7 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
       throw Object.assign(new Error(byUserError.message), { status: 500 });
     }
 
-    const canonicalProfile =
-      ((byUserRows || []) as AttendeeProfileRow[])
-        .sort((a, b) => scoreAuthProfileCandidate(b, preferredEmail) - scoreAuthProfileCandidate(a, preferredEmail))[0] || profile;
+    const canonicalProfile = selectCanonicalProfile((byUserRows || []) as AttendeeProfileRow[], preferredEmail, userId) || profile;
 
     if (profile?.id && canonicalProfile?.id && canonicalProfile.id !== profile.id) {
       nextAuthProvider = deriveLinkedAuthProvider(existingUser, canonicalProfile);
@@ -718,6 +784,8 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
     if (updateProfileError) {
       throw Object.assign(new Error(updateProfileError.message), { status: 500 });
     }
+
+    await backfillProfileLinkedRecords(admin, profile.id, userId);
   } else {
     const { error: insertProfileError } = await admin
       .from('attendee_profiles')
@@ -772,29 +840,37 @@ export async function linkExistingUserToLaloIdentity(
     .from('attendee_profiles')
     .select('id, email, user_id, lalo_user_id, auth_provider, whatsapp_number, whatsapp_verified_at, first_name, last_name')
     .eq('user_id', user.id)
-    .order('updated_at', { ascending: false })
-    .limit(1);
+    .order('updated_at', { ascending: false });
 
   if (byUserError) {
     throw Object.assign(new Error(byUserError.message), { status: 500 });
   }
 
-  profile = (byUserRows?.[0] as AttendeeProfileRow | null) || null;
+  let byEmailRows: AttendeeProfileRow[] = [];
 
-  if (!profile && normalizedEmail) {
-    const { data: byEmailRows, error: byEmailError } = await admin
+  if (normalizedEmail) {
+    const { data, error: byEmailError } = await admin
       .from('attendee_profiles')
       .select('id, email, user_id, lalo_user_id, auth_provider, whatsapp_number, whatsapp_verified_at, first_name, last_name')
       .eq('email', normalizedEmail)
-      .order('updated_at', { ascending: false })
-      .limit(1);
+      .order('updated_at', { ascending: false });
 
     if (byEmailError) {
       throw Object.assign(new Error(byEmailError.message), { status: 500 });
     }
 
-    profile = (byEmailRows?.[0] as AttendeeProfileRow | null) || null;
+    byEmailRows = ((data || []) as AttendeeProfileRow[]);
   }
+
+  profile = selectCanonicalProfile(
+    [
+      ...(existingByLalo?.user_id === user.id || !existingByLalo?.user_id ? [existingByLalo as AttendeeProfileRow] : []),
+      ...((byUserRows || []) as AttendeeProfileRow[]),
+      ...byEmailRows,
+    ],
+    normalizedEmail,
+    user.id,
+  );
 
   if (existingByLalo?.user_id && existingByLalo.user_id !== user.id) {
     const mergeResult = await mergeLaloAccountIntoUser(
@@ -815,10 +891,35 @@ export async function linkExistingUserToLaloIdentity(
     };
   }
 
-  const nextAuthProvider = deriveLinkedAuthProvider(user, profile);
+  let nextAuthProvider = deriveLinkedAuthProvider(user, profile || existingByLalo);
+
+  if (existingByLalo?.id && profile?.id && existingByLalo.id !== profile.id) {
+    await mergeProfileRecords(
+      admin,
+      existingByLalo as AttendeeProfileRow,
+      profile,
+      user.id,
+      nextAuthProvider,
+      laloUserId,
+      normalizedWhatsappNumber,
+      verifiedAt,
+      normalizedEmail || normalizeEmail(profile.email) || normalizeEmail(existingByLalo.email),
+    );
+
+    profile = {
+      ...profile,
+      user_id: user.id,
+      email: profile.email?.trim() || normalizedEmail || existingByLalo.email?.trim() || null,
+      auth_provider: nextAuthProvider,
+      lalo_user_id: laloUserId,
+      whatsapp_number: normalizedWhatsappNumber,
+      whatsapp_verified_at: verifiedAt,
+    };
+  }
+
   const updatePayload = {
     user_id: user.id,
-    email: profile?.email?.trim() || normalizedEmail || null,
+    email: profile?.email?.trim() || normalizedEmail || existingByLalo?.email?.trim() || null,
     auth_provider: nextAuthProvider,
     lalo_user_id: laloUserId,
     whatsapp_number: normalizedWhatsappNumber,
@@ -871,6 +972,10 @@ export async function linkExistingUserToLaloIdentity(
 
   if (updateUserError) {
     throw Object.assign(new Error(updateUserError.message), { status: 500 });
+  }
+
+  if (profile?.id) {
+    await backfillProfileLinkedRecords(admin, profile.id, user.id);
   }
 
   return {

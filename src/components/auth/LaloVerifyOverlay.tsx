@@ -32,12 +32,12 @@ type LaloVerifyOverlayProps = {
 };
 
 const phaseDescriptions: Record<LaloVerifyPhase, string> = {
-  idle: 'Preparing Lalo Verify',
-  connecting: 'Connecting to Lalo Verify System',
+  idle: 'Preparing WhatsApp verification',
+  connecting: 'Connecting to secure WhatsApp verification',
   generating: 'Generating WhatsApp code',
   handoff:
-    'We are ready to open WhatsApp in a separate tab. Please send the prefilled message to Lalo Verify, then return to this screen.',
-  waiting: 'Return to this screen after sending the message. Lalo will check automatically.',
+    'We are ready to open WhatsApp in a separate tab. Please send the prefilled message, then return to this screen.',
+  waiting: 'Return to this screen after sending the message. Verification will continue automatically.',
   verified: 'Finalising your sign-in...',
 };
 
@@ -67,7 +67,7 @@ export function LaloVerifyOverlay({
 }: LaloVerifyOverlayProps) {
   const isVerified = phase === 'verified';
   const expiryLabel = formatExpiry(expiresAt);
-  const resolvedTitle = title || (isVerified ? 'Verified with Lalo' : 'Verifying with Lalo');
+  const resolvedTitle = title || (isVerified ? 'WhatsApp verified' : 'Verifying your WhatsApp');
   const resolvedDescription = description || phaseDescriptions[phase];
 
   return (

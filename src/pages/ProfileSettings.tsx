@@ -26,6 +26,7 @@ import {
   syncPushSubscriptionToServer,
   unsubscribeCurrentDeviceFromPush,
 } from '../lib/pushNotifications';
+import { isWhatsAppVerifiedProfile } from '../utils/installPromptEligibility';
 
 const PUSH_CATEGORY_LABELS: Record<string, string> = {
   activity_shared: 'Activity shared with you',
@@ -257,7 +258,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     }
   };
 
-  const hasLinkedWhatsapp = !!profile?.lalo_user_id;
+  const hasLinkedWhatsapp = isWhatsAppVerifiedProfile(profile);
   const isWhatsappPrimaryAccount = hasLinkedWhatsapp && isSystemGuestEmail(user.email || profile?.email || '');
   const hasVerifiedEmail = Boolean(user.email_confirmed_at);
   const verifiedWhatsappNumber = profile?.whatsapp_number?.trim() || null;

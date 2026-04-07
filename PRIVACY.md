@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Last updated: [DATE]
+Last updated: 2026-04-07
 
 We take privacy seriously.
 
@@ -14,7 +14,9 @@ We only collect what is needed to run the app:
 
 - Name (or display name)
 - Email (for login)
+- Verified WhatsApp number when returned by the WhatsApp verification/link provider
 - Activity participation (what you join or host)
+- Activity communication data such as in-app host messages and guest replies
 - Basic usage data (for improving the app)
 
 We do not collect unnecessary personal data.
@@ -26,6 +28,9 @@ We do not collect unnecessary personal data.
 Your data is used to:
 
 - Let you create and join activities
+- Link your account to WhatsApp when you choose to verify through that flow
+- Show verified WhatsApp contact information in relevant host-management surfaces where that profile data is available
+- Deliver in-app notifications, including host messages and guest replies
 - Show relevant activity information
 - Improve the app
 
@@ -76,6 +81,11 @@ This platform is used by families.
 
 Data is stored using third-party infrastructure (e.g. Supabase).
 
+Where applicable:
+
+- verified WhatsApp numbers returned by the verification provider may be stored on your profile record
+- notification content and reply metadata may be stored so hosts and attendees can view relevant communication history inside the app
+
 We take reasonable steps to secure data, but no system is 100% risk-free.
 
 ---
@@ -85,6 +95,7 @@ We take reasonable steps to secure data, but no system is 100% risk-free.
 We do not sell or share personal data with third parties, except:
 
 - When required to operate the service (e.g. hosting providers)
+- When required to support account verification or infrastructure used by the service
 - When required by law
 
 ---

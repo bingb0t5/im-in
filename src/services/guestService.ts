@@ -96,8 +96,21 @@ function hasMeaningfulProfileName(profile?: Partial<AttendeeProfile> | null) {
   return !emailHandle || name !== emailHandle;
 }
 
+function hasVerifiedWhatsAppIdentity(profile?: Partial<AttendeeProfile> | null) {
+  if (!profile) return false;
+  return !!(
+    (profile.lalo_user_id || '').trim()
+    || profile.auth_provider === 'lalo_whatsapp'
+    || profile.whatsapp_verified_at
+  );
+}
+
 function scoreProfileCandidate(profile: any, user: User, normalizedEmail: string) {
   let score = 0;
+  if (hasVerifiedWhatsAppIdentity(profile)) score += 140;
+  if ((profile?.lalo_user_id || '').trim()) score += 40;
+  if (profile?.whatsapp_verified_at) score += 20;
+  if (profile?.auth_provider === 'lalo_whatsapp') score += 10;
   if (hasMeaningfulProfileName(profile)) score += 100;
   if ((profile?.user_id || '') === user.id) score += 60;
   if (normalizeEmail(profile?.email || '') === normalizedEmail) score += 30;
