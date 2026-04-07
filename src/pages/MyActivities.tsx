@@ -33,6 +33,14 @@ type PendingJoinRequestRow = {
   events?: { id: string; title: string }[] | { id: string; title: string } | null;
 };
 
+type HostedAttendeeCountRow = {
+  status: string;
+};
+
+type HostedInterestCountRow = {
+  id: string;
+};
+
 function upcomingOnly(events: Event[]) {
   return events.filter((event) => isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone));
 }
@@ -332,22 +340,36 @@ export default function MyActivities({ user }: { user: User | null }) {
         const joinedRows = (joinedResult.data || []) as JoinedRow[];
         const sharedRows = (sharedResult.data || []) as Event[];
 
-        const hostedIds = hosted.map((event) => event.id);
-        const { data: attendeeRows } = hostedIds.length
-          ? await supabase
-              .from('event_attendees')
-              .select('event_id, status')
-              .in('event_id', hostedIds)
-              .neq('status', 'cancelled')
-          : { data: [] };
-
         const hostedWithCounts = withConfirmedCounts(
-          hosted.map((event) => ({
-            ...event,
-            event_attendees: ((attendeeRows || []) as Array<{ event_id: string; status: string }>)
-              .filter((row) => row.event_id === event.id)
-              .map((row) => ({ status: row.status })),
-          })),
+          await Promise.all(
+            hosted.map(async (event) => {
+              const [attendeesResult, interestsResult] = await Promise.all([
+                supabase.rpc('host_list_attendees_for_dashboard', {
+                  p_event_id: event.id,
+                }),
+                supabase.rpc('host_list_interests_for_dashboard', {
+                  p_event_id: event.id,
+                }),
+              ]);
+
+              if (attendeesResult.error) {
+                console.warn(`Could not load hosted attendee count for event ${event.id}:`, attendeesResult.error);
+              }
+              if (interestsResult.error) {
+                console.warn(`Could not load hosted interest count for event ${event.id}:`, interestsResult.error);
+              }
+
+              return {
+                ...event,
+                event_attendees: ((attendeesResult.data || []) as HostedAttendeeCountRow[]).map((row) => ({
+                  status: row.status,
+                })),
+                event_interests: ((interestsResult.data || []) as HostedInterestCountRow[]).map((row) => ({
+                  id: row.id,
+                })),
+              };
+            }),
+          ),
         );
 
         const requestedRows = joinedRows.filter((row) => row.status === 'pending_approval');

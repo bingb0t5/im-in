@@ -20,7 +20,7 @@ import { goBackOr } from '../lib/navigation';
 import { applyGoogleMapsAutofill, isGoogleMapsShortUrl, parseGoogleMapsLocation } from '../lib/googleMaps';
 import { shouldModerateVisibility } from '../lib/moderation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
-import { guestService, getAccountNameFromUser, isSystemGuestEmail } from '../services/guestService';
+import { guestService, resolvePreferredAccountName } from '../services/guestService';
 import { Button } from '../components/ui/Button';
 import { StateScreen } from '../components/ui/StateScreen';
 import {
@@ -89,44 +89,6 @@ type CreateEventDraft = {
   resumeAfterAuthStep?: 1 | 2 | 3;
 };
 
-function pickDisplayNameFromProfileRow(profile: {
-  first_name?: string | null;
-  last_name?: string | null;
-  full_name?: string | null;
-} | null): string {
-  if (!profile) return '';
-  const composed = `${profile.first_name || ''} ${profile.last_name || ''}`.trim();
-  if (composed) return composed;
-  return (profile.full_name || '').trim();
-}
-
-function normalizeLooseNameForEmailHandle(value?: string | null) {
-  return (value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[._-]+/g, ' ')
-    .replace(/\s+/g, ' ');
-}
-
-function getEmailLocalPartRaw(email?: string | null) {
-  return ((email || '').split('@')[0] || '').trim().toLowerCase();
-}
-
-function isDisplayNameJustAuthEmailHandle(name: string, authEmail?: string | null) {
-  const normalizedName = normalizeLooseNameForEmailHandle(name);
-  const localPart = normalizeLooseNameForEmailHandle(getEmailLocalPartRaw(authEmail));
-  if (!normalizedName || !localPart) return false;
-  return normalizedName === localPart;
-}
-
-/**
- * Single path after Lalo WhatsApp sign-in: use the same profile merge as the rest of the app
- * (user_id, email, linking), then decide if "One Last Step" is needed.
- *
- * Any non-empty name on `attendee_profiles` counts as "already has host identity" — even when it
- * matches the email local part — so we do not force the modal for long-time users who chose that name.
- * For metadata-only names (OAuth, etc.), we still filter out email-handle-only labels unless guest email.
- */
 async function resolveHostDisplayNameAfterWhatsAppSignIn(sessionUser: User): Promise<string> {
   let profile: Awaited<ReturnType<typeof guestService.getOrCreateProfileForUser>> | null = null;
   try {
@@ -134,26 +96,7 @@ async function resolveHostDisplayNameAfterWhatsAppSignIn(sessionUser: User): Pro
   } catch {
     profile = null;
   }
-
-  const fromProfile = pickDisplayNameFromProfileRow(profile).trim();
-  const fromMetadata = (getAccountNameFromUser(sessionUser) || '').trim();
-  const authEmail = sessionUser.email || '';
-
-  if (fromProfile) {
-    return fromProfile;
-  }
-
-  if (!fromMetadata) return '';
-
-  if (isSystemGuestEmail(authEmail)) {
-    return fromMetadata;
-  }
-
-  if (!isDisplayNameJustAuthEmailHandle(fromMetadata, authEmail)) {
-    return fromMetadata;
-  }
-
-  return '';
+  return resolvePreferredAccountName(profile, sessionUser);
 }
 
 export default function CreateEvent({ user: userFromApp }: { user: User | null }) {
@@ -279,7 +222,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         setError('Verification finished but the session was lost. Try again.');
         return;
       }
-      const result = await completeWhatsAppAuth(attempt);
+      const result = await completeWhatsAppAuth(attempt, { suppressNameCaptureRedirect: true });
       await supabase.auth.refreshSession().catch(() => null);
 
       /** Mobile WebViews sometimes persist the session a tick after signInWithPassword; avoid a false "still logged out" pass. */

@@ -78,7 +78,7 @@ function normalizeLooseName(value?: string | null) {
     .replace(/\s+/g, ' ');
 }
 
-function getProfileDisplayName(profile?: Partial<AttendeeProfile> | null) {
+export function getProfileDisplayName(profile?: Partial<AttendeeProfile> | null) {
   return pickFirstNonEmpty(
     `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim(),
     profile?.full_name || '',
@@ -89,11 +89,57 @@ function getEmailHandle(email?: string | null) {
   return normalizeLooseName((email || '').split('@')[0] || '');
 }
 
+export function isPlaceholderAccountName(name?: string | null, email?: string | null) {
+  const trimmedName = (name || '').trim();
+  if (!trimmedName) return true;
+
+  const normalizedName = normalizeLooseName(trimmedName);
+  if (!normalizedName) return true;
+  if (/^whatsapp user \d{4,}$/.test(normalizedName)) return true;
+  if (trimmedName.toLowerCase().startsWith('lalo+')) return true;
+
+  if (isSystemGuestEmail(email)) {
+    const emailHandle = getEmailHandle(email);
+    if (emailHandle && normalizedName === emailHandle) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function hasRealAccountName(name?: string | null, email?: string | null) {
+  return !isPlaceholderAccountName(name, email);
+}
+
+export function resolvePreferredAccountName(
+  profile?: Partial<AttendeeProfile> | null,
+  user?: User | null,
+) {
+  const profileName = getProfileDisplayName(profile);
+  const profileEmail = pickFirstNonEmpty(profile?.email, user?.email || '');
+  if (hasRealAccountName(profileName, profileEmail)) {
+    return profileName.trim();
+  }
+
+  const metadataName = getAccountNameFromUser(user);
+  const metadataEmail = pickFirstNonEmpty(user?.email || '', profile?.email || '');
+  if (hasRealAccountName(metadataName, metadataEmail)) {
+    return metadataName.trim();
+  }
+
+  return '';
+}
+
+export function profileNeedsRealName(
+  profile?: Partial<AttendeeProfile> | null,
+  user?: User | null,
+) {
+  return !resolvePreferredAccountName(profile, user);
+}
+
 function hasMeaningfulProfileName(profile?: Partial<AttendeeProfile> | null) {
-  const name = normalizeLooseName(getProfileDisplayName(profile));
-  if (!name) return false;
-  const emailHandle = getEmailHandle(profile?.email);
-  return !emailHandle || name !== emailHandle;
+  return hasRealAccountName(getProfileDisplayName(profile), profile?.email);
 }
 
 function hasVerifiedWhatsAppIdentity(profile?: Partial<AttendeeProfile> | null) {
@@ -566,13 +612,46 @@ export const guestService = {
     }
   },
 
+  async updateSignedInProfileName(user: User, fullName: string): Promise<Pick<SignedInProfileUpdateResult, 'profile' | 'nameSyncComplete'>> {
+    const normalizedName = fullName.trim();
+    if (!normalizedName) throw new Error('Please provide your name.');
+
+    const { firstName, lastName } = splitNameParts(normalizedName);
+    let profile = await this.getProfileForUser(user);
+    if (!profile) {
+      profile = await this.getOrCreateProfileForUser(user, normalizedName);
+    }
+
+    const { data: updatedProfile, error: updateProfileError } = await supabase
+      .from('attendee_profiles')
+      .update({
+        first_name: firstName,
+        last_name: lastName,
+        user_id: user.id,
+      })
+      .eq('id', profile.id)
+      .select('*')
+      .single();
+    if (updateProfileError) throw updateProfileError;
+
+    profile = updatedProfile as AttendeeProfile;
+    let nameSyncComplete = true;
+    try {
+      await this.syncNameAcrossUserRecords(user, profile.id, normalizedName);
+    } catch (syncError) {
+      nameSyncComplete = false;
+      console.warn('Could not fully sync profile name across records:', syncError);
+    }
+
+    return { profile, nameSyncComplete };
+  },
+
   async updateSignedInProfile(user: User, options: { fullName: string; email: string }): Promise<SignedInProfileUpdateResult> {
     const normalizedName = options.fullName.trim();
     const normalizedEmail = normalizeEmail(options.email || '');
     if (!normalizedName) throw new Error('Please provide your name.');
     if (!normalizedEmail) throw new Error('Please provide your email.');
 
-    const { firstName, lastName } = splitNameParts(normalizedName);
     let profile = await this.getProfileForUser(user);
     if (!profile) {
       profile = await this.getOrCreateProfileForUser(user, normalizedName);
@@ -590,25 +669,9 @@ export const guestService = {
       profile = await this.addEmailToProfile(profile.id, normalizedEmail);
     }
 
-    const { data: updatedProfile, error: updateProfileError } = await supabase
-      .from('attendee_profiles')
-      .update({
-        first_name: firstName,
-        last_name: lastName,
-        user_id: user.id,
-      })
-      .eq('id', profile.id)
-      .select('*')
-      .single();
-    if (updateProfileError) throw updateProfileError;
-
-    profile = updatedProfile as AttendeeProfile;
-    try {
-      await this.syncNameAcrossUserRecords(user, profile.id, normalizedName);
-    } catch (syncError) {
-      nameSyncComplete = false;
-      console.warn('Could not fully sync profile name across records:', syncError);
-    }
+    const nameUpdate = await this.updateSignedInProfileName(user, normalizedName);
+    profile = nameUpdate.profile;
+    nameSyncComplete = nameUpdate.nameSyncComplete;
     return { profile, emailChangeRequested, nameSyncComplete };
   },
 };

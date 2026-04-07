@@ -146,6 +146,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   };
 
   const fallbackNameFromEmail = (email?: string | null) => {
+    if (!email || isSystemGuestEmail(email)) return '';
     const localPart = (email || '').split('@')[0] || '';
     const words = localPart
       .replace(/[._-]+/g, ' ')
@@ -173,8 +174,12 @@ export default function EventDetail({ user }: { user: User | null }) {
     return current.toLowerCase() === fallback.toLowerCase();
   };
 
-  const getDisplayName = (person: Pick<Attendee, 'guest_name' | 'guest_email'>) => {
-    return pickFirstNonEmpty(person.guest_name, fallbackNameFromEmail(person.guest_email)) || 'Guest';
+  const getDisplayName = (person: {
+    guest_name?: string | null;
+    guest_email?: string | null;
+    resolved_display_name?: string | null;
+  }) => {
+    return pickFirstNonEmpty(person.resolved_display_name, person.guest_name, fallbackNameFromEmail(person.guest_email)) || 'Guest';
   };
 
   const getDisplayEmail = (email?: string | null) => {
@@ -209,7 +214,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   };
 
   const isGuestAccountAttendee = (attendee: Attendee) => {
-    if (attendee.user_id) return false;
+    if (attendee.user_id || attendee.resolved_user_id) return false;
     if (attendee.added_by_type && attendee.added_by_type !== 'self') return false;
     return !attendee.guest_email || isSystemGuestEmail(attendee.guest_email);
   };
@@ -1005,12 +1010,17 @@ export default function EventDetail({ user }: { user: User | null }) {
       setGuestProfile(updated);
       setGuestInfo((prev) => ({ ...prev, email: normalized, name: updated.full_name || prev.name }));
       setEmailUpgradeValue('');
-      setEmailUpgradeMessage('Email saved. You can now recover this guest account later.');
+      setEmailUpgradeMessage('Email saved. You can now recover this guest account with email, or link WhatsApp later.');
     } catch (error: any) {
       setEmailUpgradeMessage(error?.message || 'Could not save email right now.');
     } finally {
       setEmailUpgradeSaving(false);
     }
+  };
+
+  const handleStartGuestWhatsappUpgrade = () => {
+    const returnTo = `${location.pathname}${location.search}`;
+    navigate(`/auth/whatsapp/prep?returnTo=${encodeURIComponent(returnTo)}`);
   };
 
   if (loading) {
@@ -1857,7 +1867,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                 <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
                   {namedThinkingInterests.map((interest) => (
                     <div key={interest.id} className="py-2.5">
-                      <p className="text-sm font-bold text-slate-800">{interest.guest_name}</p>
+                      <p className="text-sm font-bold text-slate-800">{getDisplayName(interest)}</p>
                     </div>
                   ))}
                 </div>
@@ -1904,11 +1914,23 @@ export default function EventDetail({ user }: { user: User | null }) {
 
               {shouldPromptEmailUpgrade && (
                 <form onSubmit={handleSaveEmailUpgrade} className="mb-6 rounded-2xl border border-brand-100 bg-brand-50 p-4 text-left space-y-3">
-                  <p className="text-sm font-bold text-brand-700">Add email for recovery?</p>
+                  <p className="text-sm font-bold text-brand-700">Save this guest account with WhatsApp or email</p>
                   <p className="text-xs text-brand-700/90">
-                    Add your email to recover this account and join multiple activities with the same guest login.
-                    Email is only used for account recovery and no other emails will be sent.
+                    Link WhatsApp for the easiest sign-in next time, or add an email if you prefer recovery links.
+                    Either option helps keep this guest account tied back to you.
                   </p>
+                  <button
+                    type="button"
+                    onClick={handleStartGuestWhatsappUpgrade}
+                    className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-3 rounded-xl transition-all active:scale-95"
+                  >
+                    Continue with WhatsApp
+                  </button>
+                  <div className="flex items-center gap-3">
+                    <div className="h-px flex-1 bg-brand-200/70" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-brand-600/80">or</span>
+                    <div className="h-px flex-1 bg-brand-200/70" />
+                  </div>
                   <input
                     type="email"
                     value={emailUpgradeValue}
@@ -1922,7 +1944,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                     disabled={emailUpgradeSaving}
                     className="w-full bg-white hover:bg-brand-100 text-brand-700 font-black py-3 rounded-xl transition-all active:scale-95"
                   >
-                    {emailUpgradeSaving ? 'Saving...' : 'Save my email'}
+                    {emailUpgradeSaving ? 'Saving...' : 'Save my email instead'}
                   </button>
                 </form>
               )}
