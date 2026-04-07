@@ -95,6 +95,7 @@ Implemented in:
 Features:
 
 - hidden `/admin` landing page for internal tooling
+- allowlisted signed-in admins can reach `/admin` directly from the top-bar account menu via an `Admin Panel` entry
 - moderation review page
 - feedback review page for review, passed, blocked, failed, archived, and all items
 - retry sending eligible feedback to the Trello board
@@ -170,8 +171,9 @@ Features:
 - capacity and waitlist settings
 - per-activity setting for requiring guest email before join
 - public vs private summary/location inputs
+- public location is currently restricted to an approved dropdown list, with `Hoi An, Vietnam` as the only available UI option
 - optional Google Maps link
-- explicit `Fill from link` action that can parse a shared Google Maps link and prefill the location fields while keeping them editable
+- explicit `Fill from link` action that can parse a shared Google Maps link and prefill the exact location while preserving the locked public location value
 - auth/profile modals now open without auto-focusing inputs so the mobile keyboard does not immediately shove the sheet upward
 
 ### Host dashboard
@@ -193,7 +195,7 @@ Features:
 - send manual in-app activity notifications to eligible recipients
 - receive guest replies back as `guest_reply` notifications when attendees respond to host messages
 - host/co-host management
-- duplicate activity
+- duplicate activity, with new copies resetting the public-location filter value to the current approved option
 - delete activity
 
 ### Profile settings

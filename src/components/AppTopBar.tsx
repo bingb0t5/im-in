@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { User } from '@supabase/supabase-js';
-import { CircleHelp, LogIn, LogOut, Menu, MessageSquarePlus, Search, Shield, UserPlus, UserRoundCog, X } from 'lucide-react';
+import { CircleHelp, FileText, LayoutDashboard, LogIn, LogOut, Menu, MessageSquarePlus, Search, Shield, UserPlus, UserRoundCog, X } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { clearAllLaloStateForSignOut } from '../integrations/lalo/laloAuth';
+import { canAccessAnyAdminFrontend } from '../lib/admin';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { cn } from '../utils';
 import { useNotifications } from '../hooks/useNotifications';
@@ -46,6 +47,7 @@ export function AppTopBar({ user }: AppTopBarProps) {
   const isExplore = location.pathname === '/explore' || location.pathname === '/calendar';
   const showHeaderSearch = isHome || isExplore;
   const currentQuery = new URLSearchParams(location.search).get('q') || '';
+  const canAccessAdminPanel = !!user && canAccessAnyAdminFrontend(user.email);
 
   useEffect(() => {
     if (showHeaderSearch) {
@@ -91,6 +93,7 @@ export function AppTopBar({ user }: AppTopBarProps) {
   const getTitle = () => {
     if (location.pathname === '/') return 'Home';
     if (location.pathname === '/explore' || location.pathname === '/calendar') return 'Public Activities';
+    if (location.pathname === '/changelog') return 'Changelog';
     if (location.pathname === '/my-activities') return 'My Activities';
     if (location.pathname === '/profile') return 'Profile';
     if (location.pathname === '/login') return 'Sign In';
@@ -312,12 +315,32 @@ export function AppTopBar({ user }: AppTopBarProps) {
                 <div className="my-1 h-px bg-slate-100" />
                 <button
                   type="button"
+                  onClick={() => handleMenuNavigate('/changelog')}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  <FileText className="h-4.5 w-4.5 shrink-0 text-brand-600" />
+                  App Updates and Changelog
+                </button>
+                <div className="my-1 h-px bg-slate-100" />
+                <button
+                  type="button"
                   onClick={() => handleMenuNavigate('/?action=feedback')}
                   className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
                 >
                   <MessageSquarePlus className="h-4.5 w-4.5 shrink-0 text-brand-600" />
                   Send feedback
                 </button>
+                {canAccessAdminPanel ? <div className="my-1 h-px bg-slate-100" /> : null}
+                {canAccessAdminPanel ? (
+                  <button
+                    type="button"
+                    onClick={() => handleMenuNavigate('/admin')}
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    <LayoutDashboard className="h-4.5 w-4.5 shrink-0 text-brand-600" />
+                    Admin Panel
+                  </button>
+                ) : null}
                 {user ? (
                   <>
                     <div className="my-1 h-px bg-slate-100" />

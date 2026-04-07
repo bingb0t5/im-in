@@ -8,6 +8,7 @@ import { formatDate, formatDurationMinutes } from '../utils';
 import { Event, Attendee, EventAccessRequest, EventInterest, EventJoinRequest } from '../types';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/moderation';
+import { LOCKED_PUBLIC_LOCATION } from '../lib/publicLocation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
 
@@ -1013,7 +1014,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
           description: event.description,
           public_summary: event.public_summary,
           location_text: event.location_text,
-          public_location_text: event.public_location_text,
+          public_location_text: LOCKED_PUBLIC_LOCATION,
           google_maps_url: event.google_maps_url,
           starts_at: newStartsAt.toISOString(),
           ends_at: newEndsAt,

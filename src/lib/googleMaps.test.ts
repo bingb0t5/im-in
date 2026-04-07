@@ -5,6 +5,7 @@ import {
   isGoogleMapsShortUrl,
   parseGoogleMapsLocation,
 } from './googleMaps';
+import { LOCKED_PUBLIC_LOCATION } from './publicLocation';
 
 describe('googleMaps parsing', () => {
   it('detects shortened Google Maps links', () => {
@@ -44,14 +45,31 @@ describe('googleMaps parsing', () => {
       {
         google_maps_url: '',
         location_text: 'Manual meetup point',
-        public_location_text: 'Hoi An',
+        public_location_text: LOCKED_PUBLIC_LOCATION,
       },
       parseGoogleMapsLocation('https://www.google.com/maps/@15.9274,108.3275,17z'),
     );
 
     expect(next.location_text).toBe('Manual meetup point');
-    expect(next.public_location_text).toBe('Hoi An');
+    expect(next.public_location_text).toBe(LOCKED_PUBLIC_LOCATION);
     expect(next.google_maps_url).toContain('google.com/maps/@15.9274,108.3275,17z');
+  });
+
+  it('keeps the locked public location when autofill finds a different area', () => {
+    const next = applyGoogleMapsAutofill(
+      {
+        google_maps_url: '',
+        location_text: '',
+        public_location_text: LOCKED_PUBLIC_LOCATION,
+      },
+      parseGoogleMapsLocation(
+        'https://www.google.com/maps/place/An+Bang+Beach,+Cam+An,+Hoi+An,+Quang+Nam,+Vietnam/@15.9274,108.3275,17z',
+      ),
+      { lockedPublicLocation: LOCKED_PUBLIC_LOCATION },
+    );
+
+    expect(next.location_text).toBe('An Bang Beach, Cam An, Hoi An, Quang Nam, Vietnam');
+    expect(next.public_location_text).toBe(LOCKED_PUBLIC_LOCATION);
   });
 
   it('rejects non-Google Maps links', () => {

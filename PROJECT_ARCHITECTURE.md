@@ -166,7 +166,8 @@ The route table lives in `src/App.tsx`.
 - per-activity host-approval setting for membership requests
 - per-activity guest-email requirement setting for join flows
 - field-level public/private badges to explain what is shown publicly
-- supports explicit Google Maps link autofill for public/exact location text while keeping both fields editable
+- public location is currently constrained to an approved dropdown option of `Hoi An, Vietnam`
+- supports explicit Google Maps link autofill for exact location text without overwriting the locked public-location filter value
 - signed-in host-name hydration and normalization
 - host name is treated as public for public and semi-public activities
 - co-host access check for edit mode
@@ -275,10 +276,11 @@ The route table lives in `src/App.tsx`.
 ### Core top-level files
 
 - `src/main.tsx`: mount/bootstrap
-- `src/App.tsx`: session bootstrap, auth listener, route table
+- `src/App.tsx`: shared session bootstrap consumption and route table
 - `src/supabase.ts`: Supabase client creation
 - `src/types.ts`: shared data types
 - `src/utils.ts`: general-purpose formatting/time/calendar helpers
+- `src/hooks/useSupabaseSession.ts`: shared Supabase auth/session bootstrap hook with retry and stale-session recovery
 
 ### Shared helpers
 
@@ -286,6 +288,7 @@ The route table lives in `src/App.tsx`.
 
 Important files:
 
+- `authSession.ts`: session bootstrap/retry helpers, invalid-refresh-token detection, and local-session cleanup helpers
 - `authRedirect.ts`: deployment-aware auth redirect URL building
 - `admin.ts`: frontend admin-email allowlist helpers
 - `navigation.ts`: `goBackOr(...)`

@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { clearLocalSupabaseSession, isInvalidRefreshTokenErrorMessage, loadSessionWithRecovery } from './authSession';
 
 const TRANSIENT_FUNCTION_INVOKE_ERROR_RE = /failed to send a request to the edge function|networkerror|load failed|fetch failed/i;
 
@@ -65,17 +66,23 @@ async function waitForSessionAccessToken({
   let lastSessionError: string | null = null;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
+    const { session, error: sessionError, clearedInvalidRefreshToken } = await loadSessionWithRecovery(
+      supabase.auth,
+      { attempts: 1, delayMs },
+    );
 
     if (sessionError) {
-      lastSessionError = sessionError.message || 'Could not read the current session.';
+      lastSessionError = clearedInvalidRefreshToken
+        ? 'Your session expired. Please sign in again.'
+        : sessionError.message || 'Could not read the current session.';
     }
 
     if (session?.access_token) {
       return session.access_token;
+    }
+
+    if (clearedInvalidRefreshToken) {
+      break;
     }
 
     if (attempt < attempts - 1) {
@@ -103,7 +110,12 @@ export async function invokeAuthedFunction<T = unknown>(name: string, body: unkn
     if (/invalid jwt/i.test(errorMessage)) {
       const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
       if (refreshError || !refreshed.session?.access_token) {
-        throw new Error(refreshError?.message || errorMessage || 'Could not refresh your session. Try signing in again.');
+        const refreshMessage = refreshError?.message || errorMessage || 'Could not refresh your session. Try signing in again.';
+        if (isInvalidRefreshTokenErrorMessage(refreshMessage)) {
+          await clearLocalSupabaseSession(supabase.auth);
+          throw new Error('Your session expired. Please sign in again.');
+        }
+        throw new Error(refreshMessage);
       }
 
       accessToken = refreshed.session.access_token;

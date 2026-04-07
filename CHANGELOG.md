@@ -2,6 +2,16 @@
 
 ## 2026-04-07
 
+### Auth session recovery, admin access, and activity location locking
+
+- added a shared `useSupabaseSession()` bootstrap path so `App`, the delayed-auth create flow, and account-merge completion read the current Supabase user state more consistently after auth handoffs
+- hardened local auth-session recovery by clearing stale invalid refresh tokens, explicitly matching Supabase's browser storage key, retrying session reads on visibility/focus, and surfacing a clean `session expired` message when authed function calls can no longer refresh
+- added an `Admin Panel` entry in the top-bar account menu for allowlisted admins so the hidden `/admin` tools are easier to reach once signed in
+- locked the create/edit `Public location` UI to an approved dropdown value of `Hoi An, Vietnam`, while leaving older stored rows untouched until they are edited or duplicated through the current UI
+- updated Google Maps host autofill so it still fills exact location details from shared links without overwriting the locked public location value
+- changed duplicate activity so copied activities now normalize their new `public_location_text` to `Hoi An, Vietnam` instead of inheriting arbitrary older text
+- moved hosted/shared/joined confirmed + `thinking` counts into the `list_my_*` RPC layer so `My Activities` no longer has to fan out extra per-activity count queries
+
 ### WhatsApp number capture, host contact visibility, and guest replies
 
 - updated the Lalo Verify flow so successful WhatsApp verification now captures and persists the verified WhatsApp number on the linked attendee profile instead of only storing the linked identity id
