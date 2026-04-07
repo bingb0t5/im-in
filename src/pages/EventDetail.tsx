@@ -220,7 +220,9 @@ export default function EventDetail({ user }: { user: User | null }) {
   };
 
   const getAttendeeDisplayName = (attendee: Attendee) => {
-    const baseName = getDisplayName(attendee);
+    const baseName = attendee.added_by_type === 'proxy'
+      ? pickFirstNonEmpty(attendee.guest_name, attendee.resolved_display_name, fallbackNameFromEmail(attendee.guest_email)) || 'Guest'
+      : getDisplayName(attendee);
     return isGuestAccountAttendee(attendee) ? `${baseName} (guest account)` : baseName;
   };
 

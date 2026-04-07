@@ -439,7 +439,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
   };
 
   const getAttendeeDisplayName = (attendee: HostAttendee) => {
-    const baseName = getDisplayName(attendee.resolved_display_name || attendee.guest_name);
+    const baseName = attendee.added_by_type === 'proxy'
+      ? getDisplayName(attendee.guest_name || attendee.resolved_display_name)
+      : getDisplayName(attendee.resolved_display_name || attendee.guest_name);
     return isGuestAccountAttendee(attendee) ? `${baseName} (guest account)` : baseName;
   };
 
