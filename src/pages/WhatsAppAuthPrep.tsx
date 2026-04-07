@@ -5,7 +5,7 @@ import { isLaloWhatsAppAuthEnabled } from '../integrations/lalo/laloAuth';
 export default function WhatsAppAuthPrep() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const redirectTo = searchParams.get('from') || '/';
+  const redirectTo = searchParams.get('returnTo') || searchParams.get('from') || '/';
 
   useEffect(() => {
     if (!isLaloWhatsAppAuthEnabled()) {

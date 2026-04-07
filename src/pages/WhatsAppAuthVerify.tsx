@@ -88,8 +88,8 @@ export default function WhatsAppAuthVerify() {
     : 'Your WhatsApp number was recognized. Completing your sign-in now.';
 
   return (
-    <LaloVerifyFlow>
-      <div className="fixed inset-x-0 top-1/2 z-10 -translate-y-1/2 px-4 sm:px-6">
+    <LaloVerifyFlow showHero={false}>
+      <div className="relative z-10 flex min-h-[calc(100svh-6.5rem)] items-center justify-center px-4 pb-8 pt-6 sm:px-6">
         <div className="mx-auto w-full max-w-md space-y-3">
           <LaloVerifyPanel
             client={verifyClient}
