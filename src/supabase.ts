@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { buildSupabaseAuthStorageKey } from './lib/authSession';
 
 let _supabase: SupabaseClient | null = null;
 
@@ -19,7 +20,14 @@ export const supabase = new Proxy({} as SupabaseClient, {
         throw error;
       }
       
-      _supabase = createClient(url, key);
+      _supabase = createClient(url, key, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+          storageKey: buildSupabaseAuthStorageKey(url),
+        },
+      });
     }
     return Reflect.get(_supabase, prop, receiver);
   }

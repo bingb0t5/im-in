@@ -5,7 +5,7 @@ import { ChevronDown, ChevronUp, Eye, MapPin, UserRound, Users } from 'lucide-re
 import { supabase } from '../supabase';
 import { formatDate, formatDay, formatTime, isOnOrAfterTodayInTimeZone } from '../utils';
 import { Event } from '../types';
-import { buildEventPath, withConfirmedCounts } from '../lib/events';
+import { buildEventPath } from '../lib/events';
 import { BookingRow, groupBookingsByEvent } from '../lib/bookings';
 import { AuthPromptModal } from '../components/AuthPromptModal';
 import { Card } from '../components/ui/Card';
@@ -31,14 +31,6 @@ type PendingJoinRequestRow = {
   created_at: string;
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   events?: { id: string; title: string }[] | { id: string; title: string } | null;
-};
-
-type HostedAttendeeCountRow = {
-  status: string;
-};
-
-type HostedInterestCountRow = {
-  id: string;
 };
 
 function upcomingOnly(events: Event[]) {
@@ -336,46 +328,18 @@ export default function MyActivities({ user }: { user: User | null }) {
 
         if (cancelled) return;
 
+        if (hostedResult.error || joinedResult.error || sharedResult.error) {
+          throw hostedResult.error || joinedResult.error || sharedResult.error;
+        }
+
         const hosted = (hostedResult.data || []) as Event[];
         const joinedRows = (joinedResult.data || []) as JoinedRow[];
         const sharedRows = (sharedResult.data || []) as Event[];
 
-        const hostedWithCounts = withConfirmedCounts(
-          await Promise.all(
-            hosted.map(async (event) => {
-              const [attendeesResult, interestsResult] = await Promise.all([
-                supabase.rpc('host_list_attendees_for_dashboard', {
-                  p_event_id: event.id,
-                }),
-                supabase.rpc('host_list_interests_for_dashboard', {
-                  p_event_id: event.id,
-                }),
-              ]);
-
-              if (attendeesResult.error) {
-                console.warn(`Could not load hosted attendee count for event ${event.id}:`, attendeesResult.error);
-              }
-              if (interestsResult.error) {
-                console.warn(`Could not load hosted interest count for event ${event.id}:`, interestsResult.error);
-              }
-
-              return {
-                ...event,
-                event_attendees: ((attendeesResult.data || []) as HostedAttendeeCountRow[]).map((row) => ({
-                  status: row.status,
-                })),
-                event_interests: ((interestsResult.data || []) as HostedInterestCountRow[]).map((row) => ({
-                  id: row.id,
-                })),
-              };
-            }),
-          ),
-        );
-
         const requestedRows = joinedRows.filter((row) => row.status === 'pending_approval');
         const attendingRows = joinedRows.filter((row) => row.status !== 'pending_approval');
 
-        const hostedUpcoming = upcomingOnly(hostedWithCounts);
+        const hostedUpcoming = upcomingOnly(hosted);
         const hostedUpcomingIds = hostedUpcoming.map((event) => event.id);
         const [pendingAccessResult, pendingJoinResult] = await Promise.all([
           hostedUpcomingIds.length
@@ -403,7 +367,7 @@ export default function MyActivities({ user }: { user: User | null }) {
           console.warn('Could not load pending join requests:', pendingJoinResult.error);
         }
 
-        setHosting(hostedWithCounts);
+        setHosting(hosted);
         setRequested(
           groupBookingsByEvent(requestedRows as BookingRow[]).map((row) => row.events as Event),
         );

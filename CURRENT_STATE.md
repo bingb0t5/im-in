@@ -43,7 +43,7 @@ The weakest / least finished areas are:
 - public / semi-public / private visibility modes
 - delayed-auth create flow
 - create and edit activity forms with a multi-step visibility-first flow
-- create/edit location flow can resolve shared Google Maps short links and prefill editable public/exact location fields
+- create/edit location flow can resolve shared Google Maps short links and prefill exact location details while the public-location filter is currently locked to `Hoi An, Vietnam`
 - host dashboard
 - post-create success modal on the host dashboard with share / return actions that now persist correctly after the dashboard finishes loading
 - access requests for semi-public activities
@@ -56,6 +56,7 @@ The weakest / least finished areas are:
 - lightweight AI moderation for broader public discovery on public activities and semi-public public previews
 - hidden moderation admin queue with review, archived, and spam buckets for allowlisted admins, scoped to public-facing activity moderation
 - hidden admin hub at `/admin` that links to the current internal admin tools
+- allowlisted admins can now reach the hidden admin tools from the main top-bar account menu
 - public moderation transparency page for public-facing moderation history
 - home-page explainer content simplified into two modals: `Why this exists` and `Help build it`
 - public feedback/report modal on home page with optional screenshot upload
@@ -81,6 +82,7 @@ The weakest / least finished areas are:
 - guests can join without email when host settings allow it, then add email later for recovery
 - email upgrades now use a dedicated merge RPC so profile/session references move together instead of relying on fragile client-side multi-table updates
 - linked profiles can now carry both a `lalo_user_id` and a verified `whatsapp_number` from the Lalo verification flow
+- auth bootstrap now uses a shared session hook that retries reads, refreshes on focus/visibility, and clears stale invalid refresh tokens locally instead of leaving the UI stuck on a dead session
 
 ### Backend/data behavior
 
@@ -93,6 +95,7 @@ The weakest / least finished areas are:
 - hosts can now use calendar export actions even when they are not personally attending
 - calendar exports now use Google Maps share URLs as the calendar location when available
 - new-activity success state is carried into the host dashboard so the one-time modal can survive the initial dashboard load
+- `list_my_hosted_events()`, `list_my_shared_activities()`, and `list_my_joined_activities()` now return `confirmed_count` and `thinking_count` directly so dashboard counts come from the RPC layer instead of per-row client fan-out
 - filtered realtime on the host dashboard
 - Supabase Edge Function moderation with content-hash reuse and stored discovery state
 - separate reviewer archive state for the moderation queue via `events.moderation_archived_at`

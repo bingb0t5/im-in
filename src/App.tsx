@@ -4,8 +4,7 @@
  */
 
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
-import { supabase } from './supabase';
+import { useEffect } from 'react';
 import { User } from '@supabase/supabase-js';
 
 // Pages
@@ -15,6 +14,7 @@ import CreateEvent from './pages/CreateEvent';
 import EventDetail from './pages/EventDetail';
 import HostDashboard from './pages/HostDashboard';
 import Calendar from './pages/Calendar';
+import Changelog from './pages/Changelog';
 import Recovery from './pages/Recovery';
 import Bookings from './pages/Bookings';
 import MyActivities from './pages/MyActivities';
@@ -34,43 +34,10 @@ import { GlobalFeedbackWidget } from './components/GlobalFeedbackWidget';
 import { ModerationTransparencyModal } from './components/ModerationTransparencyModal';
 import { ScrollToTop } from './components/ScrollToTop';
 import { InAppBrowserPrompt } from './components/system/InAppBrowserPrompt';
+import { useSupabaseSession } from './hooks/useSupabaseSession';
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [configError, setConfigError] = useState<string | null>(null);
-
-  useEffect(() => {
-    try {
-      // Check active sessions and sets the user
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        setUser(session?.user ?? null);
-        setLoading(false);
-      }).catch(err => {
-        if (err.message.includes('Supabase configuration missing')) {
-          setConfigError(err.message);
-        } else {
-          console.error('Error loading auth session:', err);
-        }
-        setLoading(false);
-      });
-
-      // Listen for changes on auth state (logged in, signed out, etc.)
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        setUser(session?.user ?? null);
-        setLoading(false);
-      });
-
-      return () => subscription.unsubscribe();
-    } catch (err: unknown) {
-      if (err instanceof Error && err.message.includes('Supabase configuration missing')) {
-        setConfigError(err.message);
-      } else {
-        console.error('Unexpected error during initialization:', err);
-      }
-      setLoading(false);
-    }
-  }, []);
+  const { user, loading, configError } = useSupabaseSession();
 
   useEffect(() => {
     if (user) {
@@ -144,6 +111,7 @@ export default function App() {
             <Route path="/" element={<Home user={user} />} />
             <Route path="/explore" element={<Calendar user={user} />} />
             <Route path="/calendar" element={<Navigate to="/explore" replace />} />
+            <Route path="/changelog" element={<Changelog />} />
             <Route path="/create-event" element={<CreateEvent user={user} />} />
             <Route path="/my-activities" element={<MyActivities user={user} />} />
             <Route path="/profile" element={<ProfileSettings user={user} />} />

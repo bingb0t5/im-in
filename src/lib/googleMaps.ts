@@ -16,6 +16,10 @@ export type LocationAutofillFields = {
   public_location_text: string;
 };
 
+export type GoogleMapsAutofillOptions = {
+  lockedPublicLocation?: string;
+};
+
 const GOOGLE_MAPS_SHORT_HOSTS = ['maps.app.goo.gl', 'goo.gl', 'g.co'] as const;
 const GENERIC_VENUE_WORDS = new Set([
   'apartments',
@@ -217,10 +221,14 @@ export function parseGoogleMapsLocation(rawUrl: string): ParsedGoogleMapsLocatio
 export function applyGoogleMapsAutofill(
   currentFields: LocationAutofillFields,
   parsedLocation: ParsedGoogleMapsLocation,
+  options?: GoogleMapsAutofillOptions,
 ): LocationAutofillFields {
   return {
     google_maps_url: parsedLocation.normalizedUrl || currentFields.google_maps_url,
     location_text: parsedLocation.exactLocation || currentFields.location_text,
-    public_location_text: parsedLocation.publicLocation || currentFields.public_location_text,
+    public_location_text:
+      options?.lockedPublicLocation
+        ? options.lockedPublicLocation
+        : parsedLocation.publicLocation || currentFields.public_location_text,
   };
 }

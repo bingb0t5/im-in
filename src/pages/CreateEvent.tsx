@@ -19,6 +19,7 @@ import { invokeAuthedFunction, invokePublicFunction } from '../lib/functions';
 import { goBackOr } from '../lib/navigation';
 import { applyGoogleMapsAutofill, isGoogleMapsShortUrl, parseGoogleMapsLocation } from '../lib/googleMaps';
 import { shouldModerateVisibility } from '../lib/moderation';
+import { LOCKED_PUBLIC_LOCATION, LOCKED_PUBLIC_LOCATION_OPTIONS, normalizePublicLocationText } from '../lib/publicLocation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { guestService, getAccountNameFromUser, isSystemGuestEmail, resolvePreferredAccountName } from '../services/guestService';
 import { Button } from '../components/ui/Button';
@@ -29,6 +30,7 @@ import {
 } from '../integrations/lalo/laloAuth';
 import { completeWhatsAppAuth } from '../integrations/lalo/completeWhatsAppAuth';
 import { createImInLaloVerifyClient } from '../integrations/lalo/laloVerifyImInClient';
+import { useSupabaseSession } from '../hooks/useSupabaseSession';
 
 const CREATE_EVENT_DRAFT_KEY = 'im_in_create_event_draft';
 const CREATE_EVENT_PENDING_AUTH_KEY = 'im_in_create_event_pending_auth';
@@ -104,12 +106,12 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   const navigate = useNavigate();
   const isEditing = !!id;
   /**
-   * After WhatsApp sign-in, `navigate` can re-render this page before App's `onAuthStateChange`
-   * updates the `user` prop — the UI would still show the logged-out host copy. Mirror the
-   * Supabase session here so step 3 matches reality as soon as the session exists.
+   * After auth handoffs, this page can render before App has pushed the latest `user` prop.
+   * Keep a local mirror of the shared Supabase session bootstrap so step 3 matches reality.
    */
+  const { user: bootstrappedSessionUser } = useSupabaseSession();
   const [sessionMirrorUser, setSessionMirrorUser] = useState<User | null>(null);
-  const user = userFromApp ?? sessionMirrorUser;
+  const user = userFromApp ?? bootstrappedSessionUser ?? sessionMirrorUser;
 
   const userFromAppRef = useRef<User | null>(userFromApp);
   const sessionMirrorUserRef = useRef<User | null>(sessionMirrorUser);
@@ -117,20 +119,10 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   sessionMirrorUserRef.current = sessionMirrorUser;
 
   useEffect(() => {
-    let cancelled = false;
-    void supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!cancelled) setSessionMirrorUser(session?.user ?? null);
-    });
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSessionMirrorUser(session?.user ?? null);
-    });
-    return () => {
-      cancelled = true;
-      subscription.unsubscribe();
-    };
-  }, []);
+    if (!bootstrappedSessionUser) {
+      setSessionMirrorUser(null);
+    }
+  }, [bootstrappedSessionUser]);
 
   const hasHydratedDraft = useRef(false);
   const currentStepRef = useRef<1 | 2 | 3>(1);
@@ -143,7 +135,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
     title: '',
     public_summary: '',
     description: '',
-    public_location_text: '',
+    public_location_text: LOCKED_PUBLIC_LOCATION,
     location_text: '',
     google_maps_url: '',
     starts_at: '',
@@ -404,6 +396,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         setFormData((prev) => ({
           ...prev,
           ...draft.formData,
+          public_location_text: normalizePublicLocationText(draft.formData.public_location_text),
           timezone: draft.formData.timezone || prev.timezone,
           duration_minutes: draft.formData.duration_minutes || prev.duration_minutes,
         }));
@@ -662,7 +655,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         title: normalizedEvent.title || '',
         public_summary: normalizedEvent.public_summary || '',
         description: normalizedEvent.description || '',
-        public_location_text: normalizedEvent.public_location_text || '',
+        public_location_text: normalizePublicLocationText(normalizedEvent.public_location_text),
         location_text: normalizedEvent.location_text || '',
         google_maps_url: normalizedEvent.google_maps_url || '',
         starts_at: utcIsoToEventLocalInput(normalizedEvent.starts_at, timezone),
@@ -751,7 +744,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
           description: formData.description.trim() || null,
           public_summary: formData.public_summary.trim() || null,
           location_text: formData.location_text.trim() || null,
-          public_location_text: formData.public_location_text.trim() || null,
+          public_location_text: normalizePublicLocationText(formData.public_location_text),
           google_maps_url: formData.google_maps_url.trim() || null,
           timezone: formData.timezone || DEFAULT_EVENT_TIMEZONE,
           duration_minutes: formData.duration_minutes || 60,
@@ -760,7 +753,6 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
 
         if (resolvedVisibility === 'public') {
           submissionData.public_summary = submissionData.public_summary || submissionData.description;
-          submissionData.public_location_text = submissionData.public_location_text || submissionData.location_text;
         }
 
         if (!isEditing) {
@@ -1061,6 +1053,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
           public_location_text: formData.public_location_text,
         },
         parsedLocation,
+        { lockedPublicLocation: LOCKED_PUBLIC_LOCATION },
       );
 
       setFormData((prev) => ({
@@ -1071,11 +1064,11 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
       }));
 
       if (parsedLocation.exactLocation && parsedLocation.publicLocation) {
-        setMapsAutofillMessage('Filled the public and exact location from the link. You can still edit both fields.');
+        setMapsAutofillMessage(`Filled the exact location from the link. Public location stays set to ${LOCKED_PUBLIC_LOCATION}.`);
       } else if (parsedLocation.exactLocation) {
-        setMapsAutofillMessage('Filled the exact location from the link. Check the public location before saving.');
+        setMapsAutofillMessage(`Filled the exact location from the link. Public location stays set to ${LOCKED_PUBLIC_LOCATION}.`);
       } else {
-        setMapsAutofillMessage('Saved the link, but could not read a location from it. You can still type the fields manually.');
+        setMapsAutofillMessage(`Saved the link. Public location stays set to ${LOCKED_PUBLIC_LOCATION}.`);
       }
     } catch (autofillError) {
       setMapsAutofillError(
@@ -1407,13 +1400,22 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
                             {isPrivateVisibility ? 'Private' : 'Public'}
                           </span>
                         </label>
-                        <input
-                          type="text"
-                          placeholder="City, suburb, or general area"
+                        <select
                           className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
                           value={formData.public_location_text}
-                          onChange={(e) => setFormData({ ...formData, public_location_text: e.target.value })}
-                        />
+                          onChange={(e) =>
+                            setFormData({ ...formData, public_location_text: normalizePublicLocationText(e.target.value) })
+                          }
+                        >
+                          {LOCKED_PUBLIC_LOCATION_OPTIONS.map((locationOption) => (
+                            <option key={locationOption} value={locationOption}>
+                              {locationOption}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="mt-2 text-xs text-slate-400">
+                          Public locations are currently limited to approved city filters.
+                        </p>
                       </div>
                       <div>
                         <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
