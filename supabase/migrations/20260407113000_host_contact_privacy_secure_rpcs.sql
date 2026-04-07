@@ -358,6 +358,7 @@ CREATE OR REPLACE FUNCTION public.host_list_attendees_for_dashboard(
     added_by_type TEXT,
     added_by_attendee_profile_id UUID,
     guest_name TEXT,
+    resolved_display_name TEXT,
     status TEXT,
     joined_at TIMESTAMPTZ,
     promoted_at TIMESTAMPTZ,
@@ -386,6 +387,15 @@ BEGIN
     profile_best AS (
         SELECT DISTINCT ON (ap.user_id)
             ap.user_id,
+            COALESCE(
+                NULLIF(trim(ap.full_name), ''),
+                NULLIF(trim(concat_ws(' ', ap.first_name, ap.last_name)), ''),
+                CASE
+                    WHEN nullif(regexp_replace(COALESCE(ap.whatsapp_number, ''), '\D', '', 'g'), '') IS NOT NULL
+                        THEN concat('WhatsApp user ', right(regexp_replace(COALESCE(ap.whatsapp_number, ''), '\D', '', 'g'), 4))
+                    ELSE NULL
+                END
+            ) AS display_name,
             ap.whatsapp_number
         FROM public.attendee_profiles ap
         WHERE ap.user_id IN (
@@ -398,6 +408,15 @@ BEGIN
     profile_by_id AS (
         SELECT
             ap.id,
+            COALESCE(
+                NULLIF(trim(ap.full_name), ''),
+                NULLIF(trim(concat_ws(' ', ap.first_name, ap.last_name)), ''),
+                CASE
+                    WHEN nullif(regexp_replace(COALESCE(ap.whatsapp_number, ''), '\D', '', 'g'), '') IS NOT NULL
+                        THEN concat('WhatsApp user ', right(regexp_replace(COALESCE(ap.whatsapp_number, ''), '\D', '', 'g'), 4))
+                    ELSE NULL
+                END
+            ) AS display_name,
             ap.whatsapp_number
         FROM public.attendee_profiles ap
         WHERE ap.id IN (
@@ -415,6 +434,7 @@ BEGIN
         ar.added_by_type::TEXT,
         ar.added_by_attendee_profile_id,
         ar.guest_name,
+        COALESCE(pb.display_name, pid.display_name, NULLIF(trim(ar.guest_name), ''), 'Guest') AS resolved_display_name,
         ar.status::TEXT,
         ar.joined_at,
         ar.promoted_at,
