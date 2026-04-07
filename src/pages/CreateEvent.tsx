@@ -170,6 +170,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   const [profileWhatsapp, setProfileWhatsapp] = useState('');
   const [needsProfileDetails, setNeedsProfileDetails] = useState(false);
   const [accountHostName, setAccountHostName] = useState('');
+  const [accountHasLinkedWhatsapp, setAccountHasLinkedWhatsapp] = useState(false);
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(isEditing ? 2 : 1);
   const [visibilitySelected, setVisibilitySelected] = useState(isEditing);
   const [showTimezoneField, setShowTimezoneField] = useState(isEditing);
@@ -552,48 +553,37 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   useEffect(() => {
     if (!user) {
       setAccountHostName('');
+      setAccountHasLinkedWhatsapp(false);
       return;
     }
     let cancelled = false;
 
-    const hydrateDefaultHostName = async () => {
-      const normalizedEmail = (user.email || '').trim().toLowerCase();
+    const hydrateDefaultHostDetails = async () => {
+      const profile = await guestService.getProfileForUser(user).catch(() => null);
+      const resolvedName = resolvePreferredAccountName(profile, user).trim();
+      const resolvedWhatsapp = (profile?.whatsapp_number || '').trim();
+      const hasLinkedWhatsapp = !!(
+        resolvedWhatsapp
+        || profile?.lalo_user_id
+        || profile?.whatsapp_verified_at
+        || profile?.auth_provider === 'lalo_whatsapp'
+      );
 
-      const { data: byUserId } = await supabase
-        .from('attendee_profiles')
-        .select('full_name, first_name, last_name')
-        .eq('user_id', user.id)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      if (cancelled) return;
 
-      let resolvedName = pickHostNameFromProfile(byUserId);
-      if (!isTrustedHostDisplayName(resolvedName, user.email)) {
-        resolvedName = '';
-      }
-      if (!resolvedName && normalizedEmail) {
-        const { data: byEmail } = await supabase
-          .from('attendee_profiles')
-          .select('full_name, first_name, last_name')
-          .eq('email', normalizedEmail)
-          .maybeSingle();
-        const byEmailName = pickHostNameFromProfile(byEmail);
-        if (isTrustedHostDisplayName(byEmailName, user.email)) {
-          resolvedName = byEmailName;
-        }
-      }
-
-      const metadataName = getAccountNameFromUser(user);
-      if (!resolvedName && isTrustedHostDisplayName(metadataName, user.email)) {
-        resolvedName = metadataName;
-      }
-
-      if (!cancelled && resolvedName) {
+      setAccountHasLinkedWhatsapp(hasLinkedWhatsapp);
+      if (resolvedName) {
         setAccountHostName(resolvedName);
+      }
+      if (resolvedWhatsapp) {
+        setProfileWhatsapp((prev) => prev.trim() || resolvedWhatsapp);
+        setFormData((prev) => (
+          prev.host_contact_text.trim() ? prev : { ...prev, host_contact_text: resolvedWhatsapp }
+        ));
       }
     };
 
-    hydrateDefaultHostName();
+    void hydrateDefaultHostDetails();
     return () => {
       cancelled = true;
     };
@@ -698,7 +688,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         return;
       }
       if (!isEditing && needsProfileDetails && !formData.host_name.trim()) {
-        setProfileModalShowWhatsappField(true);
+        setProfileModalShowWhatsappField(!(accountHasLinkedWhatsapp || formData.host_contact_text.trim() || profileWhatsapp.trim()));
         setShowProfileModal(true);
         return;
       }
@@ -728,7 +718,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         if (!resolvedHostName) {
           setProfileName('');
           setNeedsProfileDetails(true);
-          setProfileModalShowWhatsappField(true);
+          setProfileModalShowWhatsappField(!(accountHasLinkedWhatsapp || formData.host_contact_text.trim() || profileWhatsapp.trim()));
           setShowProfileModal(true);
           throw new Error('Please add your name before creating this activity.');
         }
