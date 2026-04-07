@@ -17,6 +17,8 @@ What is solid today:
 - proxy RSVP / "add another person"
 - guest session persistence and guest bookings
 - host dashboard and co-host support
+- WhatsApp verification/linking with persisted verified WhatsApp numbers when returned by Lalo
+- in-app notifications, including host-sent activity messages and guest replies back to hosts
 - public browse/search
 - public browse/search with a subtle "other activities this week" count for hidden upcoming activity volume
 - Google Calendar and `.ics` export from joined activities
@@ -155,6 +157,7 @@ Current identity model in practice:
 - signed-in users use Supabase Auth
 - guests use `attendee_profiles` + `attendee_sessions`
 - signed-in users are also synchronized into the profile/session-backed attendee model
+- WhatsApp verification/linking can enrich the canonical attendee profile with both `lalo_user_id` and a verified `whatsapp_number`
 - no-email guests can add email later to unlock account recovery and cross-activity identity continuity
 - guest-email upgrades now merge identities through a dedicated SQL RPC so attendee ownership, inviter attribution, sessions, interests, and join requests move together
 
@@ -184,7 +187,7 @@ Current behavior:
 - Prompts are considered in browser sessions generally (not only in-app browsers).
 - Prompts are suppressed in standalone/installed PWA display mode.
 - If not WhatsApp-verified, users see the Verify prompt.
-- If WhatsApp-verified, users see the Add to Home Screen prompt.
+- If WhatsApp-verified, users see the Add to Home Screen prompt and the linked profile can also retain the verified WhatsApp number returned by Lalo.
 - After successful WhatsApp verification, a one-time install follow-up can appear.
 - Banner dismissals are stored locally with a 7-day cooldown.
 - If WhatsApp verification is disabled by environment flags, the Verify prompt can still appear, but its Verify CTA is disabled so guidance does not silently disappear.
@@ -207,6 +210,8 @@ Current behavior:
 
 - Users can only read or mark read their own notifications.
 - Hosts can send notifications to valid, event-related users from `HostDashboard`.
+- Guests can reply to eligible host-sent activity messages, which creates `guest_reply` notifications for hosts through `reply_to_event_hosts(...)`.
+- Host-facing notification flows now work alongside richer WhatsApp-number visibility in host dashboard recipient/contact surfaces when that profile data exists.
 - Automatic notifications are generated for:
   - activity shared
   - important activity updates (title/time/timezone/duration/location/description/public summary)

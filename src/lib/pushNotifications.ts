@@ -3,6 +3,7 @@ import { detectRuntimeEnvironment } from '../utils/runtimeEnvironment';
 import { AttendeeProfile } from '../services/guestService';
 import { supabase } from '../supabase';
 import { NotificationPreferenceItem, PushNotificationCategory, PushSubscriptionItem } from '../types';
+import { isWhatsAppVerifiedProfile } from '../utils/installPromptEligibility';
 
 export const PUSH_NOTIFICATION_CATEGORIES: PushNotificationCategory[] = [
   'activity_shared',
@@ -15,6 +16,9 @@ export const PUSH_NOTIFICATION_CATEGORIES: PushNotificationCategory[] = [
   'system',
 ];
 
+function toRpcError(error: { message?: string } | null, fallbackMessage: string) {
+  return new Error(error?.message || fallbackMessage);
+}
 type PushAvailability = {
   supported: boolean;
   isStandalone: boolean;
@@ -35,7 +39,7 @@ function decodeBase64Url(value: string) {
 
 export function getPushAvailability(profile: AttendeeProfile | null): PushAvailability {
   const env = detectRuntimeEnvironment();
-  const hasWhatsAppLink = Boolean(profile?.lalo_user_id?.trim());
+  const hasWhatsAppLink = isWhatsAppVerifiedProfile(profile);
   const isStandalone = env.isStandalone;
 
   if (typeof window === 'undefined') {
@@ -131,7 +135,7 @@ export async function syncPushSubscriptionToServer({
     p_is_standalone: isStandalone,
   });
 
-  if (error) throw error;
+  if (error) throw toRpcError(error, 'Could not save push subscription.');
   return data as PushSubscriptionItem;
 }
 
@@ -144,18 +148,18 @@ export async function unsubscribeCurrentDeviceFromPush(endpoint?: string) {
   const { error } = await supabase.rpc('revoke_my_push_subscription', {
     p_endpoint: endpoint || existing?.endpoint || null,
   });
-  if (error) throw error;
+  if (error) throw toRpcError(error, 'Could not revoke push subscription.');
 }
 
 export async function fetchMyPushSubscriptions() {
   const { data, error } = await supabase.rpc('list_my_push_subscriptions');
-  if (error) throw error;
+  if (error) throw toRpcError(error, 'Could not load push subscriptions.');
   return (data || []) as PushSubscriptionItem[];
 }
 
 export async function fetchMyNotificationPreferences() {
   const { data, error } = await supabase.rpc('list_my_notification_preferences');
-  if (error) throw error;
+  if (error) throw toRpcError(error, 'Could not load push preferences.');
   return (data || []) as NotificationPreferenceItem[];
 }
 
@@ -165,7 +169,7 @@ export async function saveMyNotificationPreference(category: PushNotificationCat
     p_push_enabled: pushEnabled,
   });
 
-  if (error) throw error;
+  if (error) throw toRpcError(error, 'Could not save push preference.');
   return data as NotificationPreferenceItem;
 }
 

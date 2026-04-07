@@ -84,7 +84,7 @@ export function AuthPromptModal({ open, title, message, onClose, postAuthRedirec
                   </span>
                   <span className="min-w-0 flex-1 text-left">
                     <span className="block text-lg font-black tracking-tight text-white sm:text-xl">Continue with WhatsApp</span>
-                    <span className="mt-0.5 block text-sm font-medium text-white/70">Powered by Lalo Verify</span>
+                    <span className="mt-0.5 block text-sm font-medium text-white/70">Secure verification for your account</span>
                   </span>
                 </span>
               </button>

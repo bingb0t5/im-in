@@ -3,6 +3,7 @@ import { User } from '@supabase/supabase-js';
 import { BadgeCheck, Bell, LogOut, Mail, MessageCircle } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthPromptModal } from '../components/AuthPromptModal';
+import { ProfileNamePromptModal } from '../components/profile/ProfileNamePromptModal';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { supabase } from '../supabase';
@@ -13,7 +14,13 @@ import {
   isLaloWhatsAppAuthEnabled,
 } from '../integrations/lalo/laloAuth';
 import { accountMergeClient } from '../integrations/accountMerge/accountMergeClient';
-import { guestService, getAccountNameFromUser, isSystemGuestEmail, type AttendeeProfile } from '../services/guestService';
+import {
+  guestService,
+  isSystemGuestEmail,
+  profileNeedsRealName,
+  resolvePreferredAccountName,
+  type AttendeeProfile,
+} from '../services/guestService';
 import {
   canManagePushNotifications,
   fetchMyNotificationPreferences,
@@ -26,6 +33,7 @@ import {
   syncPushSubscriptionToServer,
   unsubscribeCurrentDeviceFromPush,
 } from '../lib/pushNotifications';
+import { isWhatsAppVerifiedProfile } from '../utils/installPromptEligibility';
 
 const PUSH_CATEGORY_LABELS: Record<string, string> = {
   activity_shared: 'Activity shared with you',
@@ -43,11 +51,13 @@ export default function ProfileSettings({ user }: { user: User | null }) {
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [nameSaving, setNameSaving] = useState(false);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [profile, setProfile] = useState<AttendeeProfile | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showNamePrompt, setShowNamePrompt] = useState(false);
   const [whatsappLoading, setWhatsappLoading] = useState(false);
   const [mergeEmail, setMergeEmail] = useState('');
   const [mergeLoading, setMergeLoading] = useState(false);
@@ -59,13 +69,12 @@ export default function ProfileSettings({ user }: { user: User | null }) {
   const [devicePushEnabled, setDevicePushEnabled] = useState(false);
   const [pushPrefs, setPushPrefs] = useState<Record<string, boolean>>({});
   const autoStartAttemptedRef = useRef(false);
+  const autoOpenedNamePromptRef = useRef(false);
 
   const hydrateProfile = async (authUser: User) => {
     const profile = await guestService.getProfileForUser(authUser);
-    const composedName = `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim();
-    const profileName = composedName || profile?.full_name || '';
     setProfile(profile);
-    setFullName(profileName || getAccountNameFromUser(authUser) || '');
+    setFullName(resolvePreferredAccountName(profile, authUser));
     setEmail(profile?.email || authUser.email || '');
     return profile;
   };
@@ -209,6 +218,37 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     }
   };
 
+  const handleSaveNameOnly = async () => {
+    setNameSaving(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const result = await guestService.updateSignedInProfileName(user, fullName);
+      await hydrateProfile(user);
+      setShowNamePrompt(false);
+      setMessage(
+        result.nameSyncComplete
+          ? 'Name saved. This will now show correctly across your activities.'
+          : 'Name saved. Some older activity names may take a moment to refresh.',
+      );
+
+      if (searchParams.get('completeName') === '1') {
+        const returnTo = searchParams.get('returnTo') || '/profile';
+        navigate(returnTo, { replace: true });
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save your name.');
+    } finally {
+      setNameSaving(false);
+    }
+  };
+
+  const handleNamePromptSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await handleSaveNameOnly();
+  };
+
   const handleStartWhatsappVerification = () => {
     if (!isLaloWhatsAppAuthEnabled()) {
       setError('WhatsApp verification is not enabled yet.');
@@ -257,10 +297,14 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     }
   };
 
-  const hasLinkedWhatsapp = !!profile?.lalo_user_id;
+  const hasLinkedWhatsapp = isWhatsAppVerifiedProfile(profile);
   const isWhatsappPrimaryAccount = hasLinkedWhatsapp && isSystemGuestEmail(user.email || profile?.email || '');
+  const needsRealName = profileNeedsRealName(profile, user);
+  const isForcedNamePrompt = searchParams.get('completeName') === '1';
   const hasVerifiedEmail = Boolean(user.email_confirmed_at);
   const verifiedWhatsappNumber = profile?.whatsapp_number?.trim() || null;
+  const emailOnFile = email || profile?.email || user.email || '';
+  const showBackupEmailPlaceholder = isSystemGuestEmail(emailOnFile);
   const whatsappHelper = hasLinkedWhatsapp
     ? verifiedWhatsappNumber
       ? 'Verified and linked to this account.'
@@ -268,7 +312,9 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     : 'Add WhatsApp to this account through verification. Your email remains your backup sign-in, and any older WhatsApp-only account will be merged into this one.';
   const emailHelper = hasVerifiedEmail
     ? 'Verified and available as your backup sign-in.'
-    : 'If you change this email, we will send a magic link to the new address to verify it.';
+    : showBackupEmailPlaceholder
+      ? 'Add an email any time for recovery. You can save your name without changing this placeholder email.'
+      : 'If you change this email, we will send a magic link to the new address to verify it.';
 
   const canManagePush = canManagePushNotifications(user, profile);
   const pushPublicKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY as string | undefined;
@@ -353,6 +399,18 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     void handleStartWhatsappVerification();
   }, [user, loading, hasLinkedWhatsapp, searchParams]);
 
+  useEffect(() => {
+    if (!user || loading) return;
+    if (!needsRealName) {
+      setShowNamePrompt(false);
+      return;
+    }
+    if (isForcedNamePrompt || !autoOpenedNamePromptRef.current) {
+      autoOpenedNamePromptRef.current = true;
+      setShowNamePrompt(true);
+    }
+  }, [user, loading, needsRealName, isForcedNamePrompt]);
+
   return (
     <div className="min-h-screen bg-slate-50 pb-20">
       <main className="max-w-xl mx-auto px-6 pt-2">
@@ -371,6 +429,33 @@ export default function ProfileSettings({ user }: { user: User | null }) {
             ) : (
               <>
                 <form onSubmit={handleSave} className="space-y-0">
+                  {needsRealName ? (
+                    <>
+                      <section className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-amber-700">Profile completion</p>
+                          <h3 className="text-lg font-black tracking-tight text-slate-900">Add your real name</h3>
+                          <p className="text-sm text-slate-600">
+                            Your WhatsApp account is ready, but we still need the name hosts and guests should see.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => {
+                            setError(null);
+                            setMessage(null);
+                            setShowNamePrompt(true);
+                          }}
+                        >
+                          Add my name
+                        </Button>
+                      </section>
+
+                      <div className="my-5 h-px bg-slate-100" />
+                    </>
+                  ) : null}
+
                   <section className="space-y-3">
                     <div className="space-y-1">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Name</p>
@@ -384,6 +469,9 @@ export default function ProfileSettings({ user }: { user: User | null }) {
                       />
                       <p className="text-xs text-slate-500">Used for hosted activities and your own joins.</p>
                     </div>
+                    <Button type="button" variant="secondary" onClick={() => void handleSaveNameOnly()} loading={nameSaving}>
+                      Save name only
+                    </Button>
                   </section>
 
                   <div className="my-5 h-px bg-slate-100" />
@@ -433,7 +521,9 @@ export default function ProfileSettings({ user }: { user: User | null }) {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Email</p>
-                        <p className="mt-1 break-all text-base font-bold text-slate-900">{email || 'No email on file'}</p>
+                        <p className="mt-1 break-all text-base font-bold text-slate-900">
+                          {showBackupEmailPlaceholder ? 'No backup email yet' : (email || 'No email on file')}
+                        </p>
                       </div>
                       <span
                         className={`inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${
@@ -450,7 +540,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@example.com"
+                      placeholder={showBackupEmailPlaceholder ? 'Add a backup email' : 'you@example.com'}
                       className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold outline-none transition-all focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
                     />
                     <Button type="submit" loading={saving}>
@@ -600,6 +690,24 @@ export default function ProfileSettings({ user }: { user: User | null }) {
           </Button>
         </div>
       </main>
+      <ProfileNamePromptModal
+        open={showNamePrompt}
+        value={fullName}
+        loading={nameSaving}
+        title={isForcedNamePrompt ? 'One last step' : 'Add your name'}
+        description={
+          isForcedNamePrompt
+            ? 'Finish setting up your WhatsApp account by adding the real name you want shown across the app.'
+            : 'Add the real name you want shown to hosts and guests.'
+        }
+        submitLabel="Save and continue"
+        canClose={!isForcedNamePrompt}
+        error={error}
+        helperText="This replaces placeholder names like “WhatsApp user 5701”."
+        onChange={setFullName}
+        onSubmit={handleNamePromptSubmit}
+        onClose={() => setShowNamePrompt(false)}
+      />
     </div>
   );
 }

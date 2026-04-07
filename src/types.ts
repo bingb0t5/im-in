@@ -142,8 +142,10 @@ export interface EventJoinRequest {
   id: string;
   event_id: string;
   user_id?: string | null;
+  resolved_user_id?: string | null;
   attendee_profile_id?: string | null;
   guest_name: string;
+  resolved_display_name?: string | null;
   guest_email?: string | null;
   whatsapp_number?: string | null;
   request_note?: string | null;
@@ -158,10 +160,12 @@ export interface Attendee {
   id: string;
   event_id: string;
   user_id?: string;
+  resolved_user_id?: string | null;
   attendee_profile_id?: string;
   added_by_type?: 'self' | 'proxy' | 'host' | null;
   added_by_attendee_profile_id?: string | null;
   guest_name: string;
+  resolved_display_name?: string | null;
   guest_email?: string | null;
   whatsapp_number?: string | null;
   status: 'confirmed' | 'waitlist' | 'pending_approval' | 'cancelled';
@@ -174,8 +178,10 @@ export interface EventInterest {
   id: string;
   event_id: string;
   user_id?: string | null;
+  resolved_user_id?: string | null;
   attendee_profile_id?: string | null;
   guest_name: string;
+  resolved_display_name?: string | null;
   guest_email?: string | null;
   whatsapp_number?: string | null;
   visibility_mode: 'count_only' | 'named';

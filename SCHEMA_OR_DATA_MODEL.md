@@ -305,6 +305,33 @@ Important behavioral note:
 - join requests now create visible attendee rows in `event_attendees` as `pending_approval`
 - host approval promotes those rows to `confirmed` or `waitlist` depending on current capacity and waitlist settings
 
+### `notifications`
+
+This table backs the signed-in in-app notification inbox and is also the source of truth for newer host-message and guest-reply flows.
+
+Important fields:
+
+- `id`
+- `recipient_user_id`
+- `actor_user_id`
+- `event_id`
+- `type`
+- `title`
+- `message`
+- `metadata`
+- `action_url`
+- `action_label`
+- `read_at`
+- `created_at`
+
+Important behavioral meaning:
+
+- current app-visible notification types include `activity_shared`, `activity_updated`, `waitlist_added`, `waitlist_promoted`, `attendance_changed`, `host_message`, `guest_reply`, and `system`
+- hosts can send manual activity notifications from the host dashboard through SQL RPCs rather than raw client-side inserts
+- guests can reply to eligible `host_message` notifications through `reply_to_event_hosts(...)`, which creates `guest_reply` notifications for host/co-host recipients
+- notification metadata can carry reply-context information such as activity title and sender name for the inbox/detail UI
+- newer push-delivery behavior may derive from this table, but the in-app inbox remains the primary notification contract the frontend reads directly
+
 ### `attendee_profiles`
 
 This is the shared identity bridge between guests and signed-in users.
@@ -317,6 +344,10 @@ Important fields:
 - `last_name`
 - `full_name`
 - `user_id`
+- `lalo_user_id`
+- `auth_provider`
+- `whatsapp_number`
+- `whatsapp_verified_at`
 - `created_at`
 - `updated_at`
 
@@ -325,6 +356,7 @@ Important behavioral meaning:
 - guests and signed-in users both end up represented here
 - the app uses this table for names, session ownership, and attendee linkage
 - signed-in users are synchronized into this table through `guestService.getOrCreateProfileForUser(...)`
+- WhatsApp-linked identity enrichment also lands here, with `lalo_user_id` linking the profile to the external Lalo identity and `whatsapp_number` storing the verified number when the verification provider returns it
 - some guest profiles may use system placeholder emails until the guest explicitly adds a recovery email later
 - `full_name` is generated from `first_name` / `last_name`, so application code should not write `full_name` directly
 - pending auth-email changes should not blindly overwrite the canonical profile email if the profile row already holds the newer value
@@ -460,6 +492,8 @@ These RPCs are important to the current app:
 - `add_proxy_attendee(...)`
 - `toggle_event_interest(...)`
 - `merge_attendee_profiles(...)`
+- `host_send_activity_notification(...)`
+- `reply_to_event_hosts(...)`
 - `get_event_for_view(...)`
 - `list_public_calendar_events(...)`
 - `count_hidden_upcoming_activities(...)`

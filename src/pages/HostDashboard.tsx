@@ -49,7 +49,11 @@ type PrivateAccessUser = {
 
 type HostDashboardTab = 'requests' | 'people' | 'share' | 'settings';
 type NotificationActionOption = 'none' | 'view_activity' | 'reply';
-type HostAttendee = Attendee & { whatsapp_number?: string | null };
+type HostAttendee = Attendee & {
+  whatsapp_number?: string | null;
+  resolved_user_id?: string | null;
+  resolved_display_name?: string | null;
+};
 type HostJoinRequest = EventJoinRequest & { whatsapp_number?: string | null };
 type HostInterest = EventInterest & { whatsapp_number?: string | null };
 
@@ -429,13 +433,15 @@ export default function HostDashboard({ user }: { user: User | null }) {
   };
 
   const isGuestAccountAttendee = (attendee: HostAttendee) => {
-    if (attendee.user_id) return false;
+    if (attendee.user_id || attendee.resolved_user_id) return false;
     if (attendee.added_by_type && attendee.added_by_type !== 'self') return false;
     return true;
   };
 
   const getAttendeeDisplayName = (attendee: HostAttendee) => {
-    const baseName = getDisplayName(attendee.guest_name);
+    const baseName = attendee.added_by_type === 'proxy'
+      ? getDisplayName(attendee.guest_name || attendee.resolved_display_name)
+      : getDisplayName(attendee.resolved_display_name || attendee.guest_name);
     return isGuestAccountAttendee(attendee) ? `${baseName} (guest account)` : baseName;
   };
 

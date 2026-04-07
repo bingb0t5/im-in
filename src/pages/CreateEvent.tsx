@@ -20,7 +20,7 @@ import { goBackOr } from '../lib/navigation';
 import { applyGoogleMapsAutofill, isGoogleMapsShortUrl, parseGoogleMapsLocation } from '../lib/googleMaps';
 import { shouldModerateVisibility } from '../lib/moderation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
-import { guestService, getAccountNameFromUser, isSystemGuestEmail } from '../services/guestService';
+import { guestService, getAccountNameFromUser, isSystemGuestEmail, resolvePreferredAccountName } from '../services/guestService';
 import { Button } from '../components/ui/Button';
 import { StateScreen } from '../components/ui/StateScreen';
 import {
@@ -89,44 +89,6 @@ type CreateEventDraft = {
   resumeAfterAuthStep?: 1 | 2 | 3;
 };
 
-function pickDisplayNameFromProfileRow(profile: {
-  first_name?: string | null;
-  last_name?: string | null;
-  full_name?: string | null;
-} | null): string {
-  if (!profile) return '';
-  const composed = `${profile.first_name || ''} ${profile.last_name || ''}`.trim();
-  if (composed) return composed;
-  return (profile.full_name || '').trim();
-}
-
-function normalizeLooseNameForEmailHandle(value?: string | null) {
-  return (value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[._-]+/g, ' ')
-    .replace(/\s+/g, ' ');
-}
-
-function getEmailLocalPartRaw(email?: string | null) {
-  return ((email || '').split('@')[0] || '').trim().toLowerCase();
-}
-
-function isDisplayNameJustAuthEmailHandle(name: string, authEmail?: string | null) {
-  const normalizedName = normalizeLooseNameForEmailHandle(name);
-  const localPart = normalizeLooseNameForEmailHandle(getEmailLocalPartRaw(authEmail));
-  if (!normalizedName || !localPart) return false;
-  return normalizedName === localPart;
-}
-
-/**
- * Single path after Lalo WhatsApp sign-in: use the same profile merge as the rest of the app
- * (user_id, email, linking), then decide if "One Last Step" is needed.
- *
- * Any non-empty name on `attendee_profiles` counts as "already has host identity" — even when it
- * matches the email local part — so we do not force the modal for long-time users who chose that name.
- * For metadata-only names (OAuth, etc.), we still filter out email-handle-only labels unless guest email.
- */
 async function resolveHostDisplayNameAfterWhatsAppSignIn(sessionUser: User): Promise<string> {
   let profile: Awaited<ReturnType<typeof guestService.getOrCreateProfileForUser>> | null = null;
   try {
@@ -134,26 +96,7 @@ async function resolveHostDisplayNameAfterWhatsAppSignIn(sessionUser: User): Pro
   } catch {
     profile = null;
   }
-
-  const fromProfile = pickDisplayNameFromProfileRow(profile).trim();
-  const fromMetadata = (getAccountNameFromUser(sessionUser) || '').trim();
-  const authEmail = sessionUser.email || '';
-
-  if (fromProfile) {
-    return fromProfile;
-  }
-
-  if (!fromMetadata) return '';
-
-  if (isSystemGuestEmail(authEmail)) {
-    return fromMetadata;
-  }
-
-  if (!isDisplayNameJustAuthEmailHandle(fromMetadata, authEmail)) {
-    return fromMetadata;
-  }
-
-  return '';
+  return resolvePreferredAccountName(profile, sessionUser);
 }
 
 export default function CreateEvent({ user: userFromApp }: { user: User | null }) {
@@ -227,6 +170,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   const [profileWhatsapp, setProfileWhatsapp] = useState('');
   const [needsProfileDetails, setNeedsProfileDetails] = useState(false);
   const [accountHostName, setAccountHostName] = useState('');
+  const [accountHasLinkedWhatsapp, setAccountHasLinkedWhatsapp] = useState(false);
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(isEditing ? 2 : 1);
   const [visibilitySelected, setVisibilitySelected] = useState(isEditing);
   const [showTimezoneField, setShowTimezoneField] = useState(isEditing);
@@ -279,7 +223,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         setError('Verification finished but the session was lost. Try again.');
         return;
       }
-      const result = await completeWhatsAppAuth(attempt);
+      const result = await completeWhatsAppAuth(attempt, { suppressNameCaptureRedirect: true });
       await supabase.auth.refreshSession().catch(() => null);
 
       /** Mobile WebViews sometimes persist the session a tick after signInWithPassword; avoid a false "still logged out" pass. */
@@ -609,48 +553,37 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   useEffect(() => {
     if (!user) {
       setAccountHostName('');
+      setAccountHasLinkedWhatsapp(false);
       return;
     }
     let cancelled = false;
 
-    const hydrateDefaultHostName = async () => {
-      const normalizedEmail = (user.email || '').trim().toLowerCase();
+    const hydrateDefaultHostDetails = async () => {
+      const profile = await guestService.getProfileForUser(user).catch(() => null);
+      const resolvedName = resolvePreferredAccountName(profile, user).trim();
+      const resolvedWhatsapp = (profile?.whatsapp_number || '').trim();
+      const hasLinkedWhatsapp = !!(
+        resolvedWhatsapp
+        || profile?.lalo_user_id
+        || profile?.whatsapp_verified_at
+        || profile?.auth_provider === 'lalo_whatsapp'
+      );
 
-      const { data: byUserId } = await supabase
-        .from('attendee_profiles')
-        .select('full_name, first_name, last_name')
-        .eq('user_id', user.id)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      if (cancelled) return;
 
-      let resolvedName = pickHostNameFromProfile(byUserId);
-      if (!isTrustedHostDisplayName(resolvedName, user.email)) {
-        resolvedName = '';
-      }
-      if (!resolvedName && normalizedEmail) {
-        const { data: byEmail } = await supabase
-          .from('attendee_profiles')
-          .select('full_name, first_name, last_name')
-          .eq('email', normalizedEmail)
-          .maybeSingle();
-        const byEmailName = pickHostNameFromProfile(byEmail);
-        if (isTrustedHostDisplayName(byEmailName, user.email)) {
-          resolvedName = byEmailName;
-        }
-      }
-
-      const metadataName = getAccountNameFromUser(user);
-      if (!resolvedName && isTrustedHostDisplayName(metadataName, user.email)) {
-        resolvedName = metadataName;
-      }
-
-      if (!cancelled && resolvedName) {
+      setAccountHasLinkedWhatsapp(hasLinkedWhatsapp);
+      if (resolvedName) {
         setAccountHostName(resolvedName);
+      }
+      if (resolvedWhatsapp) {
+        setProfileWhatsapp((prev) => prev.trim() || resolvedWhatsapp);
+        setFormData((prev) => (
+          prev.host_contact_text.trim() ? prev : { ...prev, host_contact_text: resolvedWhatsapp }
+        ));
       }
     };
 
-    hydrateDefaultHostName();
+    void hydrateDefaultHostDetails();
     return () => {
       cancelled = true;
     };
@@ -662,6 +595,13 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
     if (!needsProfileDetails) {
       setProfileName((prev) => prev || accountHostName);
     }
+  }, [user, accountHostName, needsProfileDetails]);
+
+  useEffect(() => {
+    if (!user || !accountHostName.trim() || !needsProfileDetails) return;
+    setNeedsProfileDetails(false);
+    setShowProfileModal(false);
+    setProfileName((prev) => prev.trim() || accountHostName);
   }, [user, accountHostName, needsProfileDetails]);
 
   const fetchEvent = async () => {
@@ -755,7 +695,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         return;
       }
       if (!isEditing && needsProfileDetails && !formData.host_name.trim()) {
-        setProfileModalShowWhatsappField(true);
+        setProfileModalShowWhatsappField(!(accountHasLinkedWhatsapp || formData.host_contact_text.trim() || profileWhatsapp.trim()));
         setShowProfileModal(true);
         return;
       }
@@ -776,16 +716,16 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
 
         const metadataName = getAccountNameFromUser(user);
         const resolvedHostName = pickFirstNonEmpty(
-          isTrustedHostDisplayName(formData.host_name, user.email) ? formData.host_name : '',
-          isTrustedHostDisplayName(accountHostName, user.email) ? accountHostName : '',
-          isTrustedHostDisplayName(metadataName, user.email) ? metadataName : '',
+          formData.host_name,
+          accountHostName,
+          metadataName,
         ).trim();
         const resolvedHostContact = formData.host_contact_text.trim();
         const resolvedVisibility = formData.visibility || 'semi_public';
         if (!resolvedHostName) {
           setProfileName('');
           setNeedsProfileDetails(true);
-          setProfileModalShowWhatsappField(true);
+          setProfileModalShowWhatsappField(!(accountHasLinkedWhatsapp || formData.host_contact_text.trim() || profileWhatsapp.trim()));
           setShowProfileModal(true);
           throw new Error('Please add your name before creating this activity.');
         }
@@ -1718,7 +1658,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
                       layout="cta"
                       platformName="I'm In"
                       title="Sign in with WhatsApp"
-                      description="Powered by Lalo Verify"
+                      description="Secure verification for your account"
                       buttonLabel="Continue with WhatsApp"
                       successTitle="WhatsApp verified"
                       successDescription="Completing your sign-in now."

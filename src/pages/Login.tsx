@@ -143,9 +143,7 @@ export default function Login({ user }: { user: User | null }) {
               See what&apos;s on. Say <span className="italic">I&apos;m In.</span>
             </p>
             <div className="space-y-2">
-              <h2 className="text-2xl font-black tracking-tight text-slate-900">
-                {showRecovery ? 'Find my bookings' : 'Sign In'}
-              </h2>
+              {showRecovery ? <h2 className="text-2xl font-black tracking-tight text-slate-900">Find my bookings</h2> : null}
               <p className="text-sm font-medium leading-relaxed text-slate-500">
                 {showRecovery
                   ? 'Enter your email to get a recovery link.'
@@ -233,7 +231,7 @@ export default function Login({ user }: { user: User | null }) {
                         layout="cta"
                         platformName="I'm In"
                         title="Sign in with WhatsApp"
-                        description="Powered by Lalo Verify"
+                        description="Secure verification for your account"
                         buttonLabel="Continue with WhatsApp"
                         successTitle="WhatsApp verified"
                         successDescription="Your WhatsApp number was recognized. Completing your sign-in now."

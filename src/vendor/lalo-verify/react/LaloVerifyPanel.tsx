@@ -400,16 +400,16 @@ export function LaloVerifyPanel({
   /** After Lalo marks complete, keep spinner / "Verifying" until host `onCompleted` finishes (no brief "verified" flash). */
   const overlayVisualPhase: VerifyScreenPhase =
     verifyPhase === 'verified' && (awaitingHostOnCompleted || isBridgingSession) ? 'waiting' : verifyPhase;
-  const verifyTitle = overlayVisualPhase === 'verified' ? 'Verified with Lalo Verify' : 'Verifying with Lalo Verify';
+  const verifyTitle = overlayVisualPhase === 'verified' ? 'WhatsApp verified' : 'Verifying your WhatsApp';
   const verifyDescription =
     verifyPhase === 'connecting'
-      ? 'Connecting to Lalo Verify'
+      ? 'Connecting to secure WhatsApp verification'
       : verifyPhase === 'generating'
-        ? 'Generating your secure WhatsApp code'
+        ? 'Generating your secure WhatsApp message'
         : verifyPhase === 'handoff'
-          ? `We are ready to open WhatsApp. Send the prefilled message to Lalo Verify to confirm your WhatsApp account for ${platformLabel}.`
+          ? `We are ready to open WhatsApp. Send the prefilled message to confirm your WhatsApp account for ${platformLabel}.`
           : verifyPhase === 'waiting'
-            ? 'Return to this screen after sending the message. Lalo Verify will check automatically.'
+            ? 'Return to this screen after sending the message. Verification will continue automatically.'
             : isBridgingSession || awaitingHostOnCompleted
               ? 'Finalising your sign-in...'
               : successDescription;
@@ -561,7 +561,7 @@ export function LaloVerifyPanel({
                 <div className="w-full max-w-[19rem] space-y-3">
                   {hasDeepLink && verifyPhase === 'handoff' ? (
                     <button type="button" onClick={handleOpenWhatsApp} className="lv-overlay-white-cta">
-                      Send message to Lalo Verify using WhatsApp
+                      Send WhatsApp message
                     </button>
                   ) : null}
 
@@ -583,7 +583,7 @@ export function LaloVerifyPanel({
 
                   {verifyPhase === 'handoff' ? (
                     <div className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-xs text-white/60 backdrop-blur-sm">
-                      This opens WhatsApp with your Lalo Verify message already filled in.
+                      This opens WhatsApp with your verification message already filled in.
                     </div>
                   ) : null}
 
@@ -593,7 +593,7 @@ export function LaloVerifyPanel({
                       onClick={() => setIsAboutModalOpen(true)}
                       className="w-full rounded-2xl border border-white/12 bg-white/[0.06] px-4 py-3 text-sm font-semibold text-white/88 transition-colors hover:bg-white/[0.1]"
                     >
-                      What&apos;s Lalo Verify?
+                      How WhatsApp verification works
                     </button>
                   ) : null}
 
@@ -664,17 +664,17 @@ export function LaloVerifyPanel({
                         <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/45">
                           Secure WhatsApp verification
                         </p>
-                        <h4 className="text-2xl font-bold tracking-tight text-white">What&apos;s Lalo Verify?</h4>
+                        <h4 className="text-2xl font-bold tracking-tight text-white">How WhatsApp verification works</h4>
                       </div>
 
                       <div className="space-y-3 text-sm leading-relaxed text-white/72">
                         <p>
-                          {platformLabel} uses Lalo Verify to securely confirm that you own the WhatsApp account you&apos;re
-                          registering with.
+                          {platformLabel} uses secure WhatsApp verification to confirm that you own the WhatsApp account
+                          you&apos;re registering with.
                         </p>
                         <p>
-                          When you continue, WhatsApp opens with a unique prefilled message. Sending it lets Lalo Verify
-                          confirm the request came from your WhatsApp account using WhatsApp&apos;s official APIs.
+                          When you continue, WhatsApp opens with a unique prefilled message. Sending it confirms that the
+                          request came from your WhatsApp account using WhatsApp&apos;s official APIs.
                         </p>
                         <p>
                           Your verified WhatsApp number can be used for account access and for important updates related
@@ -682,7 +682,7 @@ export function LaloVerifyPanel({
                         </p>
                         <p>
                           Your number is not shared publicly and is not used for unrelated promotional messages from{' '}
-                          {platformLabel} or Lalo Verify. Access is limited to verification, sign-in support, and
+                          {platformLabel}. Access is limited to verification, sign-in support, and
                           relevant activity communication when needed.
                         </p>
                       </div>
