@@ -20,7 +20,7 @@ import { goBackOr } from '../lib/navigation';
 import { applyGoogleMapsAutofill, isGoogleMapsShortUrl, parseGoogleMapsLocation } from '../lib/googleMaps';
 import { shouldModerateVisibility } from '../lib/moderation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
-import { guestService, resolvePreferredAccountName } from '../services/guestService';
+import { guestService, getAccountNameFromUser, isSystemGuestEmail, resolvePreferredAccountName } from '../services/guestService';
 import { Button } from '../components/ui/Button';
 import { StateScreen } from '../components/ui/StateScreen';
 import {

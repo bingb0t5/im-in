@@ -19,7 +19,6 @@ export const PUSH_NOTIFICATION_CATEGORIES: PushNotificationCategory[] = [
 function toRpcError(error: { message?: string } | null, fallbackMessage: string) {
   return new Error(error?.message || fallbackMessage);
 }
-
 type PushAvailability = {
   supported: boolean;
   isStandalone: boolean;
