@@ -597,6 +597,13 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
     }
   }, [user, accountHostName, needsProfileDetails]);
 
+  useEffect(() => {
+    if (!user || !accountHostName.trim() || !needsProfileDetails) return;
+    setNeedsProfileDetails(false);
+    setShowProfileModal(false);
+    setProfileName((prev) => prev.trim() || accountHostName);
+  }, [user, accountHostName, needsProfileDetails]);
+
   const fetchEvent = async () => {
     const { data, error } = await supabase
       .from('events')
@@ -709,9 +716,9 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
 
         const metadataName = getAccountNameFromUser(user);
         const resolvedHostName = pickFirstNonEmpty(
-          isTrustedHostDisplayName(formData.host_name, user.email) ? formData.host_name : '',
-          isTrustedHostDisplayName(accountHostName, user.email) ? accountHostName : '',
-          isTrustedHostDisplayName(metadataName, user.email) ? metadataName : '',
+          formData.host_name,
+          accountHostName,
+          metadataName,
         ).trim();
         const resolvedHostContact = formData.host_contact_text.trim();
         const resolvedVisibility = formData.visibility || 'semi_public';
