@@ -9,10 +9,18 @@ export type SessionLoadResult = {
   session: Session | null;
   error: Error | null;
   clearedInvalidRefreshToken: boolean;
+  recoveredWithRefresh: boolean;
+  lastCheck: 'getSession' | 'refreshSession' | null;
 };
 
 type SupabaseAuthLike = {
   getSession: () => Promise<{
+    data: {
+      session: Session | null;
+    };
+    error: Error | null;
+  }>;
+  refreshSession?: () => Promise<{
     data: {
       session: Session | null;
     };
@@ -52,6 +60,67 @@ export async function clearLocalSupabaseSession(auth: Pick<SupabaseAuthLike, 'si
   await auth.signOut({ scope: 'local' });
 }
 
+async function confirmSessionViaRefresh(auth: SupabaseAuthLike): Promise<SessionLoadResult | null> {
+  if (!auth.refreshSession) return null;
+
+  try {
+    const {
+      data: { session },
+      error,
+    } = await auth.refreshSession();
+
+    if (session) {
+      return {
+        session,
+        error: null,
+        clearedInvalidRefreshToken: false,
+        recoveredWithRefresh: true,
+        lastCheck: 'refreshSession',
+      };
+    }
+
+    const refreshError = error ? toError(error) : null;
+    if (refreshError && isInvalidRefreshTokenErrorMessage(refreshError.message)) {
+      await clearLocalSupabaseSession(auth);
+      return {
+        session: null,
+        error: refreshError,
+        clearedInvalidRefreshToken: true,
+        recoveredWithRefresh: false,
+        lastCheck: 'refreshSession',
+      };
+    }
+
+    return {
+      session: null,
+      error: refreshError,
+      clearedInvalidRefreshToken: false,
+      recoveredWithRefresh: false,
+      lastCheck: 'refreshSession',
+    };
+  } catch (error) {
+    const refreshError = toError(error);
+    if (isInvalidRefreshTokenErrorMessage(refreshError.message)) {
+      await clearLocalSupabaseSession(auth);
+      return {
+        session: null,
+        error: refreshError,
+        clearedInvalidRefreshToken: true,
+        recoveredWithRefresh: false,
+        lastCheck: 'refreshSession',
+      };
+    }
+
+    return {
+      session: null,
+      error: refreshError,
+      clearedInvalidRefreshToken: false,
+      recoveredWithRefresh: false,
+      lastCheck: 'refreshSession',
+    };
+  }
+}
+
 export async function loadSessionWithRecovery(
   auth: SupabaseAuthLike,
   {
@@ -60,9 +129,11 @@ export async function loadSessionWithRecovery(
   }: SessionLoadOptions = {},
 ): Promise<SessionLoadResult> {
   let lastError: Error | null = null;
+  let lastCheck: SessionLoadResult['lastCheck'] = null;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
+      lastCheck = 'getSession';
       const {
         data: { session },
         error,
@@ -73,29 +144,64 @@ export async function loadSessionWithRecovery(
           session,
           error: null,
           clearedInvalidRefreshToken: false,
+          recoveredWithRefresh: false,
+          lastCheck: 'getSession',
         };
       }
 
       if (error) {
         lastError = toError(error);
         if (isInvalidRefreshTokenErrorMessage(lastError.message)) {
-          await clearLocalSupabaseSession(auth);
-          return {
-            session: null,
-            error: lastError,
-            clearedInvalidRefreshToken: true,
-          };
+          const refreshed = await confirmSessionViaRefresh(auth);
+          if (refreshed) {
+            lastCheck = refreshed.lastCheck;
+            if (refreshed.session || refreshed.clearedInvalidRefreshToken) {
+              return refreshed;
+            }
+            lastError = refreshed.error ?? lastError;
+          } else {
+            await clearLocalSupabaseSession(auth);
+            return {
+              session: null,
+              error: lastError,
+              clearedInvalidRefreshToken: true,
+              recoveredWithRefresh: false,
+              lastCheck: 'getSession',
+            };
+          }
         }
       }
     } catch (error) {
       lastError = toError(error);
       if (isInvalidRefreshTokenErrorMessage(lastError.message)) {
-        await clearLocalSupabaseSession(auth);
-        return {
-          session: null,
-          error: lastError,
-          clearedInvalidRefreshToken: true,
-        };
+        const refreshed = await confirmSessionViaRefresh(auth);
+        if (refreshed) {
+          lastCheck = refreshed.lastCheck;
+          if (refreshed.session || refreshed.clearedInvalidRefreshToken) {
+            return refreshed;
+          }
+          lastError = refreshed.error ?? lastError;
+        } else {
+          await clearLocalSupabaseSession(auth);
+          return {
+            session: null,
+            error: lastError,
+            clearedInvalidRefreshToken: true,
+            recoveredWithRefresh: false,
+            lastCheck: 'getSession',
+          };
+        }
+      }
+    }
+
+    if (attempt === attempts - 1) {
+      const refreshed = await confirmSessionViaRefresh(auth);
+      if (refreshed) {
+        lastCheck = refreshed.lastCheck;
+        if (refreshed.session || refreshed.clearedInvalidRefreshToken) {
+          return refreshed;
+        }
+        lastError = refreshed.error ?? lastError;
       }
     }
 
@@ -108,5 +214,7 @@ export async function loadSessionWithRecovery(
     session: null,
     error: lastError,
     clearedInvalidRefreshToken: false,
+    recoveredWithRefresh: false,
+    lastCheck,
   };
 }

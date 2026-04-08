@@ -66,7 +66,7 @@ async function waitForSessionAccessToken({
   let lastSessionError: string | null = null;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const { session, error: sessionError, clearedInvalidRefreshToken } = await loadSessionWithRecovery(
+    const { session, error: sessionError, clearedInvalidRefreshToken, recoveredWithRefresh, lastCheck } = await loadSessionWithRecovery(
       supabase.auth,
       { attempts: 1, delayMs },
     );
@@ -75,13 +75,28 @@ async function waitForSessionAccessToken({
       lastSessionError = clearedInvalidRefreshToken
         ? 'Your session expired. Please sign in again.'
         : sessionError.message || 'Could not read the current session.';
+      console.warn('Authed function session lookup hit a recoverable auth error.', {
+        attempt: attempt + 1,
+        attempts,
+        lastCheck,
+        clearedInvalidRefreshToken,
+        message: sessionError.message,
+      });
     }
 
     if (session?.access_token) {
+      if (recoveredWithRefresh) {
+        console.info('Recovered Supabase session while preparing an authed function call.', {
+          attempt: attempt + 1,
+          attempts,
+          lastCheck,
+        });
+      }
       return session.access_token;
     }
 
     if (clearedInvalidRefreshToken) {
+      console.warn('Confirmed invalid refresh token while preparing an authed function call.');
       break;
     }
 
@@ -108,16 +123,27 @@ export async function invokeAuthedFunction<T = unknown>(name: string, body: unkn
   if (error) {
     const errorMessage = await readFunctionErrorMessage(error);
     if (/invalid jwt/i.test(errorMessage)) {
+      console.warn('Edge function rejected the access token, attempting session refresh.', {
+        name,
+        message: errorMessage,
+      });
       const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
       if (refreshError || !refreshed.session?.access_token) {
         const refreshMessage = refreshError?.message || errorMessage || 'Could not refresh your session. Try signing in again.';
         if (isInvalidRefreshTokenErrorMessage(refreshMessage)) {
+          console.warn('Clearing local Supabase session after a confirmed invalid refresh during function retry.', {
+            name,
+            message: refreshMessage,
+          });
           await clearLocalSupabaseSession(supabase.auth);
           throw new Error('Your session expired. Please sign in again.');
         }
         throw new Error(refreshMessage);
       }
 
+      console.info('Recovered Supabase session after refreshing an expired function token.', {
+        name,
+      });
       accessToken = refreshed.session.access_token;
       ({ data, error } = await invokeWithToken(accessToken));
     } else if (isTransientFunctionInvokeError(errorMessage)) {
