@@ -92,6 +92,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [guestInfo, setGuestInfo] = useState({ name: '', email: '' });
   const [guestProfile, setGuestProfile] = useState<AttendeeProfile | null>(null);
   const [signedInPreferredName, setSignedInPreferredName] = useState('');
+  const [signedInProfile, setSignedInProfile] = useState<AttendeeProfile | null>(null);
   const [signedInProfileId, setSignedInProfileId] = useState<string | null>(null);
   const [myRsvps, setMyRsvps] = useState<Attendee[]>([]);
   const [interests, setInterests] = useState<EventInterest[]>([]);
@@ -108,7 +109,9 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [emailUpgradeMessage, setEmailUpgradeMessage] = useState<string | null>(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [requestName, setRequestName] = useState('');
+  const [requestNameTouched, setRequestNameTouched] = useState(false);
   const [requestWhatsapp, setRequestWhatsapp] = useState('');
+  const [requestWhatsappTouched, setRequestWhatsappTouched] = useState(false);
   const [requestNote, setRequestNote] = useState('');
   const [requestLoading, setRequestLoading] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
@@ -286,20 +289,46 @@ export default function EventDetail({ user }: { user: User | null }) {
   }, [user, signedInPreferredName]);
 
   useEffect(() => {
+    setRequestNameTouched(false);
+    setRequestWhatsappTouched(false);
+  }, [user?.id]);
+
+  useEffect(() => {
     const defaultName = pickFirstNonEmpty(
       getAccountNameFromUser(user),
       signedInPreferredName,
+      signedInProfile?.full_name,
+      `${signedInProfile?.first_name || ''} ${signedInProfile?.last_name || ''}`.trim(),
       guestProfile?.full_name,
       guestInfo.name,
       fallbackNameFromEmail(user?.email || guestInfo.email),
     );
     const currentRequestName = requestName.trim();
     const fallbackHandleName = fallbackNameFromEmail(user?.email || guestInfo.email);
-    const shouldReplace = shouldReplaceAutoFilledName(currentRequestName, fallbackHandleName);
+    const shouldReplace = (user ? !requestNameTouched : true)
+      && shouldReplaceAutoFilledName(currentRequestName, fallbackHandleName);
     if (defaultName && shouldReplace) {
       setRequestName(defaultName);
     }
-  }, [user, signedInPreferredName, guestProfile?.full_name, guestInfo.name, guestInfo.email, requestName]);
+  }, [
+    user,
+    signedInPreferredName,
+    signedInProfile?.full_name,
+    signedInProfile?.first_name,
+    signedInProfile?.last_name,
+    guestProfile?.full_name,
+    guestInfo.name,
+    guestInfo.email,
+    requestName,
+    requestNameTouched,
+  ]);
+
+  useEffect(() => {
+    if (!user) return;
+    const defaultWhatsapp = (signedInProfile?.whatsapp_number || '').trim();
+    if (!defaultWhatsapp || requestWhatsappTouched || requestWhatsapp.trim()) return;
+    setRequestWhatsapp(defaultWhatsapp);
+  }, [user, signedInProfile?.whatsapp_number, requestWhatsapp, requestWhatsappTouched]);
 
   useEffect(() => {
     const fallbackHandleName = fallbackNameFromEmail(user?.email || guestInfo.email);
@@ -326,6 +355,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   useEffect(() => {
     const hydrateSignedInProfile = async () => {
       if (!user) {
+        setSignedInProfile(null);
         setSignedInProfileId(null);
         return;
       }
@@ -335,8 +365,10 @@ export default function EventDetail({ user }: { user: User | null }) {
           user,
           pickFirstNonEmpty(getAccountNameFromUser(user), signedInPreferredName),
         );
+        setSignedInProfile(profile);
         setSignedInProfileId(profile.id);
       } catch {
+        setSignedInProfile(null);
         setSignedInProfileId(null);
       }
     };
@@ -691,6 +723,7 @@ export default function EventDetail({ user }: { user: User | null }) {
         const profile = await guestService.getOrCreateProfileForUser(user);
         currentProfileId = profile.id;
         setGuestProfile(profile);
+        setSignedInProfile(profile);
         setSignedInProfileId(profile.id);
       }
 
@@ -765,6 +798,7 @@ export default function EventDetail({ user }: { user: User | null }) {
         const profile = await guestService.getOrCreateProfileForUser(user);
         currentProfileId = profile.id;
         setGuestProfile(profile);
+        setSignedInProfile(profile);
         setSignedInProfileId(profile.id);
       }
 
@@ -852,6 +886,8 @@ export default function EventDetail({ user }: { user: User | null }) {
         currentProfileId = profile.id;
         // Optionally update guestProfile state if we want to keep it in sync
         setGuestProfile(profile);
+        setSignedInProfile(profile);
+        setSignedInProfileId(profile.id);
       }
 
       if (!user && !currentProfileId) {
@@ -1380,7 +1416,10 @@ export default function EventDetail({ user }: { user: User | null }) {
                         type="text"
                         className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
                         value={requestName}
-                        onChange={(e) => setRequestName(e.target.value)}
+                        onChange={(e) => {
+                          setRequestNameTouched(true);
+                          setRequestName(e.target.value);
+                        }}
                         placeholder="e.g. Sarah Jones"
                       />
                     </div>
@@ -1391,7 +1430,10 @@ export default function EventDetail({ user }: { user: User | null }) {
                         type="text"
                         className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
                         value={requestWhatsapp}
-                        onChange={(e) => setRequestWhatsapp(e.target.value)}
+                        onChange={(e) => {
+                          setRequestWhatsappTouched(true);
+                          setRequestWhatsapp(e.target.value);
+                        }}
                         placeholder="+64..."
                       />
                     </div>
