@@ -7,6 +7,7 @@ import { formatDate, formatDay, formatTime, isOnOrAfterTodayInTimeZone } from '.
 import { Event } from '../types';
 import { buildEventPath } from '../lib/events';
 import { BookingRow, groupBookingsByEvent } from '../lib/bookings';
+import { hydrateMissingEventCounts } from '../lib/activityCounts';
 import { AuthPromptModal } from '../components/AuthPromptModal';
 import { Card } from '../components/ui/Card';
 
@@ -338,6 +339,8 @@ export default function MyActivities({ user }: { user: User | null }) {
 
         const requestedRows = joinedRows.filter((row) => row.status === 'pending_approval');
         const attendingRows = joinedRows.filter((row) => row.status !== 'pending_approval');
+        const requestedEvents = groupBookingsByEvent(requestedRows as BookingRow[]).map((row) => row.events as Event);
+        const attendingEvents = groupBookingsByEvent(attendingRows as BookingRow[]).map((row) => row.events as Event);
 
         const hostedUpcoming = upcomingOnly(hosted);
         const hostedUpcomingIds = hostedUpcoming.map((event) => event.id);
@@ -367,14 +370,19 @@ export default function MyActivities({ user }: { user: User | null }) {
           console.warn('Could not load pending join requests:', pendingJoinResult.error);
         }
 
-        setHosting(hosted);
-        setRequested(
-          groupBookingsByEvent(requestedRows as BookingRow[]).map((row) => row.events as Event),
-        );
-        setAttending(
-          groupBookingsByEvent(attendingRows as BookingRow[]).map((row) => row.events as Event),
-        );
-        setShared(sharedRows);
+        const [hostedWithCounts, requestedWithCounts, attendingWithCounts, sharedWithCounts] = await Promise.all([
+          hydrateMissingEventCounts(hosted),
+          hydrateMissingEventCounts(requestedEvents),
+          hydrateMissingEventCounts(attendingEvents),
+          hydrateMissingEventCounts(sharedRows),
+        ]);
+
+        if (cancelled) return;
+
+        setHosting(hostedWithCounts);
+        setRequested(requestedWithCounts);
+        setAttending(attendingWithCounts);
+        setShared(sharedWithCounts);
         setPendingViewRequests((pendingAccessResult.data || []) as PendingAccessRequestRow[]);
         setPendingJoinRequests((pendingJoinResult.data || []) as PendingJoinRequestRow[]);
       } catch (error) {

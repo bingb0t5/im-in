@@ -9,6 +9,7 @@ import { buildEventPath } from '../lib/events';
 import { User } from '@supabase/supabase-js';
 import { BookingRow, groupBookingsByEvent } from '../lib/bookings';
 import { filterEventsForQuery } from '../lib/activityRelations';
+import { hydrateMissingEventCounts } from '../lib/activityCounts';
 import { Card } from '../components/ui/Card';
 
 type CalendarGroup = {
@@ -313,9 +314,15 @@ export default function Calendar({ user }: { user: User | null }) {
       ((joinedResult.data || []) as JoinedRow[]).filter((row) => row.status !== 'pending_approval') as BookingRow[],
     ).map((row) => row.events as Event);
 
-    setHostingEvents((hostedResult.data || []) as Event[]);
-    setAttendingEvents(groupedAttending);
-    setSharedEvents((sharedResult.data || []) as Event[]);
+    const [hostingWithCounts, attendingWithCounts, sharedWithCounts] = await Promise.all([
+      hydrateMissingEventCounts((hostedResult.data || []) as Event[]),
+      hydrateMissingEventCounts(groupedAttending),
+      hydrateMissingEventCounts((sharedResult.data || []) as Event[]),
+    ]);
+
+    setHostingEvents(hostingWithCounts);
+    setAttendingEvents(attendingWithCounts);
+    setSharedEvents(sharedWithCounts);
   };
 
   const normalizedSearch = queryParam.trim().toLowerCase();
