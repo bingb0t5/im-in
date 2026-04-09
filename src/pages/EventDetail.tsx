@@ -4,7 +4,7 @@ import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, MessageSquare, Mail, Copy, X, Plus, Download, ThumbsUp, CircleHelp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { buildGoogleCalendarEventUrl, buildIcsEventContent, formatDate, formatDay, formatDurationMinutes, generateSlug } from '../utils';
+import { formatDate, formatDay, formatDurationMinutes } from '../utils';
 import { Event, Attendee, EventInterest } from '../types';
 import { guestService, AttendeeProfile, getAccountNameFromUser, isSystemGuestEmail } from '../services/guestService';
 import { getAttendanceSummary, getMyRsvpBuckets } from '../lib/attendees';
@@ -12,6 +12,12 @@ import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp'
 import { findMyInterest, getNamedThinkingInterests, getThinkingCount } from '../lib/interests';
 import { goBackOr } from '../lib/navigation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
+import {
+  buildGoogleCalendarUrlForActivity,
+  buildIcsDownloadForActivity,
+  buildPrivateActivityUrl,
+  buildPrivateWhatsappShareText,
+} from '../lib/eventShare';
 
 const URL_PATTERN = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
 const TRAILING_PUNCTUATION_PATTERN = /[),.!?:;]+$/;
@@ -1074,9 +1080,8 @@ export default function EventDetail({ user }: { user: User | null }) {
   const isHostViewer = isEventHostViewer;
   const hasFullEventAccess = canViewFullDetails || hasAccessToken || isHostViewer;
   const publicEventSlug = event.public_slug || event.slug;
-  const privateEventSlug = event.private_slug || event.join_code || event.slug;
   const publicEventUrl = `${window.location.origin}/events/${publicEventSlug}`;
-  const privateEventUrl = `${window.location.origin}/events/${privateEventSlug}`;
+  const privateEventUrl = buildPrivateActivityUrl(window.location.origin, event);
   const { confirmedCount, waitlistCount, isFull, spotsRemaining } = getAttendanceSummary(attendees, event.capacity);
   const approvalRequired = !!event.require_host_approval_for_join;
   const joinRequestPending = approvalRequired && myJoinRequestStatus === 'pending' && myRsvps.length === 0;
@@ -1122,8 +1127,11 @@ export default function EventDetail({ user }: { user: User | null }) {
     event.require_guest_email_for_join === false;
   const isGuestEmailRequired = event.require_guest_email_for_join === true;
 
-  const buildInviteText = (url: string) =>
-    `${event.title} – ${formatDate(event.starts_at, event.timezone)}\n${spotsRemaining} spots left. Join here:\n${url}`;
+  const buildInviteText = (url: string) => (
+    url === privateEventUrl
+      ? buildPrivateWhatsappShareText(window.location.origin, event)
+      : `${event.title} – ${formatDate(event.starts_at, event.timezone)}\n${spotsRemaining} spots left. Join here:\n${url}`
+  );
 
   const copyInviteFallback = async (text: string) => {
     if (navigator.clipboard?.writeText) {
@@ -1167,13 +1175,16 @@ export default function EventDetail({ user }: { user: User | null }) {
   };
 
   const shareInvite = (url: string) => {
-    const nativeText = `${event.title} – ${formatDate(event.starts_at, event.timezone)}\n${spotsRemaining} spots left. Join here:`;
+    const nativeText = buildInviteText(url);
     const isAppleMobile = /iPhone|iPad|iPod/i.test(window.navigator.userAgent);
+    const isPrivateShare = url === privateEventUrl;
 
     if (navigator.share) {
-      const sharePromise = isAppleMobile
-        ? navigator.share({ url })
-        : navigator.share({ title: event.title, text: nativeText, url });
+      const sharePromise = isPrivateShare
+        ? navigator.share({ title: event.title, text: nativeText })
+        : isAppleMobile
+          ? navigator.share({ url })
+          : navigator.share({ title: event.title, text: nativeText, url });
 
       sharePromise.catch((error) => {
         if (error instanceof DOMException && error.name === 'AbortError') {
@@ -1193,68 +1204,21 @@ export default function EventDetail({ user }: { user: User | null }) {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const buildCalendarDetails = (activityUrl: string) => {
-    return [
-      event.description?.trim() || '',
-      event.location_text?.trim() ? `Exact location: ${event.location_text.trim()}` : '',
-      '',
-      `View activity: ${activityUrl}`,
-      event.google_maps_url?.trim() ? `Directions: ${event.google_maps_url.trim()}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-  };
-
-  const buildCalendarLocation = () => {
-    const mapsUrl = event.google_maps_url?.trim() || '';
-
-    if (mapsUrl) {
-      return mapsUrl;
-    }
-
-    return event.location_text?.trim() || '';
-  };
-
   const openGoogleCalendar = () => {
     const activityUrl = eventVisibility === 'semi_public' ? privateEventUrl : window.location.href;
-    const details = buildCalendarDetails(activityUrl);
-    const location = buildCalendarLocation();
-
-    const calendarUrl = buildGoogleCalendarEventUrl({
-      title: event.title,
-      startsAtIso: event.starts_at,
-      endsAtIso: event.ends_at || null,
-      durationMinutes: event.duration_minutes || 60,
-      timezone: event.timezone,
-      location,
-      details,
-    });
+    const calendarUrl = buildGoogleCalendarUrlForActivity(event, activityUrl);
 
     window.open(calendarUrl, '_blank', 'noopener,noreferrer');
   };
 
   const downloadCalendarFile = () => {
     const activityUrl = eventVisibility === 'semi_public' ? privateEventUrl : window.location.href;
-    const details = buildCalendarDetails(activityUrl);
-    const location = buildCalendarLocation();
-    const startsAtStamp = new Date(event.starts_at).toISOString().replace(/\W/g, '').slice(0, 12);
-    const uid = `${event.id}.${startsAtStamp}@joinimin.com`;
-    const icsContent = buildIcsEventContent({
-      uid,
-      title: event.title,
-      startsAtIso: event.starts_at,
-      endsAtIso: event.ends_at || null,
-      durationMinutes: event.duration_minutes || 60,
-      location,
-      description: details,
-      url: activityUrl,
-      status: event.status === 'cancelled' ? 'CANCELLED' : 'CONFIRMED',
-    });
-    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+    const { content, filename } = buildIcsDownloadForActivity(event, activityUrl);
+    const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
     const objectUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = objectUrl;
-    link.download = `${generateSlug(event.title || 'activity')}.ics`;
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
