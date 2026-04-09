@@ -40,7 +40,13 @@ Deno.serve(async (request) => {
       wa_id: exchange.wa_id ?? null,
       auth_provider: linkedUser.authProvider,
       sign_in_email: linkedUser.signInEmail,
-      sign_in_password: linkedUser.signInPassword,
+      auth_session: {
+        access_token: linkedUser.authSession.accessToken,
+        refresh_token: linkedUser.authSession.refreshToken,
+        expires_at: linkedUser.authSession.expiresAt,
+        expires_in: linkedUser.authSession.expiresIn,
+        token_type: linkedUser.authSession.tokenType,
+      },
     });
   } catch (error) {
     const status = typeof (error as { status?: number })?.status === 'number' ? (error as { status: number }).status : 500;

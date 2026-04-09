@@ -20,7 +20,7 @@ export type StoredLaloAuthAttempt = {
 
 type StoredLaloCompletion = Pick<
   LaloCompleteResponse,
-  'sign_in_email' | 'sign_in_password' | 'is_new_user' | 'lalo_user_id' | 'wa_id'
+  'sign_in_email' | 'auth_session' | 'sign_in_password' | 'is_new_user' | 'lalo_user_id' | 'wa_id'
 > & {
   attemptId: string;
   redirectTo: string;
@@ -157,13 +157,27 @@ export async function getLaloWhatsAppStatus(attemptId: string) {
 }
 
 async function signInWithCompletion(completion: StoredLaloCompletion) {
-  const { error } = await supabase.auth.signInWithPassword({
-    email: completion.sign_in_email,
-    password: completion.sign_in_password,
-  });
+  if (completion.auth_session?.access_token && completion.auth_session?.refresh_token) {
+    // WhatsApp completion now returns a pre-minted browser session so we do not have to rotate the user's password.
+    const { error } = await supabase.auth.setSession({
+      access_token: completion.auth_session.access_token,
+      refresh_token: completion.auth_session.refresh_token,
+    });
 
-  if (error) {
-    throw new Error(error.message || 'Could not finish signing in with WhatsApp.');
+    if (error) {
+      throw new Error(error.message || 'Could not finish signing in with WhatsApp.');
+    }
+  } else if (completion.sign_in_password) {
+    const { error } = await supabase.auth.signInWithPassword({
+      email: completion.sign_in_email,
+      password: completion.sign_in_password,
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Could not finish signing in with WhatsApp.');
+    }
+  } else {
+    throw new Error('WhatsApp verification succeeded, but no browser session was returned.');
   }
 
   clearAllLaloAuthState();
@@ -214,6 +228,7 @@ export async function finalizeLaloWhatsAppAuth(attempt: StoredLaloAuthAttempt): 
     lalo_user_id: completion.lalo_user_id,
     wa_id: completion.wa_id,
     sign_in_email: completion.sign_in_email,
+    auth_session: completion.auth_session,
     sign_in_password: completion.sign_in_password,
   };
 

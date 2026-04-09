@@ -28,7 +28,14 @@ export type LaloCompleteResponse = {
   is_new_user: boolean;
   wa_id: string | null;
   sign_in_email: string;
-  sign_in_password: string;
+  auth_session?: {
+    access_token: string;
+    refresh_token: string;
+    expires_at?: number | null;
+    expires_in?: number | null;
+    token_type?: string | null;
+  };
+  sign_in_password?: string;
 };
 
 export type LaloLinkResponse = {
