@@ -1238,6 +1238,36 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const pendingReviewCount = pendingJoinRequests.length + pendingRequests.length;
   const canReviewJoinRequests = event.require_host_approval_for_join;
   const canReviewAccessRequests = visibility === 'semi_public';
+  const renderPrimaryShareActions = ({
+    iconClassName = 'w-5 h-5',
+    labelClassName = 'text-sm font-bold',
+    buttonClassName = 'p-4',
+  }: {
+    iconClassName?: string;
+    labelClassName?: string;
+    buttonClassName?: string;
+  } = {}) => (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          void shareWhatsApp();
+        }}
+        className={`rounded-xl bg-brand-600 ${buttonClassName} flex items-center justify-center gap-2 transition-all hover:bg-brand-700 active:scale-95`}
+      >
+        <MessageCircle className={`${iconClassName} text-white`} />
+        <span className={`${labelClassName} text-white`}>WhatsApp</span>
+      </button>
+      <button
+        type="button"
+        onClick={openInAppShareModal}
+        className={`rounded-xl bg-slate-50 ${buttonClassName} flex items-center justify-center gap-2 transition-all hover:bg-slate-100 active:scale-95`}
+      >
+        <Users className={`${iconClassName} text-slate-500`} />
+        <span className={`${labelClassName} text-slate-700`}>Share In App</span>
+      </button>
+    </>
+  );
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
@@ -1295,20 +1325,30 @@ export default function HostDashboard({ user }: { user: User | null }) {
           </button>
         </section>
 
-        <section className="space-y-2">
-          <button
-            type="button"
-            onClick={openNotificationModal}
-            className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition-all hover:border-brand-200 hover:bg-brand-50/40 active:scale-[0.99]"
-          >
-            <div>
-              <p className="text-sm font-black tracking-tight text-brand-600">Send Notification</p>
-              <p className="mt-0.5 text-xs text-slate-500">Send an in-app update to your guests.</p>
-            </div>
-            <MessageSquare className="h-5 w-5 text-brand-600" />
-          </button>
+        <section className="rounded-2xl bg-white p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm font-black tracking-tight text-brand-600">Quick Actions</p>
+            <button
+              type="button"
+              onClick={() => navigate(`/events/${event.public_slug || event.slug}`)}
+              className="text-xs font-bold text-slate-400 transition-all hover:text-brand-600 active:scale-95"
+            >
+              View Activity
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {renderPrimaryShareActions()}
+            <button
+              type="button"
+              onClick={openNotificationModal}
+              className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-center transition-all hover:border-brand-200 hover:bg-brand-50/40 active:scale-[0.99]"
+            >
+              <MessageSquare className="h-5 w-5 text-brand-600" />
+              <span className="text-sm font-bold text-slate-700">Send Notification</span>
+            </button>
+          </div>
           {notificationSendMessage ? (
-            <p className="px-1 text-xs font-bold text-slate-500">{notificationSendMessage}</p>
+            <p className="mt-3 px-1 text-xs font-bold text-slate-500">{notificationSendMessage}</p>
           ) : null}
         </section>
 
@@ -1439,13 +1479,6 @@ export default function HostDashboard({ user }: { user: User | null }) {
         <section className="bg-white rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm font-black text-brand-600 tracking-tight">Share Activity</p>
-            <button
-              type="button"
-              onClick={() => navigate(`/events/${event.public_slug || event.slug}`)}
-              className="text-xs font-bold text-slate-400 hover:text-brand-600 transition-all active:scale-95"
-            >
-              View Activity
-            </button>
           </div>
           {event.join_code ? (
             <div className="mb-4 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3">
@@ -1467,18 +1500,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => { void shareWhatsApp(); }} className="bg-brand-600 hover:bg-brand-700 p-4 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
-                  <MessageCircle className="w-5 h-5 text-white" />
-                  <span className="text-sm font-bold text-white">WhatsApp</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={openInAppShareModal}
-                  className="bg-slate-50 hover:bg-slate-100 p-4 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95"
-                >
-                  <Users className="w-5 h-5 text-slate-500" />
-                  <span className="text-sm font-bold text-slate-700">Share In App</span>
-                </button>
+                {renderPrimaryShareActions()}
               </div>
             </div>
           ) : (
@@ -1487,18 +1509,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 <Copy className="w-4 h-4 text-slate-400" />
                 <span className="text-xs font-bold text-slate-600">Copy Link</span>
               </button>
-              <button onClick={() => { void shareWhatsApp(); }} className="bg-brand-600 hover:bg-brand-700 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95">
-                <MessageCircle className="w-4 h-4 text-white" />
-                <span className="text-xs font-bold text-white">WhatsApp</span>
-              </button>
-              <button
-                type="button"
-                onClick={openInAppShareModal}
-                className="bg-slate-50 hover:bg-slate-100 p-3 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95"
-              >
-                <Users className="w-4 h-4 text-slate-500" />
-                <span className="text-xs font-bold text-slate-600">In App</span>
-              </button>
+              {renderPrimaryShareActions({
+                iconClassName: 'w-4 h-4',
+                labelClassName: 'text-xs font-bold',
+                buttonClassName: 'p-3',
+              })}
             </div>
           )}
         </section>

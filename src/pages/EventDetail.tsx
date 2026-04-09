@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useSearchParams, Link, useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
@@ -119,6 +119,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [requestLoading, setRequestLoading] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestSuccess, setRequestSuccess] = useState(false);
+  const lastAutoFilledRequestWhatsapp = useRef('');
   const [myJoinRequestStatus, setMyJoinRequestStatus] = useState<'pending' | 'approved' | 'rejected' | 'cancelled' | null>(null);
   const [rsvpToCancel, setRsvpToCancel] = useState<Attendee | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -178,6 +179,25 @@ export default function EventDetail({ user }: { user: User | null }) {
     if (!current) return true;
     if (!fallback) return false;
     return current.toLowerCase() === fallback.toLowerCase();
+  };
+
+  const shouldReplaceAutoFilledWhatsapp = (currentValue: string) => {
+    const current = currentValue.trim();
+    if (!current) return true;
+    if (!lastAutoFilledRequestWhatsapp.current) return false;
+    return current === lastAutoFilledRequestWhatsapp.current;
+  };
+
+  const getAuthWhatsappFallback = (account?: User | null) => {
+    if (!account) return '';
+    const metadata = (account.user_metadata || {}) as Record<string, unknown>;
+    return pickFirstNonEmpty(
+      typeof metadata.whatsapp_number === 'string' ? metadata.whatsapp_number : '',
+      typeof metadata.whatsapp === 'string' ? metadata.whatsapp : '',
+      typeof metadata.phone_number === 'string' ? metadata.phone_number : '',
+      typeof metadata.phone === 'string' ? metadata.phone : '',
+      account.phone || '',
+    );
   };
 
   const getDisplayName = (person: {
@@ -306,6 +326,34 @@ export default function EventDetail({ user }: { user: User | null }) {
       setRequestName(defaultName);
     }
   }, [user, signedInPreferredName, guestProfile?.full_name, guestInfo.name, guestInfo.email, requestName]);
+
+  useEffect(() => {
+    const hydrateRequestWhatsappPrefill = async () => {
+      if (!user) {
+        lastAutoFilledRequestWhatsapp.current = '';
+        return;
+      }
+
+      const profile = await guestService.getProfileForUser(user).catch(() => null);
+      const defaultWhatsapp = pickFirstNonEmpty(
+        profile?.whatsapp_number,
+        getAuthWhatsappFallback(user),
+      );
+
+      if (!defaultWhatsapp) return;
+
+      setRequestWhatsapp((prev) => {
+        if (!shouldReplaceAutoFilledWhatsapp(prev)) {
+          return prev;
+        }
+        const next = defaultWhatsapp.trim();
+        lastAutoFilledRequestWhatsapp.current = next;
+        return next;
+      });
+    };
+
+    void hydrateRequestWhatsappPrefill();
+  }, [user]);
 
   useEffect(() => {
     const fallbackHandleName = fallbackNameFromEmail(user?.email || guestInfo.email);
