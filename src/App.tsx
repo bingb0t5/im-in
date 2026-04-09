@@ -28,6 +28,7 @@ import WhatsAppAuthPrep from './pages/WhatsAppAuthPrep';
 import WhatsAppAuthVerify from './pages/WhatsAppAuthVerify';
 import WhatsAppAuthSuccess from './pages/WhatsAppAuthSuccess';
 import AccountMergeComplete from './pages/AccountMergeComplete';
+import EventShortLinkPage from './pages/EventShortLinkPage';
 import { guestService } from './services/guestService';
 import { MainTabsLayout } from './layouts/MainTabsLayout';
 import { GlobalFeedbackWidget } from './components/GlobalFeedbackWidget';
@@ -117,6 +118,9 @@ export default function App() {
             <Route path="/profile" element={<ProfileSettings user={user} />} />
           </Route>
           <Route path="/auth/account-merge/complete" element={<AccountMergeComplete user={user} />} />
+          <Route path="/loc/:code" element={<EventShortLinkPage kind="loc" />} />
+          <Route path="/gcal/:code" element={<EventShortLinkPage kind="gcal" />} />
+          <Route path="/ical/:code" element={<EventShortLinkPage kind="ical" />} />
           <Route path="/host/events/:id/edit" element={user ? <CreateEvent user={user} /> : <Navigate to="/login" />} />
           <Route path="/events/:slug" element={<EventDetail user={user} />} />
           <Route path="/host/events/:id" element={user ? <HostDashboard user={user} /> : <Navigate to="/login" />} />

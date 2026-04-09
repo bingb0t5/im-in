@@ -11,6 +11,7 @@ import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/modera
 import { LOCKED_PUBLIC_LOCATION } from '../lib/publicLocation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
+import { buildPrivateActivityUrl, buildPrivateWhatsappShareText } from '../lib/eventShare';
 
 type InAppShareCandidate = {
   user_id: string;
@@ -172,15 +173,12 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
   const getPrivateShareUrl = () => {
     if (!event) return '';
-    const privateSlug = event.private_slug || event.join_code || event.slug;
-    return `${window.location.origin}/events/${privateSlug}`;
+    return buildPrivateActivityUrl(window.location.origin, event);
   };
 
-  const buildInviteText = (url: string) => {
-    if (!event) return url;
-    const confirmedCount = attendees.filter((a) => a.status === 'confirmed').length;
-    const spotsLeft = Math.max(0, event.capacity - confirmedCount);
-    return `${event.title}\n${formatDate(event.starts_at, event.timezone)}\n${spotsLeft} spots left.\n\nPrivate activity link:\n${url}`;
+  const buildInviteText = (fallbackUrl = '') => {
+    if (!event) return fallbackUrl;
+    return buildPrivateWhatsappShareText(window.location.origin, event);
   };
 
   const copyInviteFallback = async (text: string) => {
@@ -1090,27 +1088,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
         return;
       }
       const inviteText = buildInviteText(url);
-      const isAppleMobile = /iPhone|iPad|iPod/i.test(window.navigator.userAgent);
-
-      if (navigator.share) {
-        const sharePromise = isAppleMobile
-          ? navigator.share({ url })
-          : navigator.share({ title: event.title, text: inviteText, url });
-
-        sharePromise.catch((error) => {
-          if (error instanceof DOMException && error.name === 'AbortError') {
-            return;
-          }
-          openManualShareModal(url);
-        });
-        return;
-      }
-
       const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(inviteText)}`;
       // Use same-tab navigation so returning from WhatsApp lands back on this activity page.
       window.location.href = whatsappUrl;
     } catch (error: any) {
-      openManualShareModal(getPublicPreviewUrl());
+      openManualShareModal(getPrivateShareUrl());
       alert(error.message || 'Could not prepare share');
     }
   };
@@ -1131,7 +1113,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
     let text = '';
     if (mode === 'approve') {
       status = 'approved';
-      text = `Hi ${request.requester_name}, thanks for requesting access to ${event.title}. Here is the private activity link:\n${eventLink}`;
+      text = `Hi ${request.requester_name}, thanks for requesting access to ${event.title}. Here are the activity details:\n\n${buildInviteText(eventLink)}`;
     } else if (mode === 'decline') {
       status = 'declined';
       text = `Hi ${request.requester_name}, thanks for your request for ${event.title}. Sorry, we can't share this activity right now.`;
