@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient, type User as SupabaseUser } from 'npm:@supabase/supabase-js@2';
+import { createClient, type Session, type SupabaseClient, type User as SupabaseUser } from 'npm:@supabase/supabase-js@2';
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -41,6 +41,14 @@ type LaloExchangeResponse = {
   lalo_user_id: string;
   is_new_user: boolean;
   wa_id: string | null;
+};
+
+export type LaloBrowserSession = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number | null;
+  expiresIn: number | null;
+  tokenType: string | null;
 };
 
 export type AttendeeProfileRow = {
@@ -232,6 +240,40 @@ export async function laloExchangeCompletedAttempt(attemptId: string) {
   });
 }
 
+async function mintBrowserSessionForEmail(admin: SupabaseClient, email: string): Promise<LaloBrowserSession> {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) {
+    throw Object.assign(new Error('Could not create a browser session because the account email is missing.'), { status: 500 });
+  }
+
+  // Mint a one-time browser session without rotating the stored password, which would revoke other active sessions.
+  const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+    type: 'magiclink',
+    email: normalizedEmail,
+  });
+
+  if (linkError) {
+    throw Object.assign(new Error(linkError.message), { status: 500 });
+  }
+
+  const tokenHash = linkData?.properties?.hashed_token?.trim();
+  if (!tokenHash) {
+    throw Object.assign(new Error('Could not create a browser session for this WhatsApp sign in.'), { status: 500 });
+  }
+
+  const authClient = createAuthClient();
+  const { data: verificationData, error: verificationError } = await authClient.auth.verifyOtp({
+    type: 'magiclink',
+    token_hash: tokenHash,
+  });
+
+  if (verificationError || !verificationData.session) {
+    throw Object.assign(new Error(verificationError?.message || 'Could not verify the browser session for this WhatsApp sign in.'), { status: 500 });
+  }
+
+  return serializeBrowserSession(verificationData.session);
+}
+
 export function createAdminClient() {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -246,6 +288,33 @@ export function createAdminClient() {
       persistSession: false,
     },
   });
+}
+
+export function createAuthClient() {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw Object.assign(new Error('Supabase auth environment is not configured.'), { status: 500 });
+  }
+
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
+export function serializeBrowserSession(session: Session): LaloBrowserSession {
+  return {
+    accessToken: session.access_token,
+    refreshToken: session.refresh_token,
+    expiresAt: typeof session.expires_at === 'number' ? session.expires_at : null,
+    expiresIn: typeof session.expires_in === 'number' ? session.expires_in : null,
+    tokenType: typeof session.token_type === 'string' ? session.token_type : null,
+  };
 }
 
 export async function getAuthenticatedUser(request: Request) {
@@ -610,7 +679,6 @@ export async function mergeLaloAccountIntoUser(
 
 export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: string, waId?: string | null) {
   const syntheticEmail = buildLaloSyntheticEmail(laloUserId);
-  const temporaryPassword = generatePassword();
   const normalizedWhatsappNumber = normalizeWhatsappNumber(waId);
   const verifiedAt = new Date().toISOString();
 
@@ -718,7 +786,6 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
     );
 
     const nextUserPayload: Parameters<typeof admin.auth.admin.updateUserById>[1] = {
-      password: temporaryPassword,
       user_metadata: {
         ...(existingUser?.user_metadata || {}),
         ...metadata,
@@ -750,6 +817,7 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
       throw Object.assign(new Error(updateUserError.message), { status: 500 });
     }
   } else {
+    const temporaryPassword = generatePassword();
     const { data: createdUser, error: createUserError } = await admin.auth.admin.createUser({
       email: syntheticEmail,
       password: temporaryPassword,
@@ -805,11 +873,13 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
     }
   }
 
+  const authSession = await mintBrowserSessionForEmail(admin, signInEmail);
+
   return {
     authProvider: nextAuthProvider,
     isNewProfile: !profile,
     signInEmail,
-    signInPassword: temporaryPassword,
+    authSession,
     userId,
   };
 }
