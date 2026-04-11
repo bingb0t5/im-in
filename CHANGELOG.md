@@ -11,6 +11,23 @@
 - updated `/my-activities` default tab selection so users with no upcoming hosted activities land on `Attending` by default instead of an empty `Hosting` view
 - refreshed profile section-label styling to brand teal and removed the extra `Profile` eyebrow heading above `Account details`
 
+### Moderation transparency naming and override reset safeguards
+
+- updated public moderation log display names so entries now prefer the moderator's real profile name when available instead of always showing pseudonymous handles
+- expanded moderation admin review cards to show clearer public-view context (summary/location/timing) and to load the latest log entries with richer timeline details
+- added a required explanation step in the admin moderation decision modal so manual moderation actions are accompanied by public-facing rationale text
+- updated moderation trigger/reset behavior so stale manual overrides are cleared when meaningful public-facing content changes and needs fresh review
+
+## 2026-04-09
+
+### WhatsApp auth session minting and richer sharing shortcuts
+
+- updated WhatsApp auth completion so sign-in can use a returned pre-minted browser auth session (`setSession`) instead of rotating the user's password on each verification
+- kept compatibility fallback to password completion for older flows while preferring direct session handoff when available
+- added dedicated shortcut routes for shared activity utilities: `/loc/:code`, `/gcal/:code`, and `/ical/:code`
+- added a new shortcut resolver page that opens map links, launches Google Calendar, or downloads `.ics` files from compact activity links
+- expanded private WhatsApp share text so it now includes richer date/location context plus one-tap shortcut links for maps and calendar actions
+
 ## 2026-04-07
 
 ### Auth session recovery, admin access, and activity location locking

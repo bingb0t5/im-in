@@ -45,6 +45,7 @@ The weakest / least finished areas are:
 - delayed-auth create flow
 - create and edit activity forms with a multi-step visibility-first flow
 - create/edit location flow can resolve shared Google Maps short links and prefill exact location details while the public-location filter is currently locked to `Hoi An, Vietnam`
+- compact share shortcuts for private activity flows via `/loc/:code`, `/gcal/:code`, and `/ical/:code`
 - host dashboard
 - post-create success modal on the host dashboard with share / return actions that now persist correctly after the dashboard finishes loading
 - access requests for semi-public activities
@@ -60,6 +61,7 @@ The weakest / least finished areas are:
 - hidden admin hub at `/admin` that links to the current internal admin tools
 - allowlisted admins can now reach the hidden admin tools from the main top-bar account menu
 - public moderation transparency page for public-facing moderation history
+- moderation transparency now prefers moderator profile display names when available instead of only pseudonymous handles
 - home-page explainer content simplified into two modals: `Why this exists` and `Help build it`
 - public feedback/report modal on home page with optional screenshot upload
 - feedback ingestion pipeline with abuse filtering, sanitized Trello intake cards, and Trello list-triggered Codex prompt drafting
@@ -85,6 +87,7 @@ The weakest / least finished areas are:
 - email upgrades now use a dedicated merge RPC so profile/session references move together instead of relying on fragile client-side multi-table updates
 - linked profiles can now carry both a `lalo_user_id` and a verified `whatsapp_number` from the Lalo verification flow
 - auth bootstrap now uses a shared session hook that retries reads, refreshes on focus/visibility, and clears stale invalid refresh tokens locally instead of leaving the UI stuck on a dead session
+- WhatsApp auth completion now prefers server-minted Supabase session handoff (`setSession`) so returning users avoid unnecessary password rotation during verify/login completion
 
 ### Backend/data behavior
 
@@ -94,6 +97,7 @@ The weakest / least finished areas are:
 - dedicated join-request queue (`event_join_requests`) plus host approve/reject RPCs for approval-required activities
 - approval-required joins now create visible `event_attendees` rows in `pending_approval` state so pending people show in `Going`
 - public and semi-public activities now always expose host names from the create/edit flow
+- share helpers now generate richer private WhatsApp share payloads with direct map and calendar shortcut links
 - hosts can now use calendar export actions even when they are not personally attending
 - calendar exports now use Google Maps share URLs as the calendar location when available
 - new-activity success state is carried into the host dashboard so the one-time modal can survive the initial dashboard load
@@ -101,6 +105,7 @@ The weakest / least finished areas are:
 - filtered realtime on the host dashboard
 - Supabase Edge Function moderation with content-hash reuse and stored discovery state
 - separate reviewer archive state for the moderation queue via `events.moderation_archived_at`
+- moderation defaults now clear stale manual overrides when relevant public-facing content changes and requires fresh review
 - public moderation audit records stored separately from activity rows
 - separate feedback-domain tables for feedback submissions and Trello prompt-generation jobs
 - webhook-compatible Trello prompt generation with manual admin fallback support

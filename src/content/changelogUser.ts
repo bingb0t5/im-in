@@ -19,6 +19,28 @@ export const userChangelogEntries: UserChangelogEntry[] = [
     ],
   },
   {
+    date: '2026-04-11',
+    title: 'Clearer moderation transparency and safer resets',
+    summary: 'Moderation tools now provide clearer public accountability and avoid stale manual states.',
+    highlights: [
+      'Public moderation history now shows moderator names more clearly when profile names are available.',
+      'Admin moderation review cards now show better public-view context and timeline details.',
+      'Manual moderation decisions now include a required public explanation prompt in the admin flow.',
+      'Moderation overrides now reset more safely when important public-facing activity content changes.',
+    ],
+  },
+  {
+    date: '2026-04-09',
+    title: 'Better WhatsApp login reliability and richer share links',
+    summary: 'This release improves WhatsApp sign-in stability and upgrades activity sharing shortcuts.',
+    highlights: [
+      'WhatsApp sign-in now prefers direct auth-session handoff instead of rotating passwords each time.',
+      'Shared activity links now support compact map and calendar shortcut routes.',
+      'A dedicated shortcut page can open location, launch Google Calendar, or download .ics files.',
+      'Private WhatsApp share messages now include richer context and clearer action links.',
+    ],
+  },
+  {
     date: '2026-04-07',
     title: 'Easier updates, clearer hosting tools',
     summary: 'This release makes the app easier to trust and easier to manage behind the scenes.',
