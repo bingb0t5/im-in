@@ -43,6 +43,7 @@ The weakest / least finished areas are:
 - public browse grouped into `Today`, `Tomorrow`, weekday sections for the next 7 days, and `Later` beyond that
 - public / semi-public / private visibility modes
 - delayed-auth create flow
+- `Verify with WhatsApp` UI now includes clearer step-by-step guidance through the external WhatsApp handoff and return flow
 - create and edit activity forms with a multi-step visibility-first flow
 - create/edit location flow can resolve shared Google Maps short links and prefill exact location details while the public-location filter is currently locked to `Hoi An, Vietnam`
 - compact share shortcuts for private activity flows via `/loc/:code`, `/gcal/:code`, and `/ical/:code`
@@ -98,6 +99,7 @@ The weakest / least finished areas are:
 - approval-required joins now create visible `event_attendees` rows in `pending_approval` state so pending people show in `Going`
 - public and semi-public activities now always expose host names from the create/edit flow
 - share helpers now generate richer private WhatsApp share payloads with direct map and calendar shortcut links
+- WhatsApp verify UI copy/assets are now synced from the Lalo server during build so app guidance stays aligned with upstream verify UX updates
 - hosts can now use calendar export actions even when they are not personally attending
 - calendar exports now use Google Maps share URLs as the calendar location when available
 - new-activity success state is carried into the host dashboard so the one-time modal can survive the initial dashboard load

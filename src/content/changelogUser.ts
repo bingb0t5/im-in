@@ -8,6 +8,16 @@ export type UserChangelogEntry = {
 export const userChangelogEntries: UserChangelogEntry[] = [
   {
     date: '2026-04-11',
+    title: 'Clearer Verify with WhatsApp steps',
+    summary: 'The WhatsApp verification flow now explains each step more clearly and stays aligned with Lalo updates.',
+    highlights: [
+      'Verify with WhatsApp screens now give clearer step-by-step guidance during the handoff flow.',
+      'The flow text better explains when to send the WhatsApp message and when to return to the app.',
+      'WhatsApp verify UI updates are now pulled from the Lalo server at build time, so messaging stays in sync.',
+    ],
+  },
+  {
+    date: '2026-04-11',
     title: 'Cleaner profile editing and smarter My Activities default',
     summary: 'This update makes account edits feel lighter and sends you to the most useful My Activities tab first.',
     highlights: [

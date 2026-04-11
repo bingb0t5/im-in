@@ -1,4 +1,9 @@
-import type { LaloVerifyClient, LaloVerifyStartInput, LaloVerifyStartResult, LaloVerifyStatusResponse } from '../../vendor/lalo-verify';
+import type {
+  LaloVerifyClient,
+  LaloVerifyStartInput,
+  LaloVerifyStartResult,
+  LaloVerifyStatusResponse,
+} from '../../generated/lalo-verify';
 import { getLaloWhatsAppStatus, getStoredLaloAuthAttempt, startLaloWhatsAppAuth } from './laloAuth';
 import type { LaloAuthMode } from './laloAuth';
 
