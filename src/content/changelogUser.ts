@@ -7,6 +7,18 @@ export type UserChangelogEntry = {
 
 export const userChangelogEntries: UserChangelogEntry[] = [
   {
+    date: '2026-04-11',
+    title: 'Cleaner profile editing and smarter My Activities default',
+    summary: 'This update makes account edits feel lighter and sends you to the most useful My Activities tab first.',
+    highlights: [
+      'Profile name and email are now locked by default with compact inline edit buttons.',
+      'Each field now has its own clear save action, so you can update one detail at a time.',
+      'Saving without changes no longer triggers unnecessary profile update calls.',
+      'The Profile screen removes extra helper copy and visual clutter around account details.',
+      'My Activities now opens on Attending automatically when you do not have upcoming hosted activities.',
+    ],
+  },
+  {
     date: '2026-04-07',
     title: 'Easier updates, clearer hosting tools',
     summary: 'This release makes the app easier to trust and easier to manage behind the scenes.',

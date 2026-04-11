@@ -38,6 +38,7 @@ The weakest / least finished areas are:
 - signed-out landing page
 - public home page for everyone
 - signed-in dashboard at `/my-activities`
+- `/my-activities` now defaults to `Attending` when the user has no upcoming hosted activities, reducing empty-state dead-ends for attendees
 - public search and browse
 - public browse grouped into `Today`, `Tomorrow`, weekday sections for the next 7 days, and `Later` beyond that
 - public / semi-public / private visibility modes
@@ -53,6 +54,7 @@ The weakest / least finished areas are:
 - proxy RSVP / "add another person" with host-approval-aware pending request behavior
 - "thinking about it"
 - post-signup email-upgrade prompt for no-email guest signups
+- signed-in `/profile` account details now use compact inline per-field edit/save controls (`Name` and `Email`) with read-only defaults and no-op unchanged saves
 - lightweight AI moderation for broader public discovery on public activities and semi-public public previews
 - hidden moderation admin queue with review, archived, and spam buckets for allowlisted admins, scoped to public-facing activity moderation
 - hidden admin hub at `/admin` that links to the current internal admin tools

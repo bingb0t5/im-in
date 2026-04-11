@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronUp, Eye, MapPin, UserRound, Users } from 'lucide-react';
@@ -39,7 +39,9 @@ function upcomingOnly(events: Event[]) {
 }
 
 function pastOnly(events: Event[]) {
-  return events.filter((event) => !isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone));
+  return events
+    .filter((event) => !isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone))
+    .sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime());
 }
 
 function normalizeEventRef(
@@ -298,6 +300,7 @@ export default function MyActivities({ user }: { user: User | null }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<'hosting' | 'attending'>('hosting');
+  const hasAppliedDefaultTabRef = useRef(false);
   const [showPastHosting, setShowPastHosting] = useState(false);
   const [showPastAttending, setShowPastAttending] = useState(false);
   const [showPendingViewRequests, setShowPendingViewRequests] = useState(false);
@@ -385,6 +388,11 @@ export default function MyActivities({ user }: { user: User | null }) {
         setShared(sharedWithCounts);
         setPendingViewRequests((pendingAccessResult.data || []) as PendingAccessRequestRow[]);
         setPendingJoinRequests((pendingJoinResult.data || []) as PendingJoinRequestRow[]);
+        if (!hasAppliedDefaultTabRef.current) {
+          const hasUpcomingHostedActivities = upcomingOnly(hostedWithCounts).length > 0;
+          setActiveTab(hasUpcomingHostedActivities ? 'hosting' : 'attending');
+          hasAppliedDefaultTabRef.current = true;
+        }
       } catch (error) {
         console.error('Could not load activity state:', error);
         setHosting([]);
@@ -421,7 +429,9 @@ export default function MyActivities({ user }: { user: User | null }) {
     [...pastAttending, ...pastRequested, ...pastShared].forEach((event) => {
       if (!deduped.has(event.id)) deduped.set(event.id, event);
     });
-    return Array.from(deduped.values());
+    return Array.from(deduped.values()).sort(
+      (a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime(),
+    );
   }, [pastAttending, pastRequested, pastShared]);
 
   const pastAttendingCount = pastAttending.length + pastRequested.length + pastShared.length;
