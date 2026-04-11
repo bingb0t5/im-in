@@ -1,8 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
-/* Ensure Tailwind sees vendored Lalo Verify source (arbitrary utilities in panel). */
-@source "./vendor/lalo-verify/**/*.tsx";
+/* Ensure Tailwind sees synced Lalo Verify source (arbitrary utilities in panel). */
+@source "./generated/lalo-verify/**/*.tsx";
 
 @theme {
   --color-brand-50: #f0fdfa;

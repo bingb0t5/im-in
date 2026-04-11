@@ -3,7 +3,7 @@ import { supabase } from '../supabase';
 import { User } from '@supabase/supabase-js';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, AlertCircle, Mail } from 'lucide-react';
-import { LaloVerifyPanel } from '../vendor/lalo-verify/react';
+import { LaloVerifyPanel } from '../generated/lalo-verify/react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   buildDurationOptions,

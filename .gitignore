@@ -7,5 +7,6 @@ coverage/
 .env*
 !.env.example
 src/server/whatsapp-helper/runtime/
+src/generated/
 **/runtime/session/
 **/runtime/smoke/

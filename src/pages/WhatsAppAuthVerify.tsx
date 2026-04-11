@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { LaloVerifyFlowType } from '../vendor/lalo-verify';
-import { LaloVerifyPanel } from '../vendor/lalo-verify/react';
+import { LaloVerifyFlowType } from '../generated/lalo-verify';
+import { LaloVerifyPanel } from '../generated/lalo-verify/react';
 import { Button } from '../components/ui/Button';
 import { LaloVerifyFlow } from '../components/auth/LaloVerifyFlow';
 import { completeWhatsAppAuth } from '../integrations/lalo/completeWhatsAppAuth';
