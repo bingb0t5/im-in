@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from '@supabase/supabase-js';
-import { BadgeCheck, Bell, LogOut, Mail, MessageCircle } from 'lucide-react';
+import { BadgeCheck, Bell, Check, LogOut, Mail, MessageCircle, Pencil } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthPromptModal } from '../components/AuthPromptModal';
 import { ProfileNamePromptModal } from '../components/profile/ProfileNamePromptModal';
@@ -52,6 +52,8 @@ export default function ProfileSettings({ user }: { user: User | null }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [nameSaving, setNameSaving] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [editingEmail, setEditingEmail] = useState(false);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [profile, setProfile] = useState<AttendeeProfile | null>(null);
@@ -195,30 +197,15 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     );
   }
 
-  const handleSave = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    setMessage(null);
-
-    try {
-      const result = await guestService.updateSignedInProfile(user, { fullName, email });
-      await hydrateProfile(user);
-      setMessage(
-        result.emailChangeRequested
-          ? 'We sent a magic link to your new email. Open it to finish changing your email address.'
-          : result.nameSyncComplete
-            ? 'Profile saved. Your name has been updated across your activities.'
-            : 'Profile saved. Some older activity names may take a moment to refresh.',
-      );
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Could not save profile.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleSaveNameOnly = async () => {
+    const normalizedName = fullName.trim();
+    const currentName = resolvePreferredAccountName(profile, user).trim();
+    if (normalizedName === currentName) {
+      setError(null);
+      setMessage('Name is already up to date.');
+      return true;
+    }
+
     setNameSaving(true);
     setError(null);
     setMessage(null);
@@ -237,10 +224,59 @@ export default function ProfileSettings({ user }: { user: User | null }) {
         const returnTo = searchParams.get('returnTo') || '/profile';
         navigate(returnTo, { replace: true });
       }
+      return true;
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Could not save your name.');
+      return false;
     } finally {
       setNameSaving(false);
+    }
+  };
+
+  const handleSaveEmailOnly = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const currentEmail = (profile?.email || user.email || '').trim().toLowerCase();
+    if (normalizedEmail === currentEmail) {
+      setError(null);
+      setMessage('Email is already up to date.');
+      return true;
+    }
+    if (!normalizedEmail) {
+      setError('Please provide your email.');
+      return false;
+    }
+
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const userEmail = (user.email || '').trim().toLowerCase();
+      let emailChangeRequested = false;
+      if (normalizedEmail !== userEmail) {
+        const { error: authUpdateError } = await supabase.auth.updateUser({ email: normalizedEmail });
+        if (authUpdateError) throw authUpdateError;
+        emailChangeRequested = true;
+      }
+
+      let targetProfile = profile;
+      if (!targetProfile) {
+        const fallbackName = fullName.trim() || resolvePreferredAccountName(profile, user).trim() || 'Guest';
+        targetProfile = await guestService.getOrCreateProfileForUser(user, fallbackName);
+      }
+
+      await guestService.addEmailToProfile(targetProfile.id, normalizedEmail);
+      await hydrateProfile(user);
+      setMessage(
+        emailChangeRequested
+          ? 'We sent a magic link to your new email. Open it to finish changing your email address.'
+          : 'Email saved.',
+      );
+      return true;
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save your email.');
+      return false;
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -310,12 +346,6 @@ export default function ProfileSettings({ user }: { user: User | null }) {
       ? 'Verified and linked to this account.'
       : 'Verified and linked to this account. If Lalo returns your WhatsApp number, it will appear here automatically.'
     : 'Add WhatsApp to this account through verification. Your email remains your backup sign-in, and any older WhatsApp-only account will be merged into this one.';
-  const emailHelper = hasVerifiedEmail
-    ? 'Verified and available as your backup sign-in.'
-    : showBackupEmailPlaceholder
-      ? 'Add an email any time for recovery. You can save your name without changing this placeholder email.'
-      : 'If you change this email, we will send a magic link to the new address to verify it.';
-
   const canManagePush = canManagePushNotifications(user, profile);
   const pushPublicKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY as string | undefined;
 
@@ -417,7 +447,6 @@ export default function ProfileSettings({ user }: { user: User | null }) {
         <div className="space-y-5">
           <Card className="space-y-5">
             <div className="space-y-1">
-              <p className="ui-eyebrow">Profile</p>
               <h2 className="text-2xl font-black tracking-tight text-slate-900">Account details</h2>
               <p className="text-sm text-slate-500">
                 Keep your name, email, and WhatsApp connected to one account. Email stays as your backup sign-in.
@@ -428,7 +457,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
               <div className="py-12 text-sm text-slate-400">Loading profile...</div>
             ) : (
               <>
-                <form onSubmit={handleSave} className="space-y-0">
+                <div className="space-y-0">
                   {needsRealName ? (
                     <>
                       <section className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
@@ -458,20 +487,52 @@ export default function ProfileSettings({ user }: { user: User | null }) {
 
                   <section className="space-y-3">
                     <div className="space-y-1">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Name</p>
-                      <input
-                        required
-                        type="text"
-                        value={fullName}
-                        onChange={(e) => setFullName(e.target.value)}
-                        placeholder="Your name"
-                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-900 outline-none transition-all focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
-                      />
-                      <p className="text-xs text-slate-500">Used for hosted activities and your own joins.</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-brand-600">Name</p>
+                      <div className="flex items-center gap-3">
+                        <input
+                          required
+                          type="text"
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          placeholder="Your name"
+                          disabled={!editingName}
+                          className={`w-full rounded-2xl border p-4 text-sm font-bold outline-none transition-all ${
+                            editingName
+                              ? 'border-slate-200 bg-white text-slate-900 focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10'
+                              : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (editingName) {
+                              const saved = await handleSaveNameOnly();
+                              if (saved) setEditingName(false);
+                              return;
+                            }
+                            setError(null);
+                            setMessage(null);
+                            setEditingName(true);
+                          }}
+                          disabled={nameSaving}
+                          aria-label={editingName ? 'Save name' : 'Edit name'}
+                          className={`inline-flex h-11 shrink-0 items-center justify-center gap-1 rounded-2xl border text-sm font-bold transition-all duration-150 ${
+                            editingName
+                              ? 'min-w-[5.5rem] border-brand-600 bg-brand-600 px-3 text-white hover:border-brand-500 hover:bg-brand-500'
+                              : 'w-11 border-brand-600 bg-gradient-to-br from-teal-300 via-brand-500 to-teal-700 text-white shadow-[0_8px_18px_rgba(13,148,136,0.32)] ring-1 ring-white/70 hover:brightness-105'
+                          }`}
+                        >
+                          {editingName ? (
+                            <>
+                              <Check className="h-4 w-4" />
+                              <span>Save</span>
+                            </>
+                          ) : (
+                            <Pencil className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
                     </div>
-                    <Button type="button" variant="secondary" onClick={() => void handleSaveNameOnly()} loading={nameSaving}>
-                      Save name only
-                    </Button>
                   </section>
 
                   <div className="my-5 h-px bg-slate-100" />
@@ -479,7 +540,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
                   <section className="space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">WhatsApp</p>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-brand-600">WhatsApp</p>
                         <p className="mt-1 break-all text-base font-bold text-slate-900">
                           {verifiedWhatsappNumber || (hasLinkedWhatsapp ? 'Verified and linked' : 'Not linked yet')}
                         </p>
@@ -495,21 +556,16 @@ export default function ProfileSettings({ user }: { user: User | null }) {
                     </div>
                     <p className="text-sm text-slate-500">{whatsappHelper}</p>
                     {isLaloWhatsAppAuthEnabled() ? (
-                      <>
-                        <p className="text-sm text-slate-500">
-                          To change your WhatsApp number, verify again from the WhatsApp account you want to use.
-                        </p>
-                        <Button
-                          type="button"
-                          onClick={() => {
-                            void handleStartWhatsappVerification();
-                          }}
-                          loading={whatsappLoading}
-                          leadingIcon={<MessageCircle className="h-4 w-4" />}
-                        >
-                          {hasLinkedWhatsapp ? 'Change WhatsApp number' : 'Verify WhatsApp'}
-                        </Button>
-                      </>
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          void handleStartWhatsappVerification();
+                        }}
+                        loading={whatsappLoading}
+                        leadingIcon={<MessageCircle className="h-4 w-4" />}
+                      >
+                        {hasLinkedWhatsapp ? 'Change WhatsApp number' : 'Verify WhatsApp'}
+                      </Button>
                     ) : (
                       <p className="text-sm text-slate-500">WhatsApp verification is not enabled in this environment yet.</p>
                     )}
@@ -520,7 +576,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
                   <section className="space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Email</p>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-brand-600">Email</p>
                         <p className="mt-1 break-all text-base font-bold text-slate-900">
                           {showBackupEmailPlaceholder ? 'No backup email yet' : (email || 'No email on file')}
                         </p>
@@ -534,25 +590,57 @@ export default function ProfileSettings({ user }: { user: User | null }) {
                         {hasVerifiedEmail ? 'Verified' : 'Pending'}
                       </span>
                     </div>
-                    <p className="text-sm text-slate-500">{emailHelper}</p>
-                    <input
-                      required
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder={showBackupEmailPlaceholder ? 'Add a backup email' : 'you@example.com'}
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold outline-none transition-all focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
-                    />
-                    <Button type="submit" loading={saving}>
-                      Save name and email
-                    </Button>
+                    <div className="flex items-center gap-3">
+                      <input
+                        required
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder={showBackupEmailPlaceholder ? 'Add a backup email' : 'you@example.com'}
+                        disabled={!editingEmail}
+                        className={`w-full rounded-2xl border p-4 text-sm font-bold outline-none transition-all ${
+                          editingEmail
+                            ? 'border-slate-200 bg-white text-slate-900 focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10'
+                            : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (editingEmail) {
+                            const saved = await handleSaveEmailOnly();
+                            if (saved) setEditingEmail(false);
+                            return;
+                          }
+                          setError(null);
+                          setMessage(null);
+                          setEditingEmail(true);
+                        }}
+                        disabled={saving}
+                        aria-label={editingEmail ? 'Save email' : 'Edit email'}
+                        className={`inline-flex h-11 shrink-0 items-center justify-center gap-1 rounded-2xl border text-sm font-bold transition-all duration-150 ${
+                          editingEmail
+                            ? 'min-w-[5.5rem] border-brand-600 bg-brand-600 px-3 text-white hover:border-brand-500 hover:bg-brand-500'
+                            : 'w-11 border-brand-600 bg-gradient-to-br from-teal-300 via-brand-500 to-teal-700 text-white shadow-[0_8px_18px_rgba(13,148,136,0.32)] ring-1 ring-white/70 hover:brightness-105'
+                        }`}
+                      >
+                        {editingEmail ? (
+                          <>
+                            <Check className="h-4 w-4" />
+                            <span>Save</span>
+                          </>
+                        ) : (
+                          <Pencil className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
                   </section>
 
                   <div className="my-5 h-px bg-slate-100" />
 
                   <section className="space-y-4">
                     <div className="space-y-1">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Push notifications</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-brand-600">Push notifications</p>
                       <h3 className="flex items-center gap-2 text-xl font-black tracking-tight text-slate-900">
                         <Bell className="h-5 w-5" />
                         Installed app notifications
@@ -637,7 +725,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
                     {pushMessage ? <p className="rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs text-brand-700">{pushMessage}</p> : null}
                     {pushError ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">{pushError}</p> : null}
                   </section>
-                </form>
+                </div>
 
                 {isWhatsappPrimaryAccount ? (
                   <>

@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 2026-04-11
+
+### Profile editing UX polish and My Activities default-tab behavior
+
+- updated signed-in `/profile` account details so `Name` and `Email` are now locked/read-only by default with compact inline edit controls
+- replaced the large profile save buttons with small edit actions that switch into an obvious inline `Save` state per field
+- removed redundant helper copy above the WhatsApp re-verification CTA so the `Change WhatsApp number` action remains clear without extra text
+- guarded inline profile saves so unchanged `Name` / `Email` submissions no longer trigger unnecessary backend updates or noisy sync warnings
+- updated `/my-activities` default tab selection so users with no upcoming hosted activities land on `Attending` by default instead of an empty `Hosting` view
+- refreshed profile section-label styling to brand teal and removed the extra `Profile` eyebrow heading above `Account details`
+
 ## 2026-04-07
 
 ### Auth session recovery, admin access, and activity location locking

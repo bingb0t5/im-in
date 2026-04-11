@@ -1341,10 +1341,19 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <button
               type="button"
               onClick={openNotificationModal}
-              className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-center transition-all hover:border-brand-200 hover:bg-brand-50/40 active:scale-[0.99]"
+              className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-4 text-center transition-all hover:border-brand-200 hover:bg-brand-50/40 active:scale-[0.99]"
             >
               <MessageSquare className="h-5 w-5 text-brand-600" />
-              <span className="text-sm font-bold text-slate-700">Send Notification</span>
+              <span className="text-sm font-bold text-slate-700">Send Msg</span>
+            </button>
+            <button
+              type="button"
+              onClick={copyEvent}
+              disabled={actionLoading}
+              className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-4 text-center transition-all hover:border-brand-200 hover:bg-brand-50/40 active:scale-[0.99] disabled:opacity-50"
+            >
+              <Copy className="h-5 w-5 text-slate-500" />
+              <span className="text-sm font-bold text-slate-700">Copy Activity</span>
             </button>
           </div>
           {notificationSendMessage ? (
@@ -2048,14 +2057,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
             </div>
           </section>
 
-          <section className="flex flex-col items-center gap-4 pt-1">
-            <button
-              onClick={copyEvent}
-              disabled={actionLoading}
-              className="flex items-center gap-1.5 text-sm text-slate-400 transition-all hover:text-slate-600 active:scale-95 disabled:opacity-50"
-            >
-              <Copy className="w-4 h-4" /> Duplicate for next week
-            </button>
+          <section className="flex justify-center pt-1">
             <button 
               onClick={() => {
                 setConfirmText('');
