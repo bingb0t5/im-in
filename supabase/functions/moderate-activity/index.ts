@@ -1275,31 +1275,20 @@ Deno.serve(async (request) => {
     }
 
     if (event.moderation_override) {
-      const previousDiscoveryEnabled = !!event.public_discovery_enabled;
-      const overrideUpdate = getManualOverrideUpdate(event.moderation_override);
-      const { error: overrideError } = await admin
-        .from('events')
-        .update(overrideUpdate)
-        .eq('id', event.id);
-
-      if (overrideError) {
-        throw overrideError;
-      }
-
-      await insertPublicModerationLog(
-        admin,
-        event,
-        overrideUpdate,
-        {
-          previousDiscoveryEnabled,
-          override: event.moderation_override,
-          moderatorInternalId: user.id,
-          publicExplanation: typeof publicExplanation === 'string' ? publicExplanation : null,
-          source: 'manual',
+      return json({
+        reused: true,
+        override: event.moderation_override,
+        result: {
+          public_discovery_enabled: !!event.public_discovery_enabled,
+          moderation_status: event.moderation_status,
+          moderation_risk_level: event.moderation_risk_level,
+          moderation_action: event.moderation_action,
+          moderation_confidence: event.moderation_confidence,
+          moderation_reasons: event.moderation_reasons || [],
+          moderation_input_hash: event.moderation_input_hash,
+          moderated_at: event.moderated_at,
         },
-      );
-
-      return json({ reused: false, override: event.moderation_override, result: overrideUpdate });
+      });
     }
 
     const moderationInput = buildActivityModerationInput(event);
