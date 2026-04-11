@@ -2,6 +2,12 @@
 
 ## 2026-04-11
 
+### Verify with WhatsApp UX guidance and build-time UI sync
+
+- refreshed the `Verify with WhatsApp` UI copy so the flow now explains each step more clearly (what to tap, what happens in WhatsApp, and when to return to the app)
+- improved the verify-screen guidance to reduce confusion during handoff and make completion expectations more explicit
+- updated build behavior so WhatsApp verify UI updates are now pulled directly from the Lalo server during build, reducing drift between hosted verify messaging and app UI
+
 ### Profile editing UX polish and My Activities default-tab behavior
 
 - updated signed-in `/profile` account details so `Name` and `Email` are now locked/read-only by default with compact inline edit controls
