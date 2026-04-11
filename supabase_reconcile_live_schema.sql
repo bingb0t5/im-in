@@ -1774,7 +1774,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 REVOKE ALL ON FUNCTION public.get_or_create_public_moderator_handle(UUID) FROM anon, authenticated;
 
-CREATE OR REPLACE FUNCTION public.list_public_moderation_log(
+DROP FUNCTION IF EXISTS public.list_public_moderation_log(TEXT, UUID, INTEGER, INTEGER);
+
+CREATE FUNCTION public.list_public_moderation_log(
     p_action TEXT DEFAULT NULL,
     p_target_id UUID DEFAULT NULL,
     p_limit INTEGER DEFAULT 30,
