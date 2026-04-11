@@ -4158,7 +4158,7 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    IF NEW.moderation_override IS NOT NULL THEN
+    IF NEW.moderation_override IS NOT NULL AND NOT should_reset THEN
         CASE NEW.moderation_override
             WHEN 'force_visible', 'mark_safe' THEN
                 NEW.public_discovery_enabled := true;
@@ -4195,6 +4195,7 @@ BEGIN
         NEW.moderation_input_hash := NULL;
         NEW.moderated_at := NULL;
         NEW.moderation_archived_at := NULL;
+        NEW.moderation_override := NULL;
     END IF;
 
     RETURN NEW;
