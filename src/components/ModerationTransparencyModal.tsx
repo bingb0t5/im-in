@@ -26,6 +26,14 @@ function formatTimestamp(value: string) {
   });
 }
 
+function formatReasonCode(reasonCode: string) {
+  return reasonCode.replace(/_/g, ' ');
+}
+
+function getModeratorDisplayName(entry: Pick<PublicModerationLogEntry, 'moderator_display_name' | 'moderator_public_handle'>) {
+  return entry.moderator_display_name || entry.moderator_public_handle || 'System';
+}
+
 function formatAction(action: PublicModerationLogEntry['action']) {
   return FILTER_LABELS[action];
 }
@@ -305,7 +313,7 @@ export function ModerationTransparencyModal() {
                           </span>
                           {entry.reason_code ? (
                             <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-                              {entry.reason_code.replace(/_/g, ' ')}
+                              {formatReasonCode(entry.reason_code)}
                             </span>
                           ) : null}
                         </div>
@@ -318,8 +326,10 @@ export function ModerationTransparencyModal() {
                         <p className="text-sm leading-relaxed text-slate-500">{entry.public_explanation}</p>
                       ) : null}
 
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
-                        <span>{entry.moderator_public_handle}</span>
+                      <div className="grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
+                        <span>Activity created: {entry.target_created_at ? formatTimestamp(entry.target_created_at) : 'Unknown'}</span>
+                        <span>Moderation logged: {formatTimestamp(entry.created_at)}</span>
+                        <span>By: {getModeratorDisplayName(entry)}</span>
                         <span>Tap to view current public page</span>
                       </div>
                     </button>
@@ -381,6 +391,11 @@ export function ModerationTransparencyModal() {
                 {selectedEntry.public_explanation ? (
                   <p className="text-sm leading-relaxed text-slate-500">{selectedEntry.public_explanation}</p>
                 ) : null}
+                <div className="grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
+                  <span>Activity created: {selectedEntry.target_created_at ? formatTimestamp(selectedEntry.target_created_at) : 'Unknown'}</span>
+                  <span>Moderation logged: {formatTimestamp(selectedEntry.created_at)}</span>
+                  <span>By: {getModeratorDisplayName(selectedEntry)}</span>
+                </div>
               </div>
 
               {previewLoading ? (

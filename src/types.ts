@@ -64,6 +64,8 @@ export interface PublicModerationLogEntry {
   reason_code: string | null;
   public_explanation: string | null;
   moderator_public_handle: string;
+  moderator_display_name: string;
+  target_created_at?: string | null;
   created_at: string;
 }
 

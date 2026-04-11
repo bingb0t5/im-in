@@ -986,6 +986,8 @@ CREATE OR REPLACE FUNCTION public.list_public_moderation_log(
     reason_code TEXT,
     public_explanation TEXT,
     moderator_public_handle TEXT,
+    moderator_display_name TEXT,
+    target_created_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ
 ) AS $$
     SELECT
@@ -999,8 +1001,28 @@ CREATE OR REPLACE FUNCTION public.list_public_moderation_log(
         entry.reason_code,
         entry.public_explanation,
         entry.moderator_public_handle,
+        COALESCE(
+            NULLIF(TRIM((
+                SELECT COALESCE(
+                    NULLIF(TRIM(concat_ws(' ', ap.first_name, ap.last_name)), ''),
+                    NULLIF(TRIM(ap.full_name), '')
+                )
+                FROM public.attendee_profiles ap
+                WHERE ap.user_id = entry.moderator_internal_id
+                ORDER BY ap.updated_at DESC NULLS LAST, ap.created_at DESC NULLS LAST
+                LIMIT 1
+            )), ''),
+            NULLIF(TRIM(entry.moderator_public_handle), ''),
+            CASE
+                WHEN entry.moderator_internal_id IS NULL THEN 'System'
+                ELSE 'Moderator'
+            END
+        ) AS moderator_display_name,
+        target_event.created_at AS target_created_at,
         entry.created_at
     FROM public.public_moderation_log_entries entry
+    LEFT JOIN public.events target_event
+      ON target_event.id = entry.target_id
     WHERE (p_action IS NULL OR entry.action = p_action)
       AND (p_target_id IS NULL OR entry.target_id = p_target_id)
       AND entry.target_visibility_snapshot IN ('public', 'semi_public')

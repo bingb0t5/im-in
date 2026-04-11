@@ -136,6 +136,14 @@ function getOverrideLabel(event: Event) {
   }
 }
 
+function formatReasonLabel(reasonCode: string) {
+  return MODERATION_REASON_COPY[reasonCode]?.label || reasonCode.replace(/_/g, ' ');
+}
+
+function getModeratorDisplayName(entry: Pick<PublicModerationLogEntry, 'moderator_display_name' | 'moderator_public_handle'>) {
+  return entry.moderator_display_name || entry.moderator_public_handle || 'System';
+}
+
 export default function AdminModeration({ user }: { user: User | null }) {
   const [events, setEvents] = useState<Event[]>([]);
   const [logEntriesByEventId, setLogEntriesByEventId] = useState<Record<string, PublicModerationLogEntry[]>>({});
@@ -463,7 +471,9 @@ export default function AdminModeration({ user }: { user: User | null }) {
                     <>
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-xs text-slate-400">
-                          `/events/{event.slug}`{overrideLabel ? ` · override: ${overrideLabel}` : ''}{event.moderation_archived_at ? ` · inbox archived ${formatDate(event.moderation_archived_at)}` : ''}
+                          `/events/{event.slug}` · activity created {formatDate(event.created_at)}
+                          {overrideLabel ? ` · override: ${overrideLabel}` : ''}
+                          {event.moderation_archived_at ? ` · inbox archived ${formatDate(event.moderation_archived_at)}` : ''}
                         </p>
                         <Link
                           to={`/events/${event.slug}`}
@@ -523,6 +533,29 @@ export default function AdminModeration({ user }: { user: User | null }) {
                           </div>
                         </div>
                       ) : null}
+
+                      <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Audit timeline</p>
+                          <span className="text-xs font-bold text-slate-600">{visibilityLabel}</span>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Activity created</p>
+                            <p className="text-sm font-bold text-slate-800">{formatDate(event.created_at)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Latest moderation</p>
+                            <p className="text-sm font-bold text-slate-800">
+                              {event.moderated_at ? formatDate(event.moderated_at) : 'Not checked'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Current override</p>
+                            <p className="text-sm font-bold text-slate-800">{overrideLabel || 'None'}</p>
+                          </div>
+                        </div>
+                      </div>
 
                       <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -649,10 +682,11 @@ export default function AdminModeration({ user }: { user: User | null }) {
                                   <p className="text-sm font-bold text-slate-800">{entry.action.replace(/_/g, ' ')}</p>
                                   <p className="text-xs text-slate-400">{formatDate(entry.created_at)}</p>
                                 </div>
-                                <p className="text-xs text-slate-500 mt-1">
-                                  By {entry.moderator_public_handle}
-                                  {entry.reason_code ? ` · ${MODERATION_REASON_COPY[entry.reason_code]?.label || entry.reason_code.replace(/_/g, ' ')}` : ''}
-                                </p>
+                                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                                  <span>By {getModeratorDisplayName(entry)}</span>
+                                  {entry.reason_code ? <span>{formatReasonLabel(entry.reason_code)}</span> : null}
+                                  <span>Activity created {entry.target_created_at ? formatDate(entry.target_created_at) : 'Unknown'}</span>
+                                </div>
                                 {entry.public_explanation ? (
                                   <p className="text-sm text-slate-600 mt-2 leading-relaxed">{entry.public_explanation}</p>
                                 ) : null}
