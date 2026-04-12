@@ -21,10 +21,12 @@ The platform moderation pass currently runs for:
 
 - `public` activities
 - `semi_public` public previews
+- gallery images when a host opts into `gallery_visibility = 'public_preview'` on public or semi-public activities
 
 It does **not** run for:
 
 - `private` activities
+- gallery images kept in `gallery_visibility = 'private_only'`
 
 Semi-public activities are split:
 
@@ -60,6 +62,10 @@ After create/edit, the frontend calls the Supabase Edge Function:
 
 - `supabase/functions/moderate-activity`
 
+For gallery-image public previews, create/edit can also call:
+
+- `supabase/functions/moderate-event-gallery`
+
 That function:
 
 - verifies the caller is the host or a co-host
@@ -69,6 +75,14 @@ That function:
 - reuses an existing moderation result if the hash has not changed
 - otherwise calls a cheap language model for structured classification
 - stores the result back on the `events` row
+
+The gallery moderation function:
+
+- verifies host/co-host ownership of the activity
+- reads gallery image rows for that activity
+- signs each image and runs a lightweight image moderation pass for public preview eligibility
+- writes per-image status (`approved` / `blocked` / `error`) to `event_gallery_images.public_visibility_status`
+- keeps private-only gallery images outside public-preview moderation
 
 ## Stored Fields
 

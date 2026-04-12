@@ -9,6 +9,16 @@
 - changed no-email host adds to use deterministic placeholder emails derived from normalized guest name instead of random placeholders, so repeat adds dedupe consistently
 - updated duplicate detection messaging to show a friendly host-facing message (`This attendee is already on the activity.`) when the attendee already exists
 
+### Activity gallery uploads, moderation, and admin review
+
+- added host activity gallery support (multi-image uploads) in create/edit, including image queueing/removal and persisted image management while editing
+- added HEIC/HEIF upload support for iPhone photos by converting them to JPEG before storage
+- added per-activity gallery visibility control (`private_only` vs `public_preview`), with private activities forcing private-only gallery behavior
+- added backend gallery schema (`events.gallery_visibility`, `event_gallery_images`, `event_gallery_image_reports`) plus viewer-safe gallery RPCs and image report RPC flow
+- added new Supabase Edge Functions for gallery fetch (`event-gallery`), image moderation (`moderate-event-gallery`), and admin review actions (`gallery-admin`)
+- added gallery rendering on activity detail pages, including approved public-preview display and signed-in image reporting
+- added hidden admin gallery review page at `/admin/gallery` and linked it from the admin hub for moderation allowlisted users
+
 ## 2026-04-11
 
 ### Moderation auto-run reliability and discovery diagnostics

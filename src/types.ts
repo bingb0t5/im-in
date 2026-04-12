@@ -26,6 +26,7 @@ export interface Event {
   require_host_approval_for_join?: boolean;
   require_guest_email_for_join?: boolean;
   is_public: boolean;
+  gallery_visibility?: EventGalleryVisibility;
   public_discovery_enabled?: boolean;
   moderation_status?: 'not_required' | 'pending' | 'approved' | 'limited' | 'review' | 'blocked' | 'error';
   moderation_risk_level?: 'low' | 'medium' | 'high';
@@ -41,6 +42,54 @@ export interface Event {
   updated_at: string;
   confirmed_count?: number;
   thinking_count?: number;
+}
+
+export type EventGalleryVisibility = 'private_only' | 'public_preview';
+export type EventGalleryPublicVisibilityStatus =
+  | 'private_only'
+  | 'pending'
+  | 'approved'
+  | 'blocked'
+  | 'error'
+  | 'report_hidden';
+
+export interface EventGalleryImage {
+  id: string;
+  event_id?: string;
+  storage_bucket?: string;
+  storage_path?: string;
+  original_file_name?: string | null;
+  content_type?: string | null;
+  file_size_bytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  sort_order: number;
+  public_visibility_status: EventGalleryPublicVisibilityStatus;
+  public_moderation_reasons?: string[] | null;
+  public_moderation_confidence?: number | null;
+  public_moderated_at?: string | null;
+  public_hidden_at?: string | null;
+  public_hidden_reason?: string | null;
+  review_requested_at?: string | null;
+  report_count?: number;
+  signed_url?: string | null;
+  is_public_preview_visible?: boolean;
+  can_report?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface GalleryAdminItem extends EventGalleryImage {
+  event_id: string;
+  event?: {
+    id: string;
+    slug: string;
+    title: string;
+    host_name?: string | null;
+    visibility?: 'public' | 'semi_public' | 'private' | null;
+    is_public?: boolean | null;
+    gallery_visibility?: EventGalleryVisibility | null;
+  } | null;
 }
 
 export type ActivityRelationshipState =

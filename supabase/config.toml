@@ -30,3 +30,12 @@ verify_jwt = false
 
 [functions.push-dispatch]
 verify_jwt = false
+
+[functions.event-gallery]
+verify_jwt = false
+
+[functions.moderate-event-gallery]
+verify_jwt = false
+
+[functions.gallery-admin]
+verify_jwt = false

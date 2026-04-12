@@ -21,7 +21,17 @@ import { applyGoogleMapsAutofill, isGoogleMapsShortUrl, parseGoogleMapsLocation 
 import { shouldModerateVisibility } from '../lib/moderation';
 import { LOCKED_PUBLIC_LOCATION, LOCKED_PUBLIC_LOCATION_OPTIONS, normalizePublicLocationText } from '../lib/publicLocation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
+import { EventGalleryEditor, QueuedGalleryUpload } from '../components/EventGalleryEditor';
+import {
+  EVENT_GALLERY_BUCKET,
+  EVENT_GALLERY_MAX_IMAGE_COUNT,
+  buildEventGalleryStoragePath,
+  createClientSideId,
+  sanitizeEventGalleryFile,
+  validateEventGalleryFile,
+} from '../lib/eventGallery';
 import { guestService, getAccountNameFromUser, isSystemGuestEmail, resolvePreferredAccountName } from '../services/guestService';
+import { EventGalleryImage, EventGalleryVisibility } from '../types';
 import { Button } from '../components/ui/Button';
 import { StateScreen } from '../components/ui/StateScreen';
 import {
@@ -77,6 +87,7 @@ type CreateEventDraft = {
     host_contact_text: string;
     show_host_publicly: boolean;
     visibility: 'public' | 'semi_public' | 'private';
+    gallery_visibility: EventGalleryVisibility;
     allow_waitlist: boolean;
     require_host_approval_for_join: boolean;
     require_guest_email_for_join: boolean;
@@ -88,7 +99,17 @@ type CreateEventDraft = {
   /** True when the user just signed up via Lalo WhatsApp — only collect display name, not WhatsApp again. */
   laloNewUser?: boolean;
   /** Restore wizard step after auth (email magic link return or post–WhatsApp navigation). */
-  resumeAfterAuthStep?: 1 | 2 | 3;
+  resumeAfterAuthStep?: 1 | 2 | 3 | 4;
+};
+
+type SaveProgressState = {
+  percent: number;
+  message: string;
+};
+
+type EventGalleryManageResponse = {
+  galleryVisibility: EventGalleryVisibility;
+  images: EventGalleryImage[];
 };
 
 async function resolveHostDisplayNameAfterWhatsAppSignIn(sessionUser: User): Promise<string> {
@@ -107,7 +128,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   const isEditing = !!id;
   /**
    * After auth handoffs, this page can render before App has pushed the latest `user` prop.
-   * Keep a local mirror of the shared Supabase session bootstrap so step 3 matches reality.
+   * Keep a local mirror of the shared Supabase session bootstrap so the final submit step matches reality.
    */
   const { user: bootstrappedSessionUser } = useSupabaseSession();
   const [sessionMirrorUser, setSessionMirrorUser] = useState<User | null>(null);
@@ -125,8 +146,8 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   }, [bootstrappedSessionUser]);
 
   const hasHydratedDraft = useRef(false);
-  const currentStepRef = useRef<1 | 2 | 3>(1);
-  const step3EnteredAtRef = useRef(0);
+  const currentStepRef = useRef<1 | 2 | 3 | 4>(1);
+  const finalStepEnteredAtRef = useRef(0);
   /** Prevents overlapping finalize if Lalo fires completion more than once. */
   const createEventWhatsAppOnCompleteInFlightRef = useRef(false);
   const [loading, setLoading] = useState(false);
@@ -146,6 +167,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
     host_contact_text: '',
     show_host_publicly: true,
     visibility: 'semi_public' as 'public' | 'semi_public' | 'private',
+    gallery_visibility: 'private_only' as EventGalleryVisibility,
     allow_waitlist: true,
     require_host_approval_for_join: false,
     require_guest_email_for_join: false,
@@ -163,7 +185,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   const [needsProfileDetails, setNeedsProfileDetails] = useState(false);
   const [accountHostName, setAccountHostName] = useState('');
   const [accountHasLinkedWhatsapp, setAccountHasLinkedWhatsapp] = useState(false);
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(isEditing ? 2 : 1);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(isEditing ? 2 : 1);
   const [visibilitySelected, setVisibilitySelected] = useState(isEditing);
   const [showTimezoneField, setShowTimezoneField] = useState(isEditing);
   const [mapsAutofillLoading, setMapsAutofillLoading] = useState(false);
@@ -171,11 +193,36 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   const [mapsAutofillError, setMapsAutofillError] = useState<string | null>(null);
   const [createEventAuthStep, setCreateEventAuthStep] = useState<'choose' | 'email'>('choose');
   const [profileModalShowWhatsappField, setProfileModalShowWhatsappField] = useState(true);
+  const [galleryImages, setGalleryImages] = useState<EventGalleryImage[]>([]);
+  const [removedGalleryImages, setRemovedGalleryImages] = useState<EventGalleryImage[]>([]);
+  const [queuedGalleryUploads, setQueuedGalleryUploads] = useState<QueuedGalleryUpload[]>([]);
+  const [galleryLoading, setGalleryLoading] = useState(isEditing);
+  const [galleryError, setGalleryError] = useState<string | null>(null);
+  const [loadedEventVisibility, setLoadedEventVisibility] = useState<'public' | 'semi_public' | 'private' | null>(null);
+  const [loadedGalleryVisibility, setLoadedGalleryVisibility] = useState<EventGalleryVisibility>('private_only');
+  const [saveProgress, setSaveProgress] = useState<SaveProgressState | null>(null);
   const formDataRef = useRef(formData);
+  const queuedGalleryUploadsRef = useRef<QueuedGalleryUpload[]>([]);
 
   useEffect(() => {
     formDataRef.current = formData;
   }, [formData]);
+
+  useEffect(() => {
+    queuedGalleryUploadsRef.current = queuedGalleryUploads;
+  }, [queuedGalleryUploads]);
+
+  useEffect(() => () => {
+    queuedGalleryUploadsRef.current.forEach((upload) => {
+      URL.revokeObjectURL(upload.previewUrl);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (formData.visibility !== 'private') return;
+    if (formData.gallery_visibility === 'private_only') return;
+    setFormData((prev) => ({ ...prev, gallery_visibility: 'private_only' }));
+  }, [formData.visibility, formData.gallery_visibility]);
 
   useEffect(() => {
     currentStepRef.current = currentStep;
@@ -249,7 +296,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
           const draft = JSON.parse(draftRaw) as CreateEventDraft;
           draft.needsProfileDetails = needProfileDetails;
           draft.laloNewUser = laloNewUser;
-          draft.resumeAfterAuthStep = 3;
+          draft.resumeAfterAuthStep = 4;
           if (resolvedAccountName) {
             draft.formData = {
               ...draft.formData,
@@ -268,8 +315,8 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         sessionStorage.removeItem(CREATE_EVENT_AUTO_SUBMIT_AFTER_WHATSAPP_KEY);
       }
 
-      step3EnteredAtRef.current = Date.now();
-      setCurrentStep(3);
+      finalStepEnteredAtRef.current = Date.now();
+      setCurrentStep(4);
       setNeedsProfileDetails(needProfileDetails);
       if (resolvedAccountName) {
         setAccountHostName(resolvedAccountName);
@@ -406,7 +453,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
     if (isEditing && user) {
       fetchEvent();
     }
-  }, [id, user]);
+  }, [id, user?.id]);
 
   useEffect(() => {
     if (isEditing || hasHydratedDraft.current) return;
@@ -428,12 +475,15 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         setVisibilitySelected(true);
         const resumeAuthStep = localStorage.getItem(CREATE_EVENT_PENDING_AUTH_KEY) === 'true';
         const resumeFromDraft =
-          draft.resumeAfterAuthStep === 1 || draft.resumeAfterAuthStep === 2 || draft.resumeAfterAuthStep === 3
+          draft.resumeAfterAuthStep === 1
+          || draft.resumeAfterAuthStep === 2
+          || draft.resumeAfterAuthStep === 3
+          || draft.resumeAfterAuthStep === 4
             ? draft.resumeAfterAuthStep
             : null;
-        const nextStep = resumeFromDraft ?? (resumeAuthStep ? 3 : 2);
-        if (nextStep === 3) {
-          step3EnteredAtRef.current = Date.now();
+        const nextStep = resumeFromDraft ?? (resumeAuthStep ? 4 : 2);
+        if (nextStep === 4) {
+          finalStepEnteredAtRef.current = Date.now();
         }
         setCurrentStep(nextStep);
         setShowTimezoneField(
@@ -500,8 +550,8 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
 
       if (cancelled) return;
 
-      step3EnteredAtRef.current = Date.now();
-      setCurrentStep(3);
+      finalStepEnteredAtRef.current = Date.now();
+      setCurrentStep(4);
       setNeedsProfileDetails(shouldCollectProfileDetails);
       if (shouldCollectProfileDetails) {
         let nameSeed = '';
@@ -691,22 +741,205 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         host_contact_text: normalizedEvent.host_contact_text || '',
         show_host_publicly: normalizedEvent.show_host_publicly ?? false,
         visibility: normalizedEvent.visibility || (normalizedEvent.is_public ? 'public' : 'private'),
+        gallery_visibility: normalizedEvent.gallery_visibility || 'private_only',
         allow_waitlist: normalizedEvent.allow_waitlist ?? true,
         require_host_approval_for_join: normalizedEvent.require_host_approval_for_join ?? false,
         require_guest_email_for_join: normalizedEvent.require_guest_email_for_join ?? false,
         is_public: normalizedEvent.is_public ?? true,
       });
+      setLoadedEventVisibility((normalizedEvent.visibility || (normalizedEvent.is_public ? 'public' : 'private')) as 'public' | 'semi_public' | 'private');
+      setLoadedGalleryVisibility((normalizedEvent.gallery_visibility || 'private_only') as EventGalleryVisibility);
       setVisibilitySelected(true);
-      setCurrentStep(2);
+      setCurrentStep((prev) => (prev === 1 ? 2 : prev));
       setShowTimezoneField(timezone !== DETECTED_EVENT_TIMEZONE);
+      setGalleryLoading(true);
+      try {
+        const galleryResponse = await invokeAuthedFunction<EventGalleryManageResponse>('event-gallery', {
+          mode: 'manage',
+          eventId: normalizedEvent.id,
+        });
+        setGalleryImages(galleryResponse.images || []);
+        setRemovedGalleryImages([]);
+        setGalleryError(null);
+      } catch (galleryLoadError: any) {
+        console.error('Error loading gallery:', galleryLoadError);
+        setGalleryImages([]);
+        setRemovedGalleryImages([]);
+        setGalleryError(galleryLoadError?.message || 'Could not load the saved gallery images.');
+      } finally {
+        setGalleryLoading(false);
+      }
       setInitialLoading(false);
     }
   };
 
+  const handlePickGalleryFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const existingCount = galleryImages.length + queuedGalleryUploads.length;
+    const nextFiles = Array.from(files);
+    if (existingCount + nextFiles.length > EVENT_GALLERY_MAX_IMAGE_COUNT) {
+      setGalleryError(`You can add up to ${EVENT_GALLERY_MAX_IMAGE_COUNT} images per activity.`);
+      return;
+    }
+
+    const accepted: QueuedGalleryUpload[] = [];
+    for (const file of nextFiles) {
+      try {
+        validateEventGalleryFile(file);
+        accepted.push({
+          id: createClientSideId(),
+          file,
+          previewUrl: URL.createObjectURL(file),
+        });
+      } catch (validationError: any) {
+        setGalleryError(validationError?.message || 'One of those files could not be added.');
+        accepted.forEach((upload) => URL.revokeObjectURL(upload.previewUrl));
+        return;
+      }
+    }
+
+    setQueuedGalleryUploads((prev) => [...prev, ...accepted]);
+    setGalleryError(null);
+  };
+
+  const handleRemoveExistingGalleryImage = (imageId: string) => {
+    setGalleryImages((prev) => {
+      const imageToRemove = prev.find((image) => image.id === imageId);
+      if (imageToRemove) {
+        setRemovedGalleryImages((current) => [...current, imageToRemove]);
+      }
+      return prev.filter((image) => image.id !== imageId);
+    });
+  };
+
+  const handleRemoveQueuedGalleryUpload = (uploadId: string) => {
+    setQueuedGalleryUploads((prev) => {
+      const next = prev.filter((upload) => {
+        if (upload.id !== uploadId) return true;
+        URL.revokeObjectURL(upload.previewUrl);
+        return false;
+      });
+      return next;
+    });
+  };
+
+  const syncEventGallery = useCallback(
+    async ({
+      eventId,
+      resolvedVisibility,
+    }: {
+      eventId: string;
+      resolvedVisibility: 'public' | 'semi_public' | 'private';
+    }) => {
+      const effectiveGalleryVisibility: EventGalleryVisibility =
+        resolvedVisibility === 'private' ? 'private_only' : formData.gallery_visibility;
+      const wasPublicPreview =
+        !!loadedEventVisibility
+        && loadedEventVisibility !== 'private'
+        && loadedGalleryVisibility === 'public_preview';
+      const isPublicPreview =
+        resolvedVisibility !== 'private'
+        && effectiveGalleryVisibility === 'public_preview';
+      const shouldModerateGallery =
+        (queuedGalleryUploads.length > 0 && isPublicPreview)
+        || wasPublicPreview !== isPublicPreview;
+      const totalSteps =
+        (removedGalleryImages.length * 2)
+        + (queuedGalleryUploads.length * 3)
+        + (shouldModerateGallery ? 1 : 0);
+      let completedSteps = 0;
+      const advanceGalleryProgress = (message: string) => {
+        if (totalSteps <= 0) return;
+        completedSteps += 1;
+        const percent = Math.min(92, Math.max(36, Math.round(36 + (completedSteps / totalSteps) * 56)));
+        setSaveProgress({ percent, message });
+      };
+
+      for (const image of removedGalleryImages) {
+        if (!image.id || !image.storage_path) continue;
+        const bucket = image.storage_bucket || EVENT_GALLERY_BUCKET;
+        advanceGalleryProgress(`Removing ${image.original_file_name || 'photo'}...`);
+        const { error: removeStorageError } = await supabase.storage
+          .from(bucket)
+          .remove([image.storage_path]);
+        if (removeStorageError) {
+          throw removeStorageError;
+        }
+        advanceGalleryProgress(`Updating gallery after removing ${image.original_file_name || 'photo'}...`);
+        const { error: deleteRowError } = await supabase
+          .from('event_gallery_images')
+          .delete()
+          .eq('id', image.id);
+        if (deleteRowError) {
+          throw deleteRowError;
+        }
+      }
+
+      let sortOrder = galleryImages.length;
+
+      for (const upload of queuedGalleryUploads) {
+        advanceGalleryProgress(`Preparing ${upload.file.name}...`);
+        const prepared = await sanitizeEventGalleryFile(upload.file);
+        const storagePath = buildEventGalleryStoragePath(eventId, prepared.extension);
+        advanceGalleryProgress(`Uploading ${upload.file.name}...`);
+        const { error: uploadError } = await supabase.storage
+          .from(EVENT_GALLERY_BUCKET)
+          .upload(storagePath, prepared.blob, {
+            contentType: prepared.contentType,
+            upsert: false,
+          });
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        advanceGalleryProgress(`Saving ${upload.file.name}...`);
+        const { error: insertError } = await supabase
+          .from('event_gallery_images')
+          .insert({
+            event_id: eventId,
+            storage_bucket: EVENT_GALLERY_BUCKET,
+            storage_path: storagePath,
+            original_file_name: upload.file.name,
+            content_type: prepared.contentType,
+            file_size_bytes: prepared.blob.size,
+            width: prepared.width,
+            height: prepared.height,
+            sort_order: sortOrder,
+            created_by_user_id: user?.id,
+            public_visibility_status: isPublicPreview ? 'pending' : 'private_only',
+          });
+        if (insertError) {
+          throw insertError;
+        }
+        sortOrder += 1;
+      }
+
+      if (shouldModerateGallery) {
+        advanceGalleryProgress('Checking gallery moderation...');
+        await invokeAuthedFunction('moderate-event-gallery', { eventId });
+      }
+
+      queuedGalleryUploads.forEach((upload) => URL.revokeObjectURL(upload.previewUrl));
+      setQueuedGalleryUploads([]);
+      setRemovedGalleryImages([]);
+      setLoadedEventVisibility(resolvedVisibility);
+      setLoadedGalleryVisibility(effectiveGalleryVisibility);
+    },
+    [
+      formData.gallery_visibility,
+      galleryImages,
+      loadedEventVisibility,
+      loadedGalleryVisibility,
+      removedGalleryImages,
+      queuedGalleryUploads,
+      user?.id,
+    ],
+  );
+
   const runCreateEventSave = useCallback(
     async (options?: { skipStep3TimingGuard?: boolean }) => {
-      if (currentStep !== 3) return;
-      if (!options?.skipStep3TimingGuard && Date.now() - step3EnteredAtRef.current < 450) return;
+      if (currentStep !== 4) return;
+      if (!options?.skipStep3TimingGuard && Date.now() - finalStepEnteredAtRef.current < 450) return;
       if (!user) {
         createEventWhatsAppOnCompleteInFlightRef.current = false;
         setShowEmailModal(true);
@@ -720,6 +953,10 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
 
       setLoading(true);
       setError(null);
+      setSaveProgress({
+        percent: 5,
+        message: isEditing ? 'Saving activity details...' : 'Creating activity...',
+      });
 
       try {
         let oldCapacity = 0;
@@ -764,6 +1001,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
           ends_at: endsAtUtcIso,
           host_name: resolvedHostName,
           visibility: resolvedVisibility,
+          gallery_visibility: resolvedVisibility === 'private' ? 'private_only' : formData.gallery_visibility,
           is_public: resolvedVisibility !== 'private',
           show_host_publicly: resolvedVisibility !== 'private',
           description: formData.description.trim() || null,
@@ -806,6 +1044,8 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         }
 
         if (result.data) {
+          let gallerySyncWarning: string | null = null;
+          setSaveProgress({ percent: 18, message: 'Saving host access...' });
           await supabase
             .from('event_hosts')
             .upsert(
@@ -819,6 +1059,25 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
               { onConflict: 'event_id,user_id' },
             );
 
+          try {
+            setSaveProgress({
+              percent: queuedGalleryUploads.length > 0 || removedGalleryImages.length > 0
+                ? 28
+                : 40,
+              message:
+                queuedGalleryUploads.length > 0 || removedGalleryImages.length > 0
+                  ? 'Uploading photos...'
+                  : 'Checking gallery settings...',
+            });
+            await syncEventGallery({
+              eventId: result.data.id,
+              resolvedVisibility,
+            });
+          } catch (gallerySyncError: any) {
+            console.error('Error syncing gallery:', gallerySyncError);
+            gallerySyncWarning = gallerySyncError?.message || 'Some gallery images could not be saved.';
+          }
+
           if (!isEditing) {
             localStorage.removeItem(CREATE_EVENT_DRAFT_KEY);
             localStorage.removeItem(CREATE_EVENT_PENDING_AUTH_KEY);
@@ -826,6 +1085,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
             setNeedsProfileDetails(false);
           }
           if (isEditing && formData.capacity > oldCapacity) {
+            setSaveProgress({ percent: 94, message: 'Updating attendee access...' });
             const { data: waitlist } = await supabase
               .from('event_attendees')
               .select('*')
@@ -855,12 +1115,24 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
             }
           }
 
+          setSaveProgress({ percent: 97, message: 'Running final checks...' });
           const moderationRun = await runModerationForEvent(result.data.id, resolvedVisibility);
+
+          if (gallerySyncWarning) {
+            if (isEditing) {
+              setError(`Activity details saved, but the gallery update failed: ${gallerySyncWarning}`);
+              setLoading(false);
+              setSaveProgress(null);
+              return;
+            }
+            window.alert(`Activity created, but the gallery update failed: ${gallerySyncWarning}`);
+          }
 
           if (!isEditing) {
             sessionStorage.setItem(CREATE_EVENT_SUCCESS_KEY, result.data.id);
           }
 
+          setSaveProgress({ percent: 100, message: 'Done. Opening activity...' });
           navigate(`/host/events/${result.data.id}`, {
             state: {
               ...(isEditing ? {} : { justCreated: true }),
@@ -877,16 +1149,21 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         console.error('Error saving activity:', err);
         setError(err.message || 'Failed to save activity. Please try again.');
         setLoading(false);
+        setSaveProgress(null);
       }
     },
     [
       accountHostName,
       currentStep,
       formData,
+      galleryImages.length,
       id,
       isEditing,
       navigate,
       needsProfileDetails,
+      removedGalleryImages.length,
+      queuedGalleryUploads.length,
+      syncEventGallery,
       user,
     ],
   );
@@ -894,7 +1171,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   useEffect(() => {
     if (isEditing) return;
     if (sessionStorage.getItem(CREATE_EVENT_AUTO_SUBMIT_AFTER_WHATSAPP_KEY) !== '1') return;
-    if (!user || currentStep !== 3 || showProfileModal || showEmailModal || loading) return;
+    if (!user || currentStep !== 4 || showProfileModal || showEmailModal || loading) return;
     if (needsProfileDetails && !formData.host_name.trim()) return;
 
     sessionStorage.removeItem(CREATE_EVENT_AUTO_SUBMIT_AFTER_WHATSAPP_KEY);
@@ -913,10 +1190,16 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (currentStep !== 3) return;
-    if (Date.now() - step3EnteredAtRef.current < 450) return;
+    if (currentStep !== 4) return;
+    if (Date.now() - finalStepEnteredAtRef.current < 450) return;
     await runCreateEventSave({ skipStep3TimingGuard: true });
   };
+
+  const finalSubmitLabel = loading
+    ? `${saveProgress?.message || 'Saving...'} ${saveProgress?.percent ?? 0}%`
+    : isEditing
+      ? 'Save Changes'
+      : 'Create Activity';
 
   const handleSendMagicLink = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -956,7 +1239,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
       authEmail: normalizedEmail,
       needsProfileDetails: shouldCollectProfileDetails,
       pendingAuth: true,
-      resumeAfterAuthStep: 3,
+      resumeAfterAuthStep: 4,
     };
     localStorage.setItem(CREATE_EVENT_DRAFT_KEY, JSON.stringify(draftToPersist));
     localStorage.setItem(CREATE_EVENT_PENDING_AUTH_KEY, 'true');
@@ -1036,14 +1319,18 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
     setCurrentStep(2);
   };
 
-  const goToStep = (step: 1 | 2 | 3) => {
-    if (step === 3) {
-      step3EnteredAtRef.current = Date.now();
+  const goToStep = (step: 1 | 2 | 3 | 4) => {
+    if (step === 4) {
+      finalStepEnteredAtRef.current = Date.now();
     }
     setCurrentStep(step);
   };
 
   const handleHeaderBack = () => {
+    if (currentStep === 4) {
+      goToStep(3);
+      return;
+    }
     if (currentStep === 3) {
       goToStep(2);
       return;
@@ -1119,7 +1406,9 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
       ? 'Who should be able to find this activity?'
       : currentStep === 2
         ? 'Activity details'
-        : 'Joining settings';
+        : currentStep === 3
+          ? 'Activity photos'
+          : 'Joining settings';
 
   const isPrivateVisibility = formData.visibility === 'private';
   const publicBadgeClass = 'bg-orange-100 text-orange-700';
@@ -1155,11 +1444,11 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
           className="space-y-8"
         >
           <div className="space-y-3">
-            <p className="text-[11px] font-bold text-brand-600 uppercase tracking-[0.25em]">Step {currentStep} of 3</p>
+            <p className="text-[11px] font-bold text-brand-600 uppercase tracking-[0.25em]">Step {currentStep} of 4</p>
             {currentStep > 1 ? (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                  {[1, 2, 3].map((step) => (
+                  {[1, 2, 3, 4].map((step) => (
                     <div
                       key={step}
                       className={`h-1.5 flex-1 rounded-full ${
@@ -1501,6 +1790,58 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
                     </Button>
                   </div>
                 </>
+              ) : currentStep === 3 ? (
+                <>
+                  <EventGalleryEditor
+                    eventVisibility={formData.visibility}
+                    galleryVisibility={formData.gallery_visibility}
+                    images={galleryImages}
+                    queuedUploads={queuedGalleryUploads}
+                    canUpload={!!user}
+                    isLoading={galleryLoading || loading}
+                    errorMessage={galleryError}
+                    onGalleryVisibilityChange={(value) => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        gallery_visibility: prev.visibility === 'private' ? 'private_only' : value,
+                      }));
+                    }}
+                    onPickFiles={handlePickGalleryFiles}
+                    onRemoveExisting={handleRemoveExistingGalleryImage}
+                    onRemoveQueued={handleRemoveQueuedGalleryUpload}
+                  />
+
+                  {authMessage && (
+                    <div className="ui-feedback ui-feedback-info">
+                      {authMessage}
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="ui-feedback ui-feedback-error flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+                      <AlertCircle className="w-5 h-5 shrink-0" />
+                      <p className="font-bold text-sm">{error}</p>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <Button
+                      type="button"
+                      onClick={() => goToStep(2)}
+                      variant="secondary"
+                      className="sm:w-40"
+                    >
+                      Back
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => goToStep(4)}
+                      className="sm:flex-1 sm:min-w-0"
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </>
               ) : (
                 <>
                   <section className="ui-card overflow-hidden">
@@ -1639,9 +1980,10 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
                   <div className="flex flex-col sm:flex-row gap-3">
                     <Button
                       type="button"
-                      onClick={() => goToStep(2)}
+                      onClick={() => goToStep(3)}
                       variant="secondary"
                       className="sm:w-40"
+                      disabled={loading}
                     >
                       Back
                     </Button>
@@ -1650,9 +1992,23 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
                       loading={loading}
                       className="sm:flex-1 sm:min-w-0"
                     >
-                      {isEditing ? 'Save Changes' : 'Create Activity'}
+                      {finalSubmitLabel}
                     </Button>
                   </div>
+                  {loading && saveProgress ? (
+                    <div className="rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3">
+                      <div className="flex items-center justify-between gap-3 text-xs font-bold text-brand-700">
+                        <span>{saveProgress.message}</span>
+                        <span>{saveProgress.percent}%</span>
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/80">
+                        <div
+                          className="h-full rounded-full bg-brand-600 transition-all duration-300"
+                          style={{ width: `${saveProgress.percent}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
                 </>
               )}
             </>
