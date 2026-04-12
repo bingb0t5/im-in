@@ -51,6 +51,7 @@ The weakest / least finished areas are:
 - post-create success modal on the host dashboard with share / return actions that now persist correctly after the dashboard finishes loading
 - access requests for semi-public activities
 - attendee list and waitlist
+- host `Add Attendee` now normalizes guest input and handles duplicates gracefully so hosts see a friendly duplicate message instead of raw database errors
 - optional host-approval join flow before membership is granted
 - optional host-controlled guest-email requirement for join flows
 - proxy RSVP / "add another person" with host-approval-aware pending request behavior
@@ -117,6 +118,7 @@ The weakest / least finished areas are:
 - feedback screenshots reviewed privately through signed URLs in admin tooling
 - feedback-item deletion removes the internal row, related prompt-job rows, and stored screenshot object
 - in-app host messaging now includes a guest reply path via `reply_to_event_hosts(...)`
+- host no-email attendee adds now use deterministic placeholder emails derived from normalized guest name, improving repeat-add dedupe consistency
 
 ## Partial Or Awkward
 
@@ -177,6 +179,8 @@ You need to read multiple files together:
 - `supabase_reconcile_live_schema.sql`
 - `supabase_guest_identity_migration.sql`
 - `SCHEMA_ALIGNMENT.md`
+
+Also note: live constraints can still differ from checked-in schema snapshots (for example around attendee uniqueness semantics), so production behavior should be validated against the live database when duplicate-key behavior appears.
 
 ### Moderation operations
 

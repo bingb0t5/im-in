@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## 2026-04-12
+
+### Host add-attendee duplicate handling hardening
+
+- fixed host-side `Add Attendee` duplicate handling so duplicate inserts no longer surface raw Postgres unique-constraint errors in the UI
+- normalized add-attendee guest input handling (`guest_name` whitespace cleanup, lowercased/trimmed email) before duplicate checks and writes
+- changed no-email host adds to use deterministic placeholder emails derived from normalized guest name instead of random placeholders, so repeat adds dedupe consistently
+- updated duplicate detection messaging to show a friendly host-facing message (`This attendee is already on the activity.`) when the attendee already exists
+
 ## 2026-04-11
 
 ### Moderation auto-run reliability and discovery diagnostics

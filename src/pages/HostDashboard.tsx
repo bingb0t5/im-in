@@ -162,6 +162,20 @@ export default function HostDashboard({ user }: { user: User | null }) {
   };
 
   const normalizeWhatsapp = (value: string) => value.replace(/[^\d]/g, '');
+  const normalizeGuestName = (value: string) => value.trim().replace(/\s+/g, ' ');
+  const toGuestPlaceholderEmail = (guestName: string) => {
+    const slug = guestName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48);
+    return `guest_${slug || 'guest'}@example.com`;
+  };
+  const isDuplicateAttendeeConstraintError = (error: { code?: string; message?: string; details?: string; constraint?: string } | null | undefined) => {
+    if (!error) return false;
+    const text = `${error.message || ''} ${error.details || ''} ${error.constraint || ''}`.toLowerCase();
+    return error.code === '23505' || (text.includes('duplicate key value') && text.includes('event_attendees'));
+  };
   const formatSharedSource = (source: PrivateAccessUser['source']) => {
     if (source === 'host_share') return 'Shared by host';
     if (source === 'code') return 'Unlocked via join code';
@@ -926,7 +940,16 @@ export default function HostDashboard({ user }: { user: User | null }) {
     if (!event) return;
     setActionLoading(true);
 
-    const email = newAttendee.email || `guest_${Math.random().toString(36).substring(2, 7)}@example.com`;
+    const guestName = normalizeGuestName(newAttendee.name);
+    if (!guestName) {
+      alert('Guest name is required');
+      setActionLoading(false);
+      return;
+    }
+
+    const normalizedEmail = (newAttendee.email || '').trim().toLowerCase();
+    // Keep no-email host adds deterministic so retries dedupe to the same attendee.
+    const email = normalizedEmail || toGuestPlaceholderEmail(guestName);
 
     try {
       // 1. Check for existing RSVP
@@ -934,11 +957,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
         .from('event_attendees')
         .select('id, status')
         .eq('event_id', event.id)
-        .eq('guest_email', email)
+        .ilike('guest_email', email)
         .maybeSingle();
 
       if (existing && existing.status !== 'cancelled') {
-        alert('This email is already registered for this activity');
+        alert('This attendee is already on the activity.');
         setActionLoading(false);
         return;
       }
@@ -958,7 +981,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
           .from('event_attendees')
           .update({
             status,
-            guest_name: newAttendee.name,
+            guest_name: guestName,
+            guest_email: email,
             added_by_type: 'host',
             added_by_attendee_profile_id: null,
             joined_at: new Date().toISOString(),
@@ -972,7 +996,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
           .from('event_attendees')
           .insert([{
             event_id: event.id,
-            guest_name: newAttendee.name,
+            guest_name: guestName,
             guest_email: email,
             status,
             added_by_type: 'host',
@@ -987,6 +1011,10 @@ export default function HostDashboard({ user }: { user: User | null }) {
       fetchAttendees(event.id);
     } catch (error: any) {
       console.error('Add Attendee Error:', error);
+      if (isDuplicateAttendeeConstraintError(error)) {
+        alert('This attendee is already on the activity.');
+        return;
+      }
       alert(error.message || 'Failed to add attendee');
     } finally {
       setActionLoading(false);
