@@ -90,6 +90,7 @@ Implemented in:
 
 - `src/pages/AdminHome.tsx`
 - `src/pages/AdminModeration.tsx`
+- `src/pages/AdminGalleryReview.tsx`
 - `src/pages/AdminFeedback.tsx`
 
 Features:
@@ -97,6 +98,7 @@ Features:
 - hidden `/admin` landing page for internal tooling
 - allowlisted signed-in admins can reach `/admin` directly from the top-bar account menu via an `Admin Panel` entry
 - moderation review page
+- gallery review page for image preview moderation/report handling
 - feedback review page for review, passed, blocked, failed, archived, and all items
 - retry sending eligible feedback to the Trello board
 - archive / restore internal feedback items
@@ -174,6 +176,10 @@ Features:
 - public location is currently restricted to an approved dropdown list, with `Hoi An, Vietnam` as the only available UI option
 - optional Google Maps link
 - explicit `Fill from link` action that can parse a shared Google Maps link and prefill the exact location while preserving the locked public location value
+- host-managed activity gallery uploads (up to 8 images)
+- gallery upload flow accepts iPhone HEIC/HEIF photos and converts them to JPEG before upload
+- gallery visibility control (`private_only` vs `public_preview`) that is forced to private-only for private activities
+- image upload queue with removal before save, plus persisted gallery management during edits
 - auth/profile modals now open without auto-focusing inputs so the mobile keyboard does not immediately shove the sheet upward
 
 ### Host dashboard
@@ -196,6 +202,7 @@ Features:
 - receive guest replies back as `guest_reply` notifications when attendees respond to host messages
 - host/co-host management
 - duplicate activity, with new copies resetting the public-location filter value to the current approved option
+- duplicate activity preserves `gallery_visibility` while leaving image assets tied to the original activity
 - delete activity
 
 ### Profile settings

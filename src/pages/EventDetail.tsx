@@ -5,13 +5,15 @@ import { User } from '@supabase/supabase-js';
 import { Calendar, MapPin, Users, CheckCircle2, AlertCircle, ArrowLeft, Share2, MessageCircle, MessageSquare, Mail, Copy, X, Plus, Download, ThumbsUp, CircleHelp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, formatDay, formatDurationMinutes } from '../utils';
-import { Event, Attendee, EventInterest } from '../types';
+import { Event, Attendee, EventInterest, EventGalleryImage } from '../types';
 import { guestService, AttendeeProfile, getAccountNameFromUser, isSystemGuestEmail } from '../services/guestService';
 import { getAttendanceSummary, getMyRsvpBuckets } from '../lib/attendees';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { findMyInterest, getNamedThinkingInterests, getThinkingCount } from '../lib/interests';
 import { goBackOr } from '../lib/navigation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
+import { EventGallerySection } from '../components/EventGallerySection';
+import { invokeAuthedFunction, invokePublicFunction } from '../lib/functions';
 import {
   buildGoogleCalendarUrlForActivity,
   buildIcsDownloadForActivity,
@@ -128,6 +130,10 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [hasPublicModerationHistory, setHasPublicModerationHistory] = useState(false);
   const [canViewFullDetails, setCanViewFullDetails] = useState(false);
+  const [galleryImages, setGalleryImages] = useState<EventGalleryImage[]>([]);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryReportMessage, setGalleryReportMessage] = useState<string | null>(null);
+  const [galleryReportLoadingId, setGalleryReportLoadingId] = useState<string | null>(null);
 
   useBodyScrollLock(
     showRequestModal
@@ -521,7 +527,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [slug, searchParams.toString()]);
+  }, [slug, searchParams.toString(), user?.id]);
 
   useEffect(() => {
     const loadModerationHistoryPresence = async () => {
@@ -613,6 +619,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       setEvent(null);
       setAttendees([]);
       setInterests([]);
+      setGalleryImages([]);
       setCanViewFullDetails(false);
       setLoading(false);
       return;
@@ -630,6 +637,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       setEvent(null);
       setAttendees([]);
       setInterests([]);
+      setGalleryImages([]);
       setCanViewFullDetails(false);
       setLoading(false);
       return;
@@ -680,9 +688,63 @@ export default function EventDetail({ user }: { user: User | null }) {
     await Promise.all([
       fetchAttendees(nextEvent.id),
       fetchInterests(nextEvent.id),
+      fetchGallery(),
     ]);
 
     setLoading(false);
+  };
+
+  const fetchGallery = async () => {
+    if (!slug) {
+      setGalleryImages([]);
+      return;
+    }
+
+    setGalleryLoading(true);
+    try {
+      const invoke = user ? invokeAuthedFunction : invokePublicFunction;
+      const response = await invoke<{ images: EventGalleryImage[] }>('event-gallery', {
+        eventSlug: slug,
+        accessCode: searchParams.get('access') || null,
+      });
+      setGalleryImages(response.images || []);
+    } catch (error) {
+      console.error('Error loading event gallery:', error);
+      setGalleryImages([]);
+    } finally {
+      setGalleryLoading(false);
+    }
+  };
+
+  const handleReportGalleryImage = async (imageId: string) => {
+    if (!user) {
+      setGalleryReportMessage('Please sign in before reporting a public gallery image.');
+      return;
+    }
+
+    try {
+      setGalleryReportLoadingId(imageId);
+      setGalleryReportMessage(null);
+      const { data, error } = await supabase.rpc('report_event_gallery_image', {
+        p_image_id: imageId,
+        p_report_reason: null,
+      });
+      if (error) throw error;
+
+      const row = Array.isArray(data) ? data[0] : null;
+      if (row?.image_hidden) {
+        setGalleryReportMessage('Thanks. This image has now been hidden from public preview while it is reviewed.');
+      } else if (row?.already_reported) {
+        setGalleryReportMessage('You already reported this image.');
+      } else {
+        setGalleryReportMessage('Thanks. Your report has been recorded.');
+      }
+      await fetchGallery();
+    } catch (error: any) {
+      setGalleryReportMessage(error?.message || 'Could not report that image right now.');
+    } finally {
+      setGalleryReportLoadingId(null);
+    }
   };
 
   const fetchAttendees = async (eventId?: string) => {
@@ -1313,6 +1375,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     const dayOnly = formatDay(event.starts_at, event.timezone);
     const previewLocation = event.public_location_text || 'Town/city shared by host';
     const previewSummary = event.public_summary || 'Request access to view full details and join this activity.';
+    const showGalleryHero = galleryLoading || galleryImages.length > 0;
 
     return (
       <div className="min-h-screen bg-slate-50 pb-24">
@@ -1332,8 +1395,21 @@ export default function EventDetail({ user }: { user: User | null }) {
           </div>
         </div>
 
-        <main className="max-w-xl mx-auto px-6 pt-8 space-y-8">
-          <section className="space-y-6">
+        {showGalleryHero ? (
+          <EventGallerySection
+            images={galleryImages}
+            title="What to expect"
+            subtitle={galleryLoading ? 'Loading gallery...' : 'Approved preview images from the host.'}
+            fullBleed
+            reportable={!!user}
+            reportingImageId={galleryReportLoadingId}
+            reportMessage={galleryReportMessage}
+            onReport={handleReportGalleryImage}
+          />
+        ) : null}
+
+        <main className={`max-w-xl mx-auto px-6 ${showGalleryHero ? 'pt-4' : 'pt-8'} space-y-8`}>
+          <section className="space-y-4">
             <span className="inline-flex items-center gap-1.5 text-indigo-500 text-[10px] font-bold uppercase tracking-widest">
               <Users className="w-3 h-3" /> Semi Public
             </span>
@@ -1501,9 +1577,22 @@ export default function EventDetail({ user }: { user: User | null }) {
         </div>
       </div>
 
-      <main className="max-w-xl mx-auto px-6 pt-8 space-y-8">
+      {galleryLoading || galleryImages.length > 0 ? (
+        <EventGallerySection
+          images={galleryImages}
+          title="What to expect"
+          subtitle={galleryLoading ? 'Loading gallery...' : 'Photos shared by the host.'}
+          fullBleed
+          reportable={!!user}
+          reportingImageId={galleryReportLoadingId}
+          reportMessage={galleryReportMessage}
+          onReport={handleReportGalleryImage}
+        />
+      ) : null}
+
+      <main className={`max-w-xl mx-auto px-6 ${(galleryLoading || galleryImages.length > 0) ? 'pt-4' : 'pt-8'} space-y-8`}>
         {/* Hero Info */}
-        <section className="space-y-5">
+        <section className="space-y-3">
           <div className="flex items-center gap-2">
             {eventVisibility === 'public' ? (
               <span className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">Public</span>
@@ -1597,7 +1686,7 @@ export default function EventDetail({ user }: { user: User | null }) {
           </div>
 
           {event.description && (
-            <div className="text-slate-500 leading-relaxed text-sm pt-2">
+            <div className="text-slate-500 leading-relaxed text-sm pt-1">
               {renderTextWithAutoLinks(event.description)}
             </div>
           )}

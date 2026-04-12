@@ -59,8 +59,13 @@ The weakest / least finished areas are:
 - post-signup email-upgrade prompt for no-email guest signups
 - signed-in `/profile` account details now use compact inline per-field edit/save controls (`Name` and `Email`) with read-only defaults and no-op unchanged saves
 - lightweight AI moderation for broader public discovery on public activities and semi-public public previews
+- host-managed activity gallery uploads (multi-image) with private-only vs public-preview controls
+- iPhone HEIC/HEIF gallery uploads are accepted and converted to JPEG before storage so common Apple photos work in the web gallery flow
+- public and semi-public activity detail pages can now render approved gallery preview images
+- signed-in users can report public preview gallery images; repeated reports auto-hide them pending review
 - host settings now show explicit moderation gate diagnostics (`visibility`, event `status`, discovery flag, moderation status) to explain why an activity is hidden from broader browse
 - hidden moderation admin queue with review, archived, and spam buckets for allowlisted admins, scoped to public-facing activity moderation
+- hidden `/admin/gallery` queue for image-specific moderation/review actions
 - hidden admin hub at `/admin` that links to the current internal admin tools
 - allowlisted admins can now reach the hidden admin tools from the main top-bar account menu
 - public moderation transparency page for public-facing moderation history
@@ -116,6 +121,7 @@ The weakest / least finished areas are:
 - separate feedback-domain tables for feedback submissions and Trello prompt-generation jobs
 - webhook-compatible Trello prompt generation with manual admin fallback support
 - feedback screenshots reviewed privately through signed URLs in admin tooling
+- event gallery images stored in a private `event-gallery` bucket and served to clients via signed URLs
 - feedback-item deletion removes the internal row, related prompt-job rows, and stored screenshot object
 - in-app host messaging now includes a guest reply path via `reply_to_event_hosts(...)`
 - host no-email attendee adds now use deterministic placeholder emails derived from normalized guest name, improving repeat-add dedupe consistency
@@ -184,7 +190,7 @@ Also note: live constraints can still differ from checked-in schema snapshots (f
 
 ### Moderation operations
 
-Platform moderation now exists for public discovery, but the operational tooling is still intentionally light and scoped to public-facing activity content only.
+Platform moderation now exists for public discovery, with text moderation for listing content and image moderation for gallery public previews.
 
 What is real:
 

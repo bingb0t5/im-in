@@ -1,6 +1,6 @@
 import { Link, Navigate } from 'react-router-dom';
 import { User } from '@supabase/supabase-js';
-import { ArrowLeft, MessageSquare, Shield, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, Image, MessageSquare, Shield, SlidersHorizontal } from 'lucide-react';
 import { canAccessAnyAdminFrontend, canAccessFeedbackAdminFrontend, canAccessModerationAdminFrontend } from '../lib/admin';
 
 export default function AdminHome({ user }: { user: User | null }) {
@@ -30,6 +30,14 @@ export default function AdminHome({ user }: { user: User | null }) {
           icon: SlidersHorizontal,
           title: 'Moderation settings',
           description: 'Adjust strictness, trust thresholds, and moderation rules at runtime.',
+        }
+      : null,
+    canModerate
+      ? {
+          to: '/admin/gallery',
+          icon: Image,
+          title: 'Gallery review',
+          description: 'Review public-preview gallery images, reports, and image moderation state.',
         }
       : null,
     canReviewFeedback

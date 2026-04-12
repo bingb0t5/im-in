@@ -13,6 +13,7 @@ import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
 import { buildPrivateActivityUrl, buildPrivateWhatsappShareText } from '../lib/eventShare';
 import { invokeAuthedFunction } from '../lib/functions';
+import { buildEventGalleryStoragePath, EVENT_GALLERY_BUCKET } from '../lib/eventGallery';
 
 type InAppShareCandidate = {
   user_id: string;
@@ -59,6 +60,26 @@ type HostAttendee = Attendee & {
 };
 type HostJoinRequest = EventJoinRequest & { whatsapp_number?: string | null };
 type HostInterest = EventInterest & { whatsapp_number?: string | null };
+type CopyProgressState = {
+  percent: number;
+  message: string;
+};
+
+function inferGalleryCopyExtension(image: {
+  content_type?: string | null;
+  storage_path?: string | null;
+  original_file_name?: string | null;
+}) {
+  const contentType = (image.content_type || '').trim().toLowerCase();
+  if (contentType === 'image/png') return 'png';
+  if (contentType === 'image/webp') return 'webp';
+  if (contentType === 'image/jpeg') return 'jpg';
+
+  const candidate = (image.storage_path || image.original_file_name || '').trim().toLowerCase();
+  if (candidate.endsWith('.png')) return 'png';
+  if (candidate.endsWith('.webp')) return 'webp';
+  return 'jpg';
+}
 
 export default function HostDashboard({ user }: { user: User | null }) {
   const CREATE_EVENT_SUCCESS_KEY = 'im_in_recently_created_event_id';
@@ -113,6 +134,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [notificationSending, setNotificationSending] = useState(false);
   const [notificationSendMessage, setNotificationSendMessage] = useState<string | null>(null);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [copyProgress, setCopyProgress] = useState<CopyProgressState | null>(null);
   const [settingsSavingKey, setSettingsSavingKey] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<HostDashboardTab>('requests');
@@ -134,8 +156,13 @@ export default function HostDashboard({ user }: { user: User | null }) {
     || showDeleteModal.show
     || showManualShareModal
     || showInAppShareModal
-    || showNotificationModal,
+    || showNotificationModal
+    || copyProgress !== null,
   );
+
+  useEffect(() => {
+    setCopyProgress(null);
+  }, [id]);
 
   const pickFirstNonEmpty = (...values: Array<string | null | undefined>) =>
     values.map((value) => (value || '').trim()).find(Boolean) || '';
@@ -1044,6 +1071,10 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const copyEvent = async () => {
     if (!event) return;
     setActionLoading(true);
+    setCopyProgress({
+      percent: 5,
+      message: 'Creating next week\'s activity...',
+    });
     try {
       const newStartsAt = new Date(event.starts_at);
       newStartsAt.setDate(newStartsAt.getDate() + 7);
@@ -1070,6 +1101,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
           host_contact_text: event.host_contact_text,
           show_host_publicly: event.show_host_publicly,
           visibility: event.visibility || (event.is_public ? 'public' : 'private'),
+          gallery_visibility: event.gallery_visibility || 'private_only',
           allow_waitlist: event.allow_waitlist,
           require_host_approval_for_join: event.require_host_approval_for_join,
           is_public: event.is_public,
@@ -1083,6 +1115,10 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
       if (error) throw error;
 
+      setCopyProgress({
+        percent: 20,
+        message: 'Copying host access...',
+      });
       const hostUserIds = hosts.length > 0
         ? hosts.map((host) => host.user_id)
         : user?.id
@@ -1102,35 +1138,150 @@ export default function HostDashboard({ user }: { user: User | null }) {
       }
 
       const copiedVisibility = (newEvent.visibility || (newEvent.is_public ? 'public' : 'private')) as 'public' | 'semi_public' | 'private';
-      let copyModerationWarning: string | null = null;
+      const copiedGalleryVisibility = newEvent.gallery_visibility || 'private_only';
+      const shouldRunGalleryModeration =
+        copiedVisibility !== 'private' && copiedGalleryVisibility === 'public_preview';
+      const copyWarnings: string[] = [];
+
+      try {
+        setCopyProgress({
+          percent: 32,
+          message: 'Loading photos from the original activity...',
+        });
+        const { data: sourceGalleryImages, error: sourceGalleryError } = await supabase
+          .from('event_gallery_images')
+          .select('storage_bucket, storage_path, original_file_name, content_type, file_size_bytes, width, height, sort_order')
+          .eq('event_id', event.id)
+          .order('sort_order', { ascending: true })
+          .order('created_at', { ascending: true });
+
+        if (sourceGalleryError) {
+          throw sourceGalleryError;
+        }
+
+        const copiedGalleryRows = [];
+        const sourceGalleryCount = sourceGalleryImages?.length || 0;
+        let copiedGalleryCount = 0;
+        for (const image of sourceGalleryImages || []) {
+          if (!image.storage_path) continue;
+          const bucket = image.storage_bucket || EVENT_GALLERY_BUCKET;
+          const nextStoragePath = buildEventGalleryStoragePath(
+            newEvent.id,
+            inferGalleryCopyExtension(image),
+          );
+          const { error: copyStorageError } = await supabase.storage
+            .from(bucket)
+            .copy(image.storage_path, nextStoragePath);
+          if (copyStorageError) {
+            throw copyStorageError;
+          }
+          copiedGalleryCount += 1;
+          if (sourceGalleryCount > 0) {
+            const percent = Math.min(72, Math.round(40 + (copiedGalleryCount / sourceGalleryCount) * 28));
+            setCopyProgress({
+              percent,
+              message: `Copying photos... ${copiedGalleryCount} of ${sourceGalleryCount}`,
+            });
+          }
+
+          copiedGalleryRows.push({
+            event_id: newEvent.id,
+            storage_bucket: bucket,
+            storage_path: nextStoragePath,
+            original_file_name: image.original_file_name,
+            content_type: image.content_type,
+            file_size_bytes: image.file_size_bytes,
+            width: image.width,
+            height: image.height,
+            sort_order: image.sort_order,
+            created_by_user_id: user?.id,
+            public_visibility_status: shouldRunGalleryModeration ? 'pending' : 'private_only',
+            public_moderation_reasons: [],
+            public_moderation_confidence: null,
+            public_moderated_at: null,
+            public_hidden_at: null,
+            public_hidden_reason: null,
+            review_requested_at: null,
+            report_count: 0,
+          });
+        }
+
+        if (copiedGalleryRows.length > 0) {
+          setCopyProgress({
+            percent: 76,
+            message: 'Saving copied photos...',
+          });
+          const { error: insertGalleryError } = await supabase
+            .from('event_gallery_images')
+            .insert(copiedGalleryRows);
+          if (insertGalleryError) {
+            throw insertGalleryError;
+          }
+
+          if (shouldRunGalleryModeration) {
+            setCopyProgress({
+              percent: 84,
+              message: 'Reviewing copied photos for public preview...',
+            });
+            await invokeAuthedFunction('moderate-event-gallery', {
+              eventId: newEvent.id,
+            });
+          }
+        } else {
+          setCopyProgress({
+            percent: 76,
+            message: 'No photos to copy.',
+          });
+        }
+      } catch (galleryCopyError) {
+        console.error('Copy gallery auto-copy failed:', galleryCopyError);
+        copyWarnings.push(
+          galleryCopyError instanceof Error && galleryCopyError.message
+            ? `Gallery images were not copied (${galleryCopyError.message}).`
+            : 'Gallery images were not copied.',
+        );
+      }
+
       if (copiedVisibility === 'public' || copiedVisibility === 'semi_public') {
         try {
+          setCopyProgress({
+            percent: 92,
+            message: 'Running activity moderation...',
+          });
           await invokeAuthedFunction('moderate-activity', {
             eventId: newEvent.id,
             telemetry_source: 'host_dashboard_copy_auto',
           });
         } catch (moderationError) {
           console.error('Copy moderation auto-run failed:', moderationError);
-          copyModerationWarning =
+          copyWarnings.push(
             moderationError instanceof Error && moderationError.message
-              ? moderationError.message
-              : 'Automatic moderation did not run yet.';
+              ? `Automatic moderation did not run yet (${moderationError.message}).`
+              : 'Automatic moderation did not run yet.',
+          );
         }
       }
 
+      setCopyProgress({
+        percent: 100,
+        message: 'Done. Opening copied activity...',
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+      setCopyProgress(null);
       navigate(`/host/events/${newEvent.id}`, {
         state: {
           openInAppShare: true,
-          ...(copyModerationWarning
+          ...(copyWarnings.length > 0
             ? {
                 moderationAutoRunFailed: true,
-                moderationAutoRunMessage: `Copied activity saved, but automatic moderation did not run yet (${copyModerationWarning}).`,
+                moderationAutoRunMessage: `Copied activity saved, but ${copyWarnings.join(' ')}`,
               }
             : {}),
         },
       });
     } catch (error: any) {
       console.error('Copy Activity Error:', error);
+      setCopyProgress(null);
       alert(error.message || 'Failed to copy activity');
     } finally {
       setActionLoading(false);
@@ -2181,6 +2332,49 @@ export default function HostDashboard({ user }: { user: User | null }) {
         </div>
         ) : null}
       </main>
+
+      <AnimatePresence>
+        {copyProgress ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden overscroll-contain p-3 sm:p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative my-auto w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-8"
+            >
+              <div className="space-y-4">
+                <div>
+                  <h2 className="text-xl font-black tracking-tight text-slate-900">Copying activity</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Duplicating the activity details, hosts, and any saved gallery images.
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-brand-100 bg-brand-50 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3 text-sm font-bold text-brand-700">
+                    <span>{copyProgress.message}</span>
+                    <span>{copyProgress.percent}%</span>
+                  </div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/80">
+                    <div
+                      className="h-full rounded-full bg-brand-600 transition-all duration-300"
+                      style={{ width: `${copyProgress.percent}%` }}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Please wait while we finish preparing the copied activity.
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        ) : null}
+      </AnimatePresence>
 
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
