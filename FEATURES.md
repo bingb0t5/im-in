@@ -387,7 +387,8 @@ How it works:
 - public preview is intentionally limited
 - full access comes from a private host-shared link using `?access=...`
 - non-members can submit a request to view/join
-- kept outside platform moderation review and outside the public moderation log
+- semi-public public-preview content is included in platform moderation review and can appear in the public moderation log
+- semi-public private-link-only content stays outside platform moderation review and outside the public moderation log
 
 ### `private`
 

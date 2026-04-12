@@ -264,11 +264,20 @@ type EffectiveModerationUpdate = {
   moderated_at: string | null;
 };
 
+type ModerationRuntimeOutcome = 'succeeded' | 'failed';
+
 function parseEmailAllowlist(raw?: string | null) {
   return (raw || '')
     .split(',')
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
+}
+
+function normalizeTelemetrySource(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  return /^[a-z0-9_:-]{1,64}$/.test(normalized) ? normalized : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -692,6 +701,34 @@ async function insertPublicModerationLog(
   }
 }
 
+async function insertModerationRuntimeEvent(
+  admin: ReturnType<typeof createClient>,
+  options: {
+    eventId: string;
+    source: string;
+    outcome: ModerationRuntimeOutcome;
+    errorCode?: string | null;
+  },
+) {
+  await admin.from('moderation_runtime_events').insert({
+    event_id: options.eventId,
+    source: options.source,
+    outcome: options.outcome,
+    error_code: options.errorCode || null,
+  });
+}
+
+function classifyModerationRuntimeFailure(error: unknown) {
+  const message = (error instanceof Error ? error.message : String(error || ''))
+    .toLowerCase();
+  if (message.includes('openai_api_key')) return 'missing_openai_key';
+  if (message.includes('authentication required')) return 'auth_required';
+  if (message.includes('permission')) return 'permission_denied';
+  if (message.includes('moderation model request failed')) return 'model_request_failed';
+  if (message.includes('network') || message.includes('fetch')) return 'network_failure';
+  return 'unknown_failure';
+}
+
 function getManualOverrideUpdate(override: ModerationOverride): EffectiveModerationUpdate {
   const now = new Date().toISOString();
 
@@ -965,6 +1002,7 @@ Deno.serve(async (request) => {
 
   let currentEvent: StoredEvent | null = null;
   let currentInputHash: string | null = null;
+  let telemetrySource: string | null = null;
 
   try {
     const requestBody = await request.json();
@@ -979,7 +1017,9 @@ Deno.serve(async (request) => {
       listPolicy,
       updatePolicy,
       publicExplanation,
+      telemetry_source,
     } = isRecord(requestBody) ? requestBody : {};
+    telemetrySource = normalizeTelemetrySource(telemetry_source);
     const adminEmails = parseEmailAllowlist(Deno.env.get('MODERATION_ADMIN_EMAILS'));
     const isAdmin = !!user.email && adminEmails.includes(user.email.trim().toLowerCase());
 
@@ -1165,6 +1205,19 @@ Deno.serve(async (request) => {
       return json({ error: 'Activity not found.' }, { status: 404 });
     }
     currentEvent = event;
+    const logRuntimeEvent = async (outcome: ModerationRuntimeOutcome, errorCode?: string | null) => {
+      if (!telemetrySource || !currentEvent?.id) return;
+      try {
+        await insertModerationRuntimeEvent(admin, {
+          eventId: currentEvent.id,
+          source: telemetrySource,
+          outcome,
+          errorCode,
+        });
+      } catch (telemetryError) {
+        console.warn('Could not record moderation runtime telemetry', telemetryError);
+      }
+    };
 
     if (shouldArchive || shouldUnarchive) {
       const archiveValue = shouldArchive ? new Date().toISOString() : null;
@@ -1190,6 +1243,7 @@ Deno.serve(async (request) => {
         throw archiveError;
       }
 
+      await logRuntimeEvent('succeeded');
       return json({
         reused: false,
         archived: shouldArchive,
@@ -1234,6 +1288,7 @@ Deno.serve(async (request) => {
         },
       );
 
+      await logRuntimeEvent('succeeded');
       return json({ reused: false, override: requestedOverride, result: updatedEvent });
     }
 
@@ -1270,11 +1325,13 @@ Deno.serve(async (request) => {
       event.moderated_at = null;
 
       if (!shouldRerun) {
+        await logRuntimeEvent('succeeded');
         return json({ reused: false, cleared: true, result: clearState });
       }
     }
 
     if (event.moderation_override) {
+      await logRuntimeEvent('succeeded');
       return json({
         reused: true,
         override: event.moderation_override,
@@ -1313,6 +1370,7 @@ Deno.serve(async (request) => {
         throw bypassError;
       }
 
+      await logRuntimeEvent('succeeded');
       return json({ reused: false, result: bypassUpdate });
     }
 
@@ -1324,6 +1382,7 @@ Deno.serve(async (request) => {
       event.moderation_status &&
       !['pending', 'error'].includes(event.moderation_status)
     ) {
+      await logRuntimeEvent('succeeded');
       return json({
         reused: true,
         result: {
@@ -1374,6 +1433,7 @@ Deno.serve(async (request) => {
         },
       );
 
+      await logRuntimeEvent('succeeded');
       return json({
         reused: false,
         ai_skipped: true,
@@ -1408,6 +1468,7 @@ Deno.serve(async (request) => {
       },
     );
 
+    await logRuntimeEvent('succeeded');
     return json({
       reused: false,
       policy_mode: moderationPolicy.strictness_mode,
@@ -1429,6 +1490,19 @@ Deno.serve(async (request) => {
           moderated_at: new Date().toISOString(),
         })
         .eq('id', currentEvent.id);
+    }
+
+    if (telemetrySource && currentEvent?.id) {
+      try {
+        await insertModerationRuntimeEvent(admin, {
+          eventId: currentEvent.id,
+          source: telemetrySource,
+          outcome: 'failed',
+          errorCode: classifyModerationRuntimeFailure(error),
+        });
+      } catch (telemetryError) {
+        console.warn('Could not record failed moderation runtime telemetry', telemetryError);
+      }
     }
 
     return json(

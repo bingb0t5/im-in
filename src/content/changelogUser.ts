@@ -8,6 +8,19 @@ export type UserChangelogEntry = {
 export const userChangelogEntries: UserChangelogEntry[] = [
   {
     date: '2026-04-11',
+    title: 'More reliable moderation unlock after save',
+    summary: 'Public and semi-public activities now recover better when moderation auto-run does not fire on first save.',
+    highlights: [
+      'Create/edit now retries automatic moderation once after save before giving up.',
+      'If moderation auto-run still fails, hosts now see a clear warning instead of a silent stuck pending state.',
+      'Activity settings now include a direct `Retry moderation now` action.',
+      'Copied public and semi-public activities now auto-run moderation too, instead of waiting for manual admin re-run.',
+      'Admin moderation now shows explicit public-browse gate checks to make hidden-state debugging faster.',
+      'Internal moderation telemetry now records only minimal runtime outcome data, with no private activity content.',
+    ],
+  },
+  {
+    date: '2026-04-11',
     title: 'Clearer Verify with WhatsApp steps',
     summary: 'The WhatsApp verification flow now explains each step more clearly and stays aligned with Lalo updates.',
     highlights: [

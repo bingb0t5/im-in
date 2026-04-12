@@ -12,6 +12,7 @@ import { LOCKED_PUBLIC_LOCATION } from '../lib/publicLocation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
 import { buildPrivateActivityUrl, buildPrivateWhatsappShareText } from '../lib/eventShare';
+import { invokeAuthedFunction } from '../lib/functions';
 
 type InAppShareCandidate = {
   user_id: string;
@@ -116,6 +117,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<HostDashboardTab>('requests');
   const [showShareInsights, setShowShareInsights] = useState(false);
+  const [autoModerationWarning, setAutoModerationWarning] = useState<string | null>(null);
+  const [moderationRetrying, setModerationRetrying] = useState(false);
 
   const [showDeleteModal, setShowDeleteModal] = useState<{
     show: boolean;
@@ -518,7 +521,12 @@ export default function HostDashboard({ user }: { user: User | null }) {
   }, [id, user]);
 
   useEffect(() => {
-    const routeState = location.state as { justCreated?: boolean; openInAppShare?: boolean } | null;
+    const routeState = location.state as {
+      justCreated?: boolean;
+      openInAppShare?: boolean;
+      moderationAutoRunFailed?: boolean;
+      moderationAutoRunMessage?: string;
+    } | null;
     const justCreatedEventId = sessionStorage.getItem(CREATE_EVENT_SUCCESS_KEY);
     const shouldOpenSuccessModal = routeState?.justCreated || (!!id && justCreatedEventId === id);
     if (!shouldOpenSuccessModal) return;
@@ -527,11 +535,22 @@ export default function HostDashboard({ user }: { user: User | null }) {
   }, [id, location.state]);
 
   useEffect(() => {
-    const routeState = location.state as { openInAppShare?: boolean } | null;
+    const routeState = location.state as {
+      openInAppShare?: boolean;
+      moderationAutoRunFailed?: boolean;
+      moderationAutoRunMessage?: string;
+    } | null;
     if (routeState?.openInAppShare) {
       setActiveTab('share');
       setShowInAppSharePrompt(true);
       setShowInAppShareModal(true);
+    }
+    if (routeState?.moderationAutoRunFailed) {
+      setAutoModerationWarning(
+        routeState.moderationAutoRunMessage
+          || 'Activity saved, but automatic moderation did not run yet. Retry below to unlock public discovery.',
+      );
+      setActiveTab('settings');
     }
   }, [location.state]);
 
@@ -1026,7 +1045,6 @@ export default function HostDashboard({ user }: { user: User | null }) {
           allow_waitlist: event.allow_waitlist,
           require_host_approval_for_join: event.require_host_approval_for_join,
           is_public: event.is_public,
-          public_discovery_enabled: event.public_discovery_enabled,
           require_guest_email_for_join: event.require_guest_email_for_join,
           copied_from_event_id: event.id,
           host_user_id: user?.id,
@@ -1055,8 +1073,33 @@ export default function HostDashboard({ user }: { user: User | null }) {
         if (hostCopyError) throw hostCopyError;
       }
 
+      const copiedVisibility = (newEvent.visibility || (newEvent.is_public ? 'public' : 'private')) as 'public' | 'semi_public' | 'private';
+      let copyModerationWarning: string | null = null;
+      if (copiedVisibility === 'public' || copiedVisibility === 'semi_public') {
+        try {
+          await invokeAuthedFunction('moderate-activity', {
+            eventId: newEvent.id,
+            telemetry_source: 'host_dashboard_copy_auto',
+          });
+        } catch (moderationError) {
+          console.error('Copy moderation auto-run failed:', moderationError);
+          copyModerationWarning =
+            moderationError instanceof Error && moderationError.message
+              ? moderationError.message
+              : 'Automatic moderation did not run yet.';
+        }
+      }
+
       navigate(`/host/events/${newEvent.id}`, {
-        state: { openInAppShare: true },
+        state: {
+          openInAppShare: true,
+          ...(copyModerationWarning
+            ? {
+                moderationAutoRunFailed: true,
+                moderationAutoRunMessage: `Copied activity saved, but automatic moderation did not run yet (${copyModerationWarning}).`,
+              }
+            : {}),
+        },
       });
     } catch (error: any) {
       console.error('Copy Activity Error:', error);
@@ -1223,6 +1266,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const rejectedJoinRequests = joinRequests.filter((r) => r.status === 'rejected');
   const moderationBanner = getModerationBannerCopy(event);
   const moderationStatusBadge = getModerationStatusBadge(event);
+  const canRetryModeration = visibility === 'public' || visibility === 'semi_public';
+  const moderationDebugLine = `Visibility: ${visibility} | Status: ${event.status} | Discovery: ${event.public_discovery_enabled ? 'on' : 'off'} | Moderation: ${event.moderation_status || 'unknown'}`;
   const visibleRequests =
     accessRequestView === 'approved'
       ? approvedRequests
@@ -1414,6 +1459,43 @@ export default function HostDashboard({ user }: { user: User | null }) {
           <section className="bg-slate-100 border border-slate-200 rounded-2xl p-4">
             <p className="text-sm font-bold text-slate-800">{moderationBanner.title}</p>
             <p className="text-sm text-slate-500 mt-1 leading-relaxed">{moderationBanner.body}</p>
+            <p className="text-xs text-slate-400 mt-2">{moderationDebugLine}</p>
+            {canRetryModeration && !event.public_discovery_enabled ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  setModerationRetrying(true);
+                  setAutoModerationWarning(null);
+                  try {
+                    await invokeAuthedFunction('moderate-activity', {
+                      eventId: event.id,
+                      rerun: true,
+                      telemetry_source: 'host_dashboard_retry_manual',
+                    });
+                    await fetchEvent();
+                  } catch (retryError) {
+                    setAutoModerationWarning(
+                      retryError instanceof Error
+                        ? retryError.message
+                        : 'Could not re-run moderation right now.',
+                    );
+                  } finally {
+                    setModerationRetrying(false);
+                  }
+                }}
+                disabled={moderationRetrying}
+                className="mt-3 inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition-all hover:bg-slate-50 disabled:opacity-60"
+              >
+                {moderationRetrying ? 'Retrying moderation...' : 'Retry moderation now'}
+              </button>
+            ) : null}
+          </section>
+        ) : null}
+
+        {activeTab === 'settings' && autoModerationWarning ? (
+          <section className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
+            <p className="text-sm font-bold text-amber-700">Automatic moderation needs attention</p>
+            <p className="mt-1 text-sm text-amber-700/90">{autoModerationWarning}</p>
           </section>
         ) : null}
 

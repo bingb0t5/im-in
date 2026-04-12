@@ -2,6 +2,16 @@
 
 ## 2026-04-11
 
+### Moderation auto-run reliability and discovery diagnostics
+
+- hardened post-save moderation in create/edit flows so automatic moderation now retries once before declaring failure
+- stopped silently swallowing create-flow moderation invoke failures; hosts are now taken to management with a clear warning when auto-moderation did not run
+- added host-side `Retry moderation now` action directly in activity settings when discovery remains locked
+- updated copy-activity flow to run moderation automatically for copied public/semi-public events instead of leaving them stuck in `pending` until manual admin action
+- removed stale moderation-state carry-over from copied events so each copied activity gets a fresh moderation decision
+- added admin moderation `Public browse gates` diagnostics showing pass/fail checks for scheduled status, visibility scope, future timing, and discovery flag
+- added internal privacy-safe moderation runtime telemetry (`moderation_runtime_events`) with minimal metadata only (`event_id`, source tag, success/failure outcome, coarse error code) and no activity content or personal message data
+
 ### Verify with WhatsApp UX guidance and build-time UI sync
 
 - refreshed the `Verify with WhatsApp` UI copy so the flow now explains each step more clearly (what to tap, what happens in WhatsApp, and when to return to the app)
