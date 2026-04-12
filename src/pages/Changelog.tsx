@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import changelogContent from '../../CHANGELOG.md?raw';
-import { userChangelogEntries } from '../content/changelogUser';
 
 type DevChangelogSection = {
   title: string;
@@ -10,6 +9,13 @@ type DevChangelogSection = {
 type DevChangelogRelease = {
   date: string;
   sections: DevChangelogSection[];
+};
+
+type FriendlyChangelogRelease = {
+  date: string;
+  title: string;
+  summary: string;
+  highlights: string[];
 };
 
 type ChangelogView = 'friendly' | 'full';
@@ -72,7 +78,51 @@ function parseDeveloperChangelog(markdown: string): DevChangelogRelease[] {
   return releases;
 }
 
+function describeReleaseFocus(release: DevChangelogRelease) {
+  const titledSections = release.sections
+    .map((section) => section.title.trim())
+    .filter(Boolean);
+
+  if (titledSections.length === 0) {
+    return 'A mix of fixes and improvements shipped in this release.';
+  }
+
+  if (titledSections.length === 1) {
+    return `Focused on ${titledSections[0]}.`;
+  }
+
+  if (titledSections.length === 2) {
+    return `Focused on ${titledSections[0]} and ${titledSections[1]}.`;
+  }
+
+  return `Focused on ${titledSections[0]}, ${titledSections[1]}, and ${titledSections.length - 2} more areas.`;
+}
+
+function buildFriendlyTitle(release: DevChangelogRelease) {
+  const titledSections = release.sections
+    .map((section) => section.title.trim())
+    .filter(Boolean);
+
+  if (titledSections.length === 0) return 'Release highlights';
+  if (titledSections.length === 1) return titledSections[0];
+  return `${titledSections[0]} + ${titledSections.length - 1} more`;
+}
+
+function buildFriendlyHighlights(release: DevChangelogRelease) {
+  return release.sections
+    .flatMap((section) =>
+      section.items.map((item) => (section.title ? `${section.title}: ${item}` : item)),
+    )
+    .slice(0, 6);
+}
+
 const developerReleases = parseDeveloperChangelog(changelogContent);
+const friendlyReleases: FriendlyChangelogRelease[] = developerReleases.map((release) => ({
+  date: release.date,
+  title: buildFriendlyTitle(release),
+  summary: describeReleaseFocus(release),
+  highlights: buildFriendlyHighlights(release),
+}));
 
 export default function Changelog() {
   const [view, setView] = useState<ChangelogView>('friendly');
@@ -119,16 +169,16 @@ export default function Changelog() {
 
         {view === 'friendly' ? (
           <section className="space-y-4">
-            {userChangelogEntries.map((entry) => (
-              <article key={entry.date} className="ui-card overflow-hidden">
+            {friendlyReleases.map((release) => (
+              <article key={release.date} className="ui-card overflow-hidden">
                 <div className="border-b border-slate-100 bg-slate-50/80 px-5 py-4 sm:px-6">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-brand-600">{entry.date}</p>
-                  <h2 className="mt-1 text-xl font-black tracking-tight text-slate-900">{entry.title}</h2>
-                  <p className="mt-2 text-sm font-medium leading-relaxed text-slate-500">{entry.summary}</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-brand-600">{release.date}</p>
+                  <h2 className="mt-1 text-xl font-black tracking-tight text-slate-900">{release.title}</h2>
+                  <p className="mt-2 text-sm font-medium leading-relaxed text-slate-500">{release.summary}</p>
                 </div>
                 <div className="px-5 py-5 sm:px-6">
                   <ul className="space-y-3">
-                    {entry.highlights.map((highlight) => (
+                    {release.highlights.map((highlight) => (
                       <li key={highlight} className="flex gap-3 text-sm leading-relaxed text-slate-700">
                         <span className="mt-[0.42rem] h-2 w-2 shrink-0 rounded-full bg-brand-500" aria-hidden="true" />
                         <span>{highlight}</span>
