@@ -136,6 +136,18 @@ function getOverrideLabel(event: Event) {
   }
 }
 
+function getDiscoveryGateChecks(event: Event) {
+  const nowMs = Date.now();
+  const startsAtMs = new Date(event.starts_at).getTime();
+  const isUpcoming = Number.isFinite(startsAtMs) ? startsAtMs >= nowMs : false;
+  return [
+    { label: 'Status is scheduled', pass: event.status === 'scheduled' },
+    { label: 'Visibility is public or semi-public', pass: event.visibility === 'public' || event.visibility === 'semi_public' },
+    { label: 'Starts in the future', pass: isUpcoming },
+    { label: 'Public discovery enabled', pass: !!event.public_discovery_enabled },
+  ];
+}
+
 function formatReasonLabel(reasonCode: string) {
   return MODERATION_REASON_COPY[reasonCode]?.label || reasonCode.replace(/_/g, ' ');
 }
@@ -248,6 +260,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
     try {
       await invokeAuthedFunction('moderate-activity', {
         eventId,
+        telemetry_source: 'admin_moderation_action',
         ...payload,
       });
       await fetchEvents();
@@ -411,6 +424,7 @@ export default function AdminModeration({ user }: { user: User | null }) {
               const overrideLabel = getOverrideLabel(event);
               const visibilityLabel = event.visibility === 'semi_public' ? 'Semi-public preview' : 'Public';
               const publicLogEntries = logEntriesByEventId[event.id] || [];
+              const discoveryGateChecks = getDiscoveryGateChecks(event);
               const publicViewSummary =
                 event.visibility === 'semi_public'
                   ? event.public_summary || 'No public summary added.'
@@ -554,6 +568,23 @@ export default function AdminModeration({ user }: { user: User | null }) {
                             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Current override</p>
                             <p className="text-sm font-bold text-slate-800">{overrideLabel || 'None'}</p>
                           </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Public browse gates</p>
+                          <span className="text-xs font-bold text-slate-600">Why this is hidden or visible</span>
+                        </div>
+                        <div className="space-y-2">
+                          {discoveryGateChecks.map((gate) => (
+                            <div key={`${event.id}-${gate.label}`} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2">
+                              <p className="text-xs text-slate-600">{gate.label}</p>
+                              <span className={`text-xs font-bold ${gate.pass ? 'text-brand-700' : 'text-amber-700'}`}>
+                                {gate.pass ? 'Pass' : 'Fail'}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       </div>
 

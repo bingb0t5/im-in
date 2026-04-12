@@ -1,6 +1,25 @@
 # CHANGELOG
 
+## 2026-04-12
+
+### Host add-attendee duplicate handling hardening
+
+- fixed host-side `Add Attendee` duplicate handling so duplicate inserts no longer surface raw Postgres unique-constraint errors in the UI
+- normalized add-attendee guest input handling (`guest_name` whitespace cleanup, lowercased/trimmed email) before duplicate checks and writes
+- changed no-email host adds to use deterministic placeholder emails derived from normalized guest name instead of random placeholders, so repeat adds dedupe consistently
+- updated duplicate detection messaging to show a friendly host-facing message (`This attendee is already on the activity.`) when the attendee already exists
+
 ## 2026-04-11
+
+### Moderation auto-run reliability and discovery diagnostics
+
+- hardened post-save moderation in create/edit flows so automatic moderation now retries once before declaring failure
+- stopped silently swallowing create-flow moderation invoke failures; hosts are now taken to management with a clear warning when auto-moderation did not run
+- added host-side `Retry moderation now` action directly in activity settings when discovery remains locked
+- updated copy-activity flow to run moderation automatically for copied public/semi-public events instead of leaving them stuck in `pending` until manual admin action
+- removed stale moderation-state carry-over from copied events so each copied activity gets a fresh moderation decision
+- added admin moderation `Public browse gates` diagnostics showing pass/fail checks for scheduled status, visibility scope, future timing, and discovery flag
+- added internal privacy-safe moderation runtime telemetry (`moderation_runtime_events`) with minimal metadata only (`event_id`, source tag, success/failure outcome, coarse error code) and no activity content or personal message data
 
 ### Verify with WhatsApp UX guidance and build-time UI sync
 

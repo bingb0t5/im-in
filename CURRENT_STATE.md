@@ -51,6 +51,7 @@ The weakest / least finished areas are:
 - post-create success modal on the host dashboard with share / return actions that now persist correctly after the dashboard finishes loading
 - access requests for semi-public activities
 - attendee list and waitlist
+- host `Add Attendee` now normalizes guest input and handles duplicates gracefully so hosts see a friendly duplicate message instead of raw database errors
 - optional host-approval join flow before membership is granted
 - optional host-controlled guest-email requirement for join flows
 - proxy RSVP / "add another person" with host-approval-aware pending request behavior
@@ -58,6 +59,7 @@ The weakest / least finished areas are:
 - post-signup email-upgrade prompt for no-email guest signups
 - signed-in `/profile` account details now use compact inline per-field edit/save controls (`Name` and `Email`) with read-only defaults and no-op unchanged saves
 - lightweight AI moderation for broader public discovery on public activities and semi-public public previews
+- host settings now show explicit moderation gate diagnostics (`visibility`, event `status`, discovery flag, moderation status) to explain why an activity is hidden from broader browse
 - hidden moderation admin queue with review, archived, and spam buckets for allowlisted admins, scoped to public-facing activity moderation
 - hidden admin hub at `/admin` that links to the current internal admin tools
 - allowlisted admins can now reach the hidden admin tools from the main top-bar account menu
@@ -108,12 +110,15 @@ The weakest / least finished areas are:
 - Supabase Edge Function moderation with content-hash reuse and stored discovery state
 - separate reviewer archive state for the moderation queue via `events.moderation_archived_at`
 - moderation defaults now clear stale manual overrides when relevant public-facing content changes and requires fresh review
+- create/edit and copy flows now attempt automatic moderation immediately after save and surface a host-visible warning when auto-moderation invoke fails
+- moderation runtime telemetry now records internal invoke outcomes with minimal fields only (`event_id`, source tag, outcome, coarse error code), without storing activity text or user message content
 - public moderation audit records stored separately from activity rows
 - separate feedback-domain tables for feedback submissions and Trello prompt-generation jobs
 - webhook-compatible Trello prompt generation with manual admin fallback support
 - feedback screenshots reviewed privately through signed URLs in admin tooling
 - feedback-item deletion removes the internal row, related prompt-job rows, and stored screenshot object
 - in-app host messaging now includes a guest reply path via `reply_to_event_hosts(...)`
+- host no-email attendee adds now use deterministic placeholder emails derived from normalized guest name, improving repeat-add dedupe consistency
 
 ## Partial Or Awkward
 
@@ -174,6 +179,8 @@ You need to read multiple files together:
 - `supabase_reconcile_live_schema.sql`
 - `supabase_guest_identity_migration.sql`
 - `SCHEMA_ALIGNMENT.md`
+
+Also note: live constraints can still differ from checked-in schema snapshots (for example around attendee uniqueness semantics), so production behavior should be validated against the live database when duplicate-key behavior appears.
 
 ### Moderation operations
 

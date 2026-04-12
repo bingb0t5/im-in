@@ -367,13 +367,38 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
     return isTrustedHumanName(name, email);
   };
 
-  const runModerationForEvent = async (eventId: string, visibility: 'public' | 'semi_public' | 'private') => {
-    if (!shouldModerateVisibility(visibility)) return;
+  const runModerationForEvent = async (
+    eventId: string,
+    visibility: 'public' | 'semi_public' | 'private',
+  ): Promise<{ ok: boolean; message?: string }> => {
+    if (!shouldModerateVisibility(visibility)) return { ok: true };
 
+    const invokeModeration = async () =>
+      invokeAuthedFunction('moderate-activity', {
+        eventId,
+        telemetry_source: isEditing ? 'create_event_edit_auto' : 'create_event_new_auto',
+      });
     try {
-      await invokeAuthedFunction('moderate-activity', { eventId });
-    } catch (error) {
-      console.error('Activity moderation failed:', error);
+      await invokeModeration();
+      return { ok: true };
+    } catch (firstError) {
+      console.error('Activity moderation failed on first attempt:', firstError);
+      // Small retry handles transient network/session timing right after save.
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+      try {
+        await invokeModeration();
+        return { ok: true };
+      } catch (retryError) {
+        console.error('Activity moderation failed after retry:', retryError);
+        const details =
+          retryError instanceof Error && retryError.message
+            ? retryError.message
+            : 'Automatic moderation did not run.';
+        return {
+          ok: false,
+          message: `Activity saved, but automatic moderation did not run yet (${details}).`,
+        };
+      }
     }
   };
 
@@ -830,14 +855,22 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
             }
           }
 
-          await runModerationForEvent(result.data.id, resolvedVisibility);
+          const moderationRun = await runModerationForEvent(result.data.id, resolvedVisibility);
 
           if (!isEditing) {
             sessionStorage.setItem(CREATE_EVENT_SUCCESS_KEY, result.data.id);
           }
 
           navigate(`/host/events/${result.data.id}`, {
-            state: isEditing ? undefined : { justCreated: true },
+            state: {
+              ...(isEditing ? {} : { justCreated: true }),
+              ...(moderationRun.ok
+                ? {}
+                : {
+                    moderationAutoRunFailed: true,
+                    moderationAutoRunMessage: moderationRun.message,
+                  }),
+            },
           });
         }
       } catch (err: any) {
