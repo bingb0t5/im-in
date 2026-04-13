@@ -1,6 +1,48 @@
 # CHANGELOG
 
+## 2026-04-14
+
+### Activity-detail feedback button placement
+
+- moved the global floating feedback button to the top-right area (below the sticky header) on attendee-facing activity detail pages at `/events/:slug`
+- kept the existing bottom-floating feedback button placement unchanged for all non-activity-detail routes, including main-tab routes and host/admin pages
+- preserved the same feedback modal behavior, payload source tagging, and visual button styling while applying route-aware positioning logic only
+
+### Shared hamburger menu reuse and activity-header actions
+
+- replaced the activity-detail custom hamburger dropdown with the same shared menu component used by the main top bar, so menu items and styling are now consistent across surfaces
+- added `Create Activity` and `Explore Activities` quick links (with icons) to the very top of the shared hamburger menu list for all menu entry points
+- updated attendee activity-detail header actions so share is compact icon-only and sits beside the shared hamburger menu control
+
+### Changelog layman-summary build pipeline
+
+- added a dedicated build/dev changelog summarizer script (`generate:changelog-summary`) that converts `CHANGELOG.md` into a generated friendly summary artifact for the first changelog tab
+- updated app build hooks so changelog summary generation runs during `predev` and `prebuild`, ensuring summaries refresh with each local/dev build cycle
+- wired the changelog page so `What changed for you` reads from the generated artifact first and gracefully falls back to deterministic non-AI summaries when AI output is unavailable
+- constrained AI usage to the build-time generator step only; opening `/changelog` in the browser never performs on-demand AI calls
+
 ## 2026-04-12
+
+### Host join notifications and migration reconciliation
+
+- added a new host-facing `host_join` notification so hosts are alerted when someone newly joins an activity in `waitlist`, `pending_approval`, or `confirmed` state
+- added a dedicated installed-app push preference toggle (`Someone joined your activity`) so hosts can independently opt in or out of that alert category
+- registered the new `host_join` category across shared app types and push-preference SQL helpers so push dispatch can honor the new checkbox
+- added a follow-up SQL reconciliation migration for the attendee notification trigger so host join alerts no longer depend on a non-existent `event_attendees.resolved_display_name` row field and instead resolve names safely from attendee row/profile data
+- changed host join alerts to batch rapid same-actor additions for the same activity into a single delayed notification that lists all joined names instead of sending one host notification per inserted attendee row
+- updated host-facing notification links so `host_join` alerts now open the host management page for that activity, while attendee-facing notifications continue deep-linking to the attendee/private activity page
+- stopped web-push notification payloads from silently defaulting activity notifications to `/`, so push clicks now prefer the stored activity-specific URL and only fall back to a generic signed-in destination when no action URL exists
+
+### Host-configurable custom join field
+
+- added one host-configurable custom join field per activity, with support for `text`, `number`, and dropdown/multiple-choice options
+- added host-side create/edit and dashboard settings UI to enable the field, set its label, choose whether it is required, and define dropdown options
+- updated attendee join flows so both `I'm in` and `My Kids in` can capture the extra answer before submitting
+- stored custom join answers in a dedicated host-only table (`event_signup_field_answers`) instead of `event_attendees`, keeping answers off publicly readable attendee rows
+- added wrapper RSVP/proxy RPCs (`request_or_submit_rsvp_with_custom_answer`, `add_proxy_attendee_with_custom_answer`) plus follow-up migration fixes for trigger compatibility and custom-answer upsert indexes
+- improved host readability by surfacing custom answers as clearly highlighted host-only cards in join-request, attendee, pending-approval, and waitlist views
+- fixed custom-field builder UX so multi-line dropdown options accept `Enter` normally and field labels accept spaces while editing
+- fixed direct `I'm in` behavior so required custom fields force the modal open before join instead of silently bypassing the extra question
 
 ### Host add-attendee duplicate handling hardening
 

@@ -131,6 +131,20 @@ The route table lives in `src/App.tsx`.
 - signed-in users get a CTA into `/my-activities` instead of replacing the page with a dashboard
 - long home-page modals now keep their own internal scroll and use body-scroll locking so the page behind them stays put
 
+### `GlobalFeedbackWidget.tsx`
+
+- globally mounted feedback trigger/modal component rendered from `App.tsx` outside route elements
+- opens a shared feedback form modal for signed-in and signed-out users
+- uses route-aware floating placement:
+  - attendee activity detail route (`/events/:slug`): top-right below sticky header
+  - all other routes: existing bottom-floating behavior (with main-tabs safe-area offset logic)
+
+### `MainMenuButton.tsx`
+
+- shared hamburger menu control used by both the primary top bar and attendee activity detail headers
+- centralizes menu item definitions, menu styling, outside-click close, escape close, and sign-out behavior
+- keeps `Create Activity` and `Explore Activities` as icon-backed quick links at the top of the menu list across all entry points
+
 ### `MyActivities.tsx`
 
 - signed-in hosting vs attending dashboard
@@ -152,6 +166,8 @@ The route table lives in `src/App.tsx`.
 - hydrates the canonical attendee profile row for the current auth user
 - updates profile name/email through `guestService.updateSignedInProfile(...)`
 - shows linked WhatsApp verification state and the verified WhatsApp number when the Lalo flow returns it
+- manages installed-app push notification enable/disable state plus per-category push toggles once the account is WhatsApp-linked and running in standalone mode
+- includes the host-side `Someone joined your activity` push preference for the `host_join` notification category
 - softens success messaging when downstream name sync is only partially confirmed
 
 ### `CreateEvent.tsx`
@@ -192,6 +208,8 @@ The route table lives in `src/App.tsx`.
 - hosts can access calendar actions even without a self RSVP
 - calendar exports prefer the Google Maps share URL as the location field when one exists
 - share-link choices
+- sticky header now uses compact icon-only share plus the shared `MainMenuButton` control for right-side actions
+- includes the global floating feedback trigger, which is positioned top-right below the sticky header specifically on this route
 - host-view detection for semi-public/private access
 - signed-in RSVP now ensures an attendee profile exists before submit, aligning it with the safer signed-in interest flow
 - modal forms avoid automatic keyboard pop on open, and the page behind the modal is now scroll-locked while a modal is active
@@ -210,6 +228,8 @@ The route table lives in `src/App.tsx`.
 - access-request review
 - join-request review and approve/reject actions when enabled
 - manual host notification sending now works alongside a guest-reply path that returns `guest_reply` notifications back to hosts
+- host-side join alerts now arrive through the shared notification system as `host_join`, batched for rapid same-actor additions to the same activity instead of creating one host notification row per attendee insert
+- host-facing activity notifications should deep-link to `/host/events/:id` rather than the attendee/public activity route
 - host list and add-host flow
 - duplicate activity
 - delete activity
@@ -551,6 +571,7 @@ This is one of the highest-risk architecture areas because changes can drift bet
 - subscribes to `event_access_requests` filtered by `event_id`
 - subscribes to `event_interests` filtered by `event_id`
 - host notification inbox behavior itself is not driven by this page's event subscriptions; it depends on the shared notification system mounted in the top bar
+- batched `host_join` notifications are produced through SQL buffering/flush jobs rather than this page's realtime event subscriptions
 
 ## SQL / Schema Architecture
 
@@ -571,6 +592,7 @@ In practice:
 - `supabase_reconcile_live_schema.sql` contains many of the current reliability/RPC expectations
 - `supabase_guest_identity_migration.sql` bootstraps guest/profile/session structures
 - newer feature-specific migrations also carry live contract changes, including notification/reply behavior and WhatsApp-linked identity enrichment
+- the April 12 notification migrations now also define host-join batching and the current host/attendee notification deep-link contract
 - `SCHEMA_ALIGNMENT.md` documents some known drift and historical caveats
 
 Contributors should not assume `supabase_schema.sql` alone fully represents the live database.

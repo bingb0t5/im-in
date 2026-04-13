@@ -25,6 +25,7 @@ export interface Event {
   allow_waitlist: boolean;
   require_host_approval_for_join?: boolean;
   require_guest_email_for_join?: boolean;
+  custom_join_field_config?: EventCustomJoinFieldConfig | null;
   is_public: boolean;
   gallery_visibility?: EventGalleryVisibility;
   public_discovery_enabled?: boolean;
@@ -42,6 +43,16 @@ export interface Event {
   updated_at: string;
   confirmed_count?: number;
   thinking_count?: number;
+}
+
+export type EventCustomJoinFieldType = 'text' | 'number' | 'select';
+
+export interface EventCustomJoinFieldConfig {
+  enabled: boolean;
+  type: EventCustomJoinFieldType;
+  label: string;
+  required: boolean;
+  options?: string[] | null;
 }
 
 export type EventGalleryVisibility = 'private_only' | 'public_preview';
@@ -225,6 +236,17 @@ export interface Attendee {
   cancelled_at?: string;
 }
 
+export interface EventSignupFieldAnswer {
+  id: string;
+  event_id: string;
+  event_attendee_id?: string | null;
+  event_join_request_id?: string | null;
+  answer_value: string;
+  field_label_snapshot?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface EventInterest {
   id: string;
   event_id: string;
@@ -246,6 +268,7 @@ export type NotificationType =
   | 'waitlist_added'
   | 'waitlist_promoted'
   | 'attendance_changed'
+  | 'host_join'
   | 'host_message'
   | 'guest_reply'
   | 'system';

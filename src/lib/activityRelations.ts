@@ -1,6 +1,6 @@
 import { ActivityRelationshipState, Event } from '../types';
 import { BookingRow, groupBookingsByEvent } from './bookings';
-import { isOnOrAfterTodayInTimeZone } from '../utils';
+import { isEventActiveOrUpcoming } from '../utils';
 
 export type ActivityRelationshipGroup = {
   state: ActivityRelationshipState;
@@ -27,7 +27,7 @@ export function pickNextUpcomingActivity(groups: ActivityRelationshipGroup[]) {
 export function pickUpcomingActivities(groups: ActivityRelationshipGroup[], limit = 3) {
   const upcomingEvents = dedupeEventsById(
     groups.flatMap((group) =>
-      group.events.filter((event) => isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone)),
+      group.events.filter((event) => isEventActiveOrUpcoming(event)),
     ),
   ).sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime());
 

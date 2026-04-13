@@ -54,10 +54,12 @@ The weakest / least finished areas are:
 - host `Add Attendee` now normalizes guest input and handles duplicates gracefully so hosts see a friendly duplicate message instead of raw database errors
 - optional host-approval join flow before membership is granted
 - optional host-controlled guest-email requirement for join flows
+- optional host-configurable custom join field on activity signup (`text`, `number`, or dropdown/multiple-choice), currently limited to one field per activity
 - proxy RSVP / "add another person" with host-approval-aware pending request behavior
 - "thinking about it"
 - post-signup email-upgrade prompt for no-email guest signups
 - signed-in `/profile` account details now use compact inline per-field edit/save controls (`Name` and `Email`) with read-only defaults and no-op unchanged saves
+- installed-app push settings now support per-category toggles, including a host-side `Someone joined your activity` alert
 - lightweight AI moderation for broader public discovery on public activities and semi-public public previews
 - host-managed activity gallery uploads (multi-image) with private-only vs public-preview controls
 - iPhone HEIC/HEIF gallery uploads are accepted and converted to JPEG before storage so common Apple photos work in the web gallery flow
@@ -68,15 +70,21 @@ The weakest / least finished areas are:
 - hidden `/admin/gallery` queue for image-specific moderation/review actions
 - hidden admin hub at `/admin` that links to the current internal admin tools
 - allowlisted admins can now reach the hidden admin tools from the main top-bar account menu
+- hosts now receive a dedicated `host_join` notification when someone newly joins, requests to join, or enters the waitlist for their activity
+- rapid same-actor joins for the same activity are now batched into one delayed host notification that lists all joined names instead of spamming one host alert per row
 - public moderation transparency page for public-facing moderation history
 - moderation transparency now prefers moderator profile display names when available instead of only pseudonymous handles
 - home-page explainer content simplified into two modals: `Why this exists` and `Help build it`
+- hamburger menu UI now uses a shared component across top-bar and activity-detail surfaces, with `Create Activity` and `Explore Activities` links pinned at the top of the menu list
 - public feedback/report modal on home page with optional screenshot upload
 - feedback ingestion pipeline with abuse filtering, sanitized Trello intake cards, and Trello list-triggered Codex prompt drafting
 - Trello board webhook path for automatic prompt generation when cards enter the configured trigger list
 - hidden `/admin/feedback` page for blocked abuse items, failed Trello syncs, unsent submissions, retry-to-board actions, and archive/restore
 - hidden `/admin/feedback` page now also includes a passed-to-Trello bucket and permanent delete actions with typed confirmation
 - feedback submission success now includes a direct link to the public dev board
+- the global floating feedback button now repositions to the top-right below the sticky nav on attendee activity detail pages (`/events/:slug`) while staying bottom-floating everywhere else
+- attendee activity-detail headers now use icon-only share action plus the shared hamburger menu control in the right-side header action cluster
+- `/changelog` now uses a generated layman-summary artifact for the `What changed for you` tab, with deterministic fallback wording when AI generation is unavailable
 - long and form-heavy modals now use cleaner mobile behavior, including sticky headers, internal sheet scrolling, background-page scroll lock, and no forced keyboard pop on open
 - WhatsApp verification now persists the verified WhatsApp number on linked attendee profiles when returned by Lalo
 - host dashboard contact and notification-recipient surfaces now show WhatsApp numbers more broadly when available
@@ -104,9 +112,11 @@ The weakest / least finished areas are:
 - route-aware private link building for semi-public activities
 - dedicated join-request queue (`event_join_requests`) plus host approve/reject RPCs for approval-required activities
 - approval-required joins now create visible `event_attendees` rows in `pending_approval` state so pending people show in `Going`
+- custom join-field answers are stored in a separate host-only table (`event_signup_field_answers`) and written through wrapper RSVP/proxy RPCs instead of being stored on publicly readable attendee rows
 - public and semi-public activities now always expose host names from the create/edit flow
 - share helpers now generate richer private WhatsApp share payloads with direct map and calendar shortcut links
 - WhatsApp verify UI copy/assets are now synced from the Lalo server during build so app guidance stays aligned with upstream verify UX updates
+- changelog layman summaries are now generated during `predev` / `prebuild` via `scripts/generate-changelog-summary.mjs`, and changelog page views never trigger runtime AI calls
 - hosts can now use calendar export actions even when they are not personally attending
 - calendar exports now use Google Maps share URLs as the calendar location when available
 - new-activity success state is carried into the host dashboard so the one-time modal can survive the initial dashboard load
@@ -124,7 +134,10 @@ The weakest / least finished areas are:
 - event gallery images stored in a private `event-gallery` bucket and served to clients via signed URLs
 - feedback-item deletion removes the internal row, related prompt-job rows, and stored screenshot object
 - in-app host messaging now includes a guest reply path via `reply_to_event_hosts(...)`
+- the attendee notification trigger now includes a reconciled host-side `host_join` path that avoids relying on a non-existent `event_attendees.resolved_display_name` row field
+- notification deep links now prefer activity-specific destinations: hosts are sent to `/host/events/:id`, attendees are sent to `/events/:slug`, and push clicks no longer silently collapse those activity notifications back to `/`
 - host no-email attendee adds now use deterministic placeholder emails derived from normalized guest name, improving repeat-add dedupe consistency
+- custom join field rollout now depends on the matching April 12 migrations (`20260412153000` and the follow-up index fix `20260412171000`) being applied before the newest app bundle is exercised against production
 
 ## Partial Or Awkward
 

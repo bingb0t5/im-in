@@ -212,10 +212,13 @@ Current behavior:
 - Hosts can send notifications to valid, event-related users from `HostDashboard`.
 - Guests can reply to eligible host-sent activity messages, which creates `guest_reply` notifications for hosts through `reply_to_event_hosts(...)`.
 - Host-facing notification flows now work alongside richer WhatsApp-number visibility in host dashboard recipient/contact surfaces when that profile data exists.
+- Hosts also receive `host_join` notifications when people newly join, request to join, or enter the waitlist for a hosted activity.
+- Rapid same-actor joins for the same activity are batched into one delayed host notification listing all collected names instead of generating one host alert per attendee insert.
 - Automatic notifications are generated for:
   - activity shared
   - important activity updates (title/time/timezone/duration/location/description/public summary)
   - waitlist and attendance status transitions
+- Host-facing activity notifications should deep-link to `/host/events/:id`, while attendee-facing activity notifications should deep-link to `/events/:slug`.
 - Realtime updates are used for inbox/unread count while the app is open.
 
 ## PWA Push Notifications
@@ -231,6 +234,7 @@ The app includes a push-notification delivery pipeline for installed PWA usage.
   - `public.notification_preferences`
 - New rows in `public.notifications` are queued for push via `public.push_dispatch_queue`.
 - Delivery is handled by the `push-dispatch` Supabase Edge Function.
+- Push notification clicks now preserve stored activity-specific action URLs when available instead of defaulting all activity notifications to `/`.
 
 Operational note:
 
@@ -341,6 +345,14 @@ If you want the AI moderation flow to work locally as well, also configure the E
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `OPENAI_API_KEY`
 
+Changelog layman-summary generation:
+
+- `npm run dev` and `npm run build` now run `scripts/generate-changelog-summary.mjs` before Vite starts/builds
+- the script writes `src/generated/changelogSummary.ts`
+- if `OPENAI_API_KEY` is set, it attempts AI rewriting with `OPENAI_CHANGELOG_MODEL` (default: `gpt-4.1-mini`)
+- if AI credentials are missing or the API call fails, it falls back to deterministic non-AI summaries so builds still succeed
+- the website never calls AI when users open `/changelog`; page views only read the generated static artifact
+
 Default local URL:
 
 - `http://localhost:3000`
@@ -358,6 +370,7 @@ Notes:
 - `npm run lint` is currently a TypeScript no-emit check, not ESLint
 - there is no automated test suite in the repo today
 - meaningful changes should be smoke-tested manually
+- changelog layman summaries are generated once per prebuild/predev run, not per page view
 
 ## Routes
 
@@ -390,9 +403,18 @@ Important route behavior:
 - `/bookings` is guest-session driven, not the main authenticated dashboard
 - unknown routes redirect to `/`
 
-Home-page feedback behavior:
+Global menu behavior:
+
+- the hamburger menu now comes from one shared component across top-bar routes and attendee activity detail headers
+- `Create Activity` and `Explore Activities` appear at the very top of the hamburger menu list, with icons, across all menu entry points
+- attendee activity detail headers pair icon-only share with the shared hamburger menu control for compact right-side actions
+
+Feedback entry behavior:
 
 - the public home page has a `Send feedback` modal available to signed-out and signed-in users
+- a global floating feedback button is available across app routes and opens the same feedback modal
+- on attendee activity detail pages (`/events/:slug`), that floating button is repositioned to the top-right below the sticky nav bar
+- on all other routes, the floating button keeps its existing bottom-floating placement
 - feedback supports `bug`, `feature`, and `feedback` types, plus optional screenshot upload
 - submissions run a lightweight abuse filter first, then create a sanitized Trello card in the configured intake list
 - the success state now also links people to the public dev board so they can see what is being worked on

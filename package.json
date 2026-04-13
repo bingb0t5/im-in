@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "sync:lalo-verify": "node scripts/sync-lalo-verify.mjs",
-    "predev": "npm run sync:lalo-verify",
+    "generate:changelog-summary": "node scripts/generate-changelog-summary.mjs",
+    "predev": "npm run sync:lalo-verify && npm run generate:changelog-summary",
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "prebuild": "npm run sync:lalo-verify",
+    "prebuild": "npm run sync:lalo-verify && npm run generate:changelog-summary",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "prelint": "npm run generate:changelog-summary",
     "lint": "tsc --noEmit",
     "test": "vitest run"
   },

@@ -31,7 +31,12 @@ import {
   validateEventGalleryFile,
 } from '../lib/eventGallery';
 import { guestService, getAccountNameFromUser, isSystemGuestEmail, resolvePreferredAccountName } from '../services/guestService';
-import { EventGalleryImage, EventGalleryVisibility } from '../types';
+import { EventCustomJoinFieldConfig, EventGalleryImage, EventGalleryVisibility } from '../types';
+import {
+  buildCustomJoinFieldConfigForSave,
+  normalizeCustomJoinFieldConfig,
+  parseSelectOptionsFromText,
+} from '../lib/customJoinField';
 import { Button } from '../components/ui/Button';
 import { StateScreen } from '../components/ui/StateScreen';
 import {
@@ -91,6 +96,7 @@ type CreateEventDraft = {
     allow_waitlist: boolean;
     require_host_approval_for_join: boolean;
     require_guest_email_for_join: boolean;
+    custom_join_field_config: EventCustomJoinFieldConfig | null;
     is_public: boolean;
   };
   authEmail: string;
@@ -171,6 +177,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
     allow_waitlist: true,
     require_host_approval_for_join: false,
     require_guest_email_for_join: false,
+    custom_join_field_config: null as EventCustomJoinFieldConfig | null,
     is_public: true,
   });
 
@@ -201,6 +208,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
   const [loadedEventVisibility, setLoadedEventVisibility] = useState<'public' | 'semi_public' | 'private' | null>(null);
   const [loadedGalleryVisibility, setLoadedGalleryVisibility] = useState<EventGalleryVisibility>('private_only');
   const [saveProgress, setSaveProgress] = useState<SaveProgressState | null>(null);
+  const [customJoinFieldOptionsDraft, setCustomJoinFieldOptionsDraft] = useState('');
   const formDataRef = useRef(formData);
   const queuedGalleryUploadsRef = useRef<QueuedGalleryUpload[]>([]);
 
@@ -745,6 +753,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         allow_waitlist: normalizedEvent.allow_waitlist ?? true,
         require_host_approval_for_join: normalizedEvent.require_host_approval_for_join ?? false,
         require_guest_email_for_join: normalizedEvent.require_guest_email_for_join ?? false,
+        custom_join_field_config: normalizeCustomJoinFieldConfig(normalizedEvent.custom_join_field_config),
         is_public: normalizedEvent.is_public ?? true,
       });
       setLoadedEventVisibility((normalizedEvent.visibility || (normalizedEvent.is_public ? 'public' : 'private')) as 'public' | 'semi_public' | 'private');
@@ -1012,6 +1021,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
           timezone: formData.timezone || DEFAULT_EVENT_TIMEZONE,
           duration_minutes: formData.duration_minutes || 60,
           host_contact_text: resolvedHostContact || null,
+          custom_join_field_config: buildCustomJoinFieldConfigForSave(formData.custom_join_field_config),
         };
 
         if (resolvedVisibility === 'public') {
@@ -1411,6 +1421,39 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
           : 'Joining settings';
 
   const isPrivateVisibility = formData.visibility === 'private';
+  const customJoinFieldConfig = formData.custom_join_field_config || {
+    enabled: false,
+    type: 'text' as const,
+    label: '',
+    required: false,
+    options: [],
+  };
+  useEffect(() => {
+    if (!customJoinFieldConfig.enabled || customJoinFieldConfig.type !== 'select') {
+      setCustomJoinFieldOptionsDraft('');
+      return;
+    }
+    setCustomJoinFieldOptionsDraft((customJoinFieldConfig.options || []).join('\n'));
+  }, [customJoinFieldConfig.enabled, customJoinFieldConfig.type]);
+  const updateCustomJoinFieldConfig = (updates: Partial<EventCustomJoinFieldConfig>) => {
+    setFormData((prev) => {
+      const base = prev.custom_join_field_config || {
+        enabled: false,
+        type: 'text' as const,
+        label: '',
+        required: false,
+        options: [],
+      };
+      const next = normalizeCustomJoinFieldConfig({
+        ...base,
+        ...updates,
+      });
+      return {
+        ...prev,
+        custom_join_field_config: next,
+      };
+    });
+  };
   const publicBadgeClass = 'bg-orange-100 text-orange-700';
   const privateBadgeClass = 'bg-slate-100 text-slate-500';
 
@@ -1909,6 +1952,84 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
                           </p>
                         </div>
                         </label>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Custom join field (1)</p>
+                        <label className="flex items-start gap-3 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all mt-0.5"
+                            checked={customJoinFieldConfig.enabled}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                updateCustomJoinFieldConfig({ enabled: true });
+                              } else {
+                                setFormData((prev) => ({ ...prev, custom_join_field_config: null }));
+                              }
+                            }}
+                          />
+                          <div>
+                            <p className="text-sm font-bold text-slate-700">Ask one extra question when someone joins</p>
+                            <p className="text-xs text-slate-400">Answers are only visible in your host dashboard.</p>
+                          </div>
+                        </label>
+
+                        {customJoinFieldConfig.enabled ? (
+                          <div className="grid grid-cols-1 gap-3">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Field label</label>
+                              <input
+                                required={customJoinFieldConfig.enabled}
+                                type="text"
+                                maxLength={120}
+                                className="w-full p-3 rounded-xl bg-white border border-slate-200 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-semibold text-sm"
+                                placeholder="e.g. Child age, Shirt size, Dietary needs"
+                                value={customJoinFieldConfig.label}
+                                onChange={(e) => updateCustomJoinFieldConfig({ label: e.target.value })}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Field type</label>
+                              <select
+                                className="w-full p-3 rounded-xl bg-white border border-slate-200 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-semibold text-sm"
+                                value={customJoinFieldConfig.type}
+                                onChange={(e) => updateCustomJoinFieldConfig({ type: e.target.value as EventCustomJoinFieldConfig['type'] })}
+                              >
+                                <option value="text">Text</option>
+                                <option value="number">Number</option>
+                                <option value="select">Dropdown / multiple choice</option>
+                              </select>
+                            </div>
+                            <label className="flex items-start gap-3 cursor-pointer select-none rounded-xl bg-white border border-slate-200 px-3 py-3">
+                              <input
+                                type="checkbox"
+                                className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all mt-0.5"
+                                checked={customJoinFieldConfig.required}
+                                onChange={(e) => updateCustomJoinFieldConfig({ required: e.target.checked })}
+                              />
+                              <div>
+                                <p className="text-sm font-bold text-slate-700">Required field</p>
+                                <p className="text-xs text-slate-400">If off, guests can skip it.</p>
+                              </div>
+                            </label>
+                            {customJoinFieldConfig.type === 'select' ? (
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Options (one per line)</label>
+                                <textarea
+                                  rows={4}
+                                  className="w-full p-3 rounded-xl bg-white border border-slate-200 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-medium text-sm"
+                                  value={customJoinFieldOptionsDraft}
+                                  onChange={(e) => {
+                                    setCustomJoinFieldOptionsDraft(e.target.value);
+                                    updateCustomJoinFieldConfig({ options: parseSelectOptionsFromText(e.target.value) });
+                                  }}
+                                  placeholder={'Small\nMedium\nLarge'}
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
 

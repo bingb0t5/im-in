@@ -67,6 +67,35 @@ export function isOnOrAfterTodayInTimeZone(date: string | Date, timeZone = DEFAU
   return eventDayKey >= todayKey;
 }
 
+type EventTimeLike = {
+  starts_at: string;
+  ends_at?: string | null;
+  duration_minutes?: number | null;
+};
+
+export function getEffectiveEventEnd(event: EventTimeLike) {
+  const startsAt = new Date(event.starts_at);
+  if (Number.isNaN(startsAt.getTime())) return null;
+
+  if (event.ends_at) {
+    const endsAt = new Date(event.ends_at);
+    if (!Number.isNaN(endsAt.getTime())) return endsAt;
+  }
+
+  const durationMinutes = Number(event.duration_minutes);
+  if (Number.isFinite(durationMinutes) && durationMinutes > 0) {
+    return new Date(startsAt.getTime() + durationMinutes * 60 * 1000);
+  }
+
+  return startsAt;
+}
+
+export function isEventActiveOrUpcoming(event: EventTimeLike, now = new Date()) {
+  const effectiveEnd = getEffectiveEventEnd(event);
+  if (!effectiveEnd) return false;
+  return effectiveEnd.getTime() > now.getTime();
+}
+
 function getTimeZoneOffsetMs(date: Date, timeZone: string) {
   const tz = getDatePartsInTimeZone(date, timeZone);
   const asUtc = Date.UTC(tz.year, tz.month - 1, tz.day, tz.hour, tz.minute, tz.second);

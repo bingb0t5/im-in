@@ -185,7 +185,7 @@ async function processQueueRow(admin: ReturnType<typeof buildAdminClient>, row: 
     notificationId: notification.id,
     title: notification.title,
     body: notification.message,
-    actionUrl: notification.action_url || '/',
+    actionUrl: notification.action_url || null,
     tag: `notification:${notification.id}`,
   });
 

@@ -13,7 +13,9 @@ import { findMyInterest, getNamedThinkingInterests, getThinkingCount } from '../
 import { goBackOr } from '../lib/navigation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { EventGallerySection } from '../components/EventGallerySection';
+import { MainMenuButton } from '../components/MainMenuButton';
 import { invokeAuthedFunction, invokePublicFunction } from '../lib/functions';
+import { normalizeCustomJoinFieldConfig, validateCustomJoinAnswer } from '../lib/customJoinField';
 import {
   buildGoogleCalendarUrlForActivity,
   buildIcsDownloadForActivity,
@@ -98,6 +100,8 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [proxyOwnerName, setProxyOwnerName] = useState('');
   const [proxyOwnerEmail, setProxyOwnerEmail] = useState('');
   const [guestInfo, setGuestInfo] = useState({ name: '', email: '' });
+  const [customJoinAnswer, setCustomJoinAnswer] = useState('');
+  const [proxyCustomJoinAnswer, setProxyCustomJoinAnswer] = useState('');
   const [guestProfile, setGuestProfile] = useState<AttendeeProfile | null>(null);
   const [signedInPreferredName, setSignedInPreferredName] = useState('');
   const [signedInProfile, setSignedInProfile] = useState<AttendeeProfile | null>(null);
@@ -160,6 +164,20 @@ export default function EventDetail({ user }: { user: User | null }) {
     if (error instanceof Error && error.message) return error.message;
     return fallback;
   };
+
+  const renderHeaderActions = (onShare: () => void) => (
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={onShare}
+        className="p-2 hover:bg-slate-50 rounded-xl transition-all"
+        aria-label="Share activity"
+      >
+        <Share2 className="w-5 h-5 text-slate-600" />
+      </button>
+      <MainMenuButton user={user} />
+    </div>
+  );
 
   const fallbackNameFromEmail = (email?: string | null) => {
     if (!email || isSystemGuestEmail(email)) return '';
@@ -643,7 +661,15 @@ export default function EventDetail({ user }: { user: User | null }) {
       return;
     }
 
-    const nextEvent = data[0] as Event & { can_view_full_details?: boolean };
+    let nextEvent = data[0] as Event & { can_view_full_details?: boolean };
+    const { data: customFieldConfig } = await supabase.rpc('get_event_custom_join_field_config_for_view', {
+      p_slug: slug,
+      p_access_code: searchParams.get('access'),
+    });
+    nextEvent = {
+      ...nextEvent,
+      custom_join_field_config: customFieldConfig ?? null,
+    };
     const requestedSlug = (slug || '').trim();
     const canonicalPublicSlug = (nextEvent.public_slug || nextEvent.slug || '').trim();
     const canonicalPrivateSlug = (nextEvent.private_slug || nextEvent.join_code || '').trim();
@@ -907,6 +933,19 @@ export default function EventDetail({ user }: { user: User | null }) {
       return;
     }
 
+    if (customJoinFieldEnabled && !customJoinAnswer.trim()) {
+      setShowRsvpModal(true);
+      setRsvpLoading(false);
+      return;
+    }
+
+    const customAnswerValidation = validateCustomJoinAnswer(customJoinFieldConfig, customJoinAnswer);
+    if (!customAnswerValidation.ok) {
+      alert(customAnswerValidation.error);
+      setRsvpLoading(false);
+      return;
+    }
+
     try {
       let currentProfileId = getCurrentProfileId();
 
@@ -935,11 +974,12 @@ export default function EventDetail({ user }: { user: User | null }) {
       const rpcEmail = (rawEmail || (currentProfileId ? `guest+${currentProfileId}@guest.im-in.local` : '')).toLowerCase();
 
       // 2. Use request-aware RSVP path so host-approval activities create pending requests.
-      const { data, error } = await supabase.rpc('request_or_submit_rsvp', {
+      const { data, error } = await supabase.rpc('request_or_submit_rsvp_with_custom_answer', {
         p_event_id: event.id,
         p_guest_name: name,
         p_guest_email: rpcEmail,
         p_attendee_profile_id: currentProfileId || null,
+        p_custom_join_answer: customAnswerValidation.normalizedAnswer || null,
       });
 
       if (error) throw error;
@@ -949,6 +989,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       if (result === 'request_pending' || result === 'already_pending') {
         setMyJoinRequestStatus('pending');
         setShowRsvpModal(false);
+        setCustomJoinAnswer('');
         setSelfPendingApproval(true);
         setSuccessType('self');
         setShowSuccessModal(true);
@@ -965,6 +1006,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
       setMyJoinRequestStatus(null);
       setShowRsvpModal(false);
+      setCustomJoinAnswer('');
       setSelfPendingApproval(false);
       setSuccessType('self');
       setShowSuccessModal(true);
@@ -991,6 +1033,13 @@ export default function EventDetail({ user }: { user: User | null }) {
 
     if (requireGuestEmail && !rawEmail) {
       setProxyError('Email is required to add someone else.');
+      setRsvpLoading(false);
+      return;
+    }
+
+    const customAnswerValidation = validateCustomJoinAnswer(customJoinFieldConfig, proxyCustomJoinAnswer);
+    if (!customAnswerValidation.ok) {
+      setProxyError(customAnswerValidation.error);
       setRsvpLoading(false);
       return;
     }
@@ -1043,19 +1092,21 @@ export default function EventDetail({ user }: { user: User | null }) {
 
       // 3. Use server-side upsert path for proxy RSVP (handles legacy constraints + auth).
       const sessionToken = guestService.getStoredSession();
-      const { data, error } = await supabase.rpc('add_proxy_attendee', {
+      const { data, error } = await supabase.rpc('add_proxy_attendee_with_custom_answer', {
         p_event_id: event.id,
         p_proxy_name: proxyName.trim(),
         p_attendee_profile_id: currentProfileId,
         p_user_id: user?.id || null,
         p_owner_email: rpcEmail,
         p_session_token: sessionToken,
+        p_custom_join_answer: customAnswerValidation.normalizedAnswer || null,
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
       setShowProxyModal(false);
       setProxyName('');
+      setProxyCustomJoinAnswer('');
       setSuccessType('proxy');
       setProxyPendingApproval(data?.result === 'request_pending' || data?.result === 'already_pending');
       setShowSuccessModal(true);
@@ -1272,6 +1323,10 @@ export default function EventDetail({ user }: { user: User | null }) {
     isSystemGuestEmail(guestProfile?.email || guestInfo.email) &&
     event.require_guest_email_for_join === false;
   const isGuestEmailRequired = event.require_guest_email_for_join === true;
+  const customJoinFieldConfig = normalizeCustomJoinFieldConfig(event.custom_join_field_config);
+  const customJoinFieldEnabled = !!customJoinFieldConfig?.enabled;
+  const customJoinFieldLabel = customJoinFieldConfig?.label || 'Additional info';
+  const customJoinFieldOptions = customJoinFieldConfig?.options || [];
 
   const buildInviteText = (url: string) => (
     url === privateEventUrl
@@ -1385,13 +1440,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               <ArrowLeft className="w-5 h-5 text-slate-600" />
             </button>
             <span className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">Activity Preview</span>
-            <button
-              onClick={() => shareInvite(publicEventUrl)}
-              className="px-3 py-2 hover:bg-slate-50 rounded-xl transition-all flex items-center gap-1.5"
-            >
-              <Share2 className="w-5 h-5 text-slate-600" />
-              <span className="text-xs font-bold text-slate-500">Share</span>
-            </button>
+            {renderHeaderActions(() => shareInvite(publicEventUrl))}
           </div>
         </div>
 
@@ -1561,19 +1610,13 @@ export default function EventDetail({ user }: { user: User | null }) {
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Activity Details</span>
-          <button 
-            onClick={() => {
-              if (eventVisibility === 'semi_public' && hasFullEventAccess) {
-                setShowShareChoiceModal(true);
-                return;
-              }
-              shareInvite(privateEventUrl);
-            }}
-            className="px-3 py-2 hover:bg-slate-50 rounded-xl transition-all flex items-center gap-1.5"
-          >
-            <Share2 className="w-5 h-5 text-slate-600" />
-            <span className="text-xs font-bold text-slate-500">Share</span>
-          </button>
+          {renderHeaderActions(() => {
+            if (eventVisibility === 'semi_public' && hasFullEventAccess) {
+              setShowShareChoiceModal(true);
+              return;
+            }
+            shareInvite(privateEventUrl);
+          })}
         </div>
       </div>
 
@@ -1867,6 +1910,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               type="button"
               onClick={() => {
                 setProxyError(null);
+                setProxyCustomJoinAnswer('');
                 setShowProxyModal(true);
               }}
               className="flex min-h-[3.45rem] w-full flex-col items-center justify-center gap-0.5 rounded-[1.15rem] border border-white/45 bg-gradient-to-b from-brand-500 via-brand-600 to-cyan-600 px-2 py-1.5 text-center text-white backdrop-blur-md shadow-[0_18px_36px_rgba(13,148,136,0.3)] transition-all hover:from-brand-400 hover:via-brand-500 hover:to-cyan-500 active:scale-[0.98]"
@@ -1886,7 +1930,10 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowRsvpModal(false)}
+              onClick={() => {
+                setShowRsvpModal(false);
+                setCustomJoinAnswer('');
+              }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-md"
             />
             <motion.div 
@@ -1908,7 +1955,13 @@ export default function EventDetail({ user }: { user: User | null }) {
                         : "Just add your name and you're in."}
                   </p>
                 </div>
-                <button onClick={() => setShowRsvpModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+                <button
+                  onClick={() => {
+                    setShowRsvpModal(false);
+                    setCustomJoinAnswer('');
+                  }}
+                  className="p-2 hover:bg-slate-50 rounded-xl transition-all"
+                >
                   <X className="w-6 h-6 text-slate-400" />
                 </button>
               </div>
@@ -1963,6 +2016,35 @@ export default function EventDetail({ user }: { user: User | null }) {
                     )}
                   </div>
                 )}
+                {customJoinFieldEnabled ? (
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">
+                      {customJoinFieldLabel}
+                    </label>
+                    {customJoinFieldConfig?.type === 'select' ? (
+                      <select
+                        required={customJoinFieldConfig.required}
+                        className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
+                        value={customJoinAnswer}
+                        onChange={(e) => setCustomJoinAnswer(e.target.value)}
+                      >
+                        <option value="">Select an option</option>
+                        {customJoinFieldOptions.map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        required={customJoinFieldConfig?.required}
+                        type={customJoinFieldConfig?.type === 'number' ? 'number' : 'text'}
+                        className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
+                        placeholder={customJoinFieldConfig?.type === 'number' ? 'Enter a number' : 'Your answer'}
+                        value={customJoinAnswer}
+                        onChange={(e) => setCustomJoinAnswer(e.target.value)}
+                      />
+                    )}
+                  </div>
+                ) : null}
                 <button
                   type="submit"
                   disabled={rsvpLoading || joinRequestPending}
@@ -2100,6 +2182,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                     setShowSuccessModal(false);
                     setProxyError(null);
                     setProxyName('');
+                    setProxyCustomJoinAnswer('');
                     setShowProxyModal(true);
                   }}
                   className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
@@ -2304,7 +2387,10 @@ export default function EventDetail({ user }: { user: User | null }) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowProxyModal(false)}
+              onClick={() => {
+                setShowProxyModal(false);
+                setProxyCustomJoinAnswer('');
+              }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-md"
             />
             <motion.div 
@@ -2322,7 +2408,13 @@ export default function EventDetail({ user }: { user: User | null }) {
                     Bringing a friend or family member? Add them to the list.
                   </p>
                 </div>
-                <button onClick={() => setShowProxyModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+                <button
+                  onClick={() => {
+                    setShowProxyModal(false);
+                    setProxyCustomJoinAnswer('');
+                  }}
+                  className="p-2 hover:bg-slate-50 rounded-xl transition-all"
+                >
                   <X className="w-6 h-6 text-slate-400" />
                 </button>
               </div>
@@ -2372,6 +2464,35 @@ export default function EventDetail({ user }: { user: User | null }) {
                     onChange={e => setProxyName(e.target.value)}
                   />
                 </div>
+                {customJoinFieldEnabled ? (
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 px-1">
+                      {customJoinFieldLabel}
+                    </label>
+                    {customJoinFieldConfig?.type === 'select' ? (
+                      <select
+                        required={customJoinFieldConfig.required}
+                        className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
+                        value={proxyCustomJoinAnswer}
+                        onChange={(e) => setProxyCustomJoinAnswer(e.target.value)}
+                      >
+                        <option value="">Select an option</option>
+                        {customJoinFieldOptions.map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        required={customJoinFieldConfig?.required}
+                        type={customJoinFieldConfig?.type === 'number' ? 'number' : 'text'}
+                        className="w-full p-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
+                        placeholder={customJoinFieldConfig?.type === 'number' ? 'Enter a number' : 'Their answer'}
+                        value={proxyCustomJoinAnswer}
+                        onChange={(e) => setProxyCustomJoinAnswer(e.target.value)}
+                      />
+                    )}
+                  </div>
+                ) : null}
                 <button
                   type="submit"
                   disabled={rsvpLoading || !proxyName.trim()}
