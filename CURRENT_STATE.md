@@ -71,6 +71,7 @@ The weakest / least finished areas are:
 - hidden admin hub at `/admin` that links to the current internal admin tools
 - allowlisted admins can now reach the hidden admin tools from the main top-bar account menu
 - hosts now receive a dedicated `host_join` notification when someone newly joins, requests to join, or enters the waitlist for their activity
+- rapid same-actor joins for the same activity are now batched into one delayed host notification that lists all joined names instead of spamming one host alert per row
 - public moderation transparency page for public-facing moderation history
 - moderation transparency now prefers moderator profile display names when available instead of only pseudonymous handles
 - home-page explainer content simplified into two modals: `Why this exists` and `Help build it`
@@ -129,6 +130,7 @@ The weakest / least finished areas are:
 - feedback-item deletion removes the internal row, related prompt-job rows, and stored screenshot object
 - in-app host messaging now includes a guest reply path via `reply_to_event_hosts(...)`
 - the attendee notification trigger now includes a reconciled host-side `host_join` path that avoids relying on a non-existent `event_attendees.resolved_display_name` row field
+- notification deep links now prefer activity-specific destinations: hosts are sent to `/host/events/:id`, attendees are sent to `/events/:slug`, and push clicks no longer silently collapse those activity notifications back to `/`
 - host no-email attendee adds now use deterministic placeholder emails derived from normalized guest name, improving repeat-add dedupe consistency
 - custom join field rollout now depends on the matching April 12 migrations (`20260412153000` and the follow-up index fix `20260412171000`) being applied before the newest app bundle is exercised against production
 

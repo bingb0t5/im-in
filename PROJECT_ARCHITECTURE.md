@@ -152,6 +152,8 @@ The route table lives in `src/App.tsx`.
 - hydrates the canonical attendee profile row for the current auth user
 - updates profile name/email through `guestService.updateSignedInProfile(...)`
 - shows linked WhatsApp verification state and the verified WhatsApp number when the Lalo flow returns it
+- manages installed-app push notification enable/disable state plus per-category push toggles once the account is WhatsApp-linked and running in standalone mode
+- includes the host-side `Someone joined your activity` push preference for the `host_join` notification category
 - softens success messaging when downstream name sync is only partially confirmed
 
 ### `CreateEvent.tsx`
@@ -210,6 +212,8 @@ The route table lives in `src/App.tsx`.
 - access-request review
 - join-request review and approve/reject actions when enabled
 - manual host notification sending now works alongside a guest-reply path that returns `guest_reply` notifications back to hosts
+- host-side join alerts now arrive through the shared notification system as `host_join`, batched for rapid same-actor additions to the same activity instead of creating one host notification row per attendee insert
+- host-facing activity notifications should deep-link to `/host/events/:id` rather than the attendee/public activity route
 - host list and add-host flow
 - duplicate activity
 - delete activity
@@ -551,6 +555,7 @@ This is one of the highest-risk architecture areas because changes can drift bet
 - subscribes to `event_access_requests` filtered by `event_id`
 - subscribes to `event_interests` filtered by `event_id`
 - host notification inbox behavior itself is not driven by this page's event subscriptions; it depends on the shared notification system mounted in the top bar
+- batched `host_join` notifications are produced through SQL buffering/flush jobs rather than this page's realtime event subscriptions
 
 ## SQL / Schema Architecture
 
@@ -571,6 +576,7 @@ In practice:
 - `supabase_reconcile_live_schema.sql` contains many of the current reliability/RPC expectations
 - `supabase_guest_identity_migration.sql` bootstraps guest/profile/session structures
 - newer feature-specific migrations also carry live contract changes, including notification/reply behavior and WhatsApp-linked identity enrichment
+- the April 12 notification migrations now also define host-join batching and the current host/attendee notification deep-link contract
 - `SCHEMA_ALIGNMENT.md` documents some known drift and historical caveats
 
 Contributors should not assume `supabase_schema.sql` alone fully represents the live database.

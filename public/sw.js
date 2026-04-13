@@ -26,7 +26,7 @@ self.addEventListener('push', (event) => {
     badge: payload?.badge || '/icons/icon-192.svg',
     tag: payload?.tag || payload?.notificationId || undefined,
     data: {
-      actionUrl: payload?.actionUrl || '/',
+      actionUrl: payload?.actionUrl || null,
       notificationId: payload?.notificationId || null,
     },
   };
@@ -36,7 +36,7 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const actionUrl = event.notification?.data?.actionUrl || '/';
+  const actionUrl = event.notification?.data?.actionUrl || '/my-activities';
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {

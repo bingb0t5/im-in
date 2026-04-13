@@ -205,6 +205,8 @@ Features:
 - send manual in-app activity notifications to eligible recipients
 - receive guest replies back as `guest_reply` notifications when attendees respond to host messages
 - receive `host_join` notifications when someone newly lands in `confirmed`, `pending_approval`, or `waitlist` state for the hosted activity
+- batch rapid same-actor additions for the same activity into one delayed `host_join` notification listing all collected names
+- host-facing activity notifications now deep-link into `/host/events/:id` instead of falling back to a generic destination
 - host/co-host management
 - duplicate activity, with new copies resetting the public-location filter value to the current approved option
 - duplicate activity preserves `gallery_visibility` while leaving image assets tied to the original activity
@@ -224,6 +226,7 @@ Features:
 - name propagation across hosted activities and self-joined records where sync succeeds
 - installed-app push notification controls with per-category toggles once the account is WhatsApp-linked and the app is opened in standalone mode
 - push categories now include a host-side `Someone joined your activity` alert toggle for the new `host_join` notification type
+- push notifications now preserve stored activity-specific deep links when available instead of defaulting activity alerts to `/`
 
 ### Guest bookings / recovery
 
@@ -257,6 +260,7 @@ Notes:
 - custom join answers are intentionally stored outside `event_attendees` so they are not exposed by broader attendee-read policies on public activities
 - rollout requires the April 12 migrations for the feature itself plus the follow-up unique-index fix used by the custom-answer upsert path
 - a separate April 12 trigger reconciliation migration keeps the new host-join notification path compatible with the real `event_attendees` row shape
+- a later April 12 batching migration groups same-actor host-join alerts for 30 seconds before creating the final `host_join` notification row
 
 Important caveat:
 

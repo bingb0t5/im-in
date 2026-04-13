@@ -8,6 +8,9 @@
 - added a dedicated installed-app push preference toggle (`Someone joined your activity`) so hosts can independently opt in or out of that alert category
 - registered the new `host_join` category across shared app types and push-preference SQL helpers so push dispatch can honor the new checkbox
 - added a follow-up SQL reconciliation migration for the attendee notification trigger so host join alerts no longer depend on a non-existent `event_attendees.resolved_display_name` row field and instead resolve names safely from attendee row/profile data
+- changed host join alerts to batch rapid same-actor additions for the same activity into a single delayed notification that lists all joined names instead of sending one host notification per inserted attendee row
+- updated host-facing notification links so `host_join` alerts now open the host management page for that activity, while attendee-facing notifications continue deep-linking to the attendee/private activity page
+- stopped web-push notification payloads from silently defaulting activity notifications to `/`, so push clicks now prefer the stored activity-specific URL and only fall back to a generic signed-in destination when no action URL exists
 
 ### Host-configurable custom join field
 

@@ -212,10 +212,13 @@ Current behavior:
 - Hosts can send notifications to valid, event-related users from `HostDashboard`.
 - Guests can reply to eligible host-sent activity messages, which creates `guest_reply` notifications for hosts through `reply_to_event_hosts(...)`.
 - Host-facing notification flows now work alongside richer WhatsApp-number visibility in host dashboard recipient/contact surfaces when that profile data exists.
+- Hosts also receive `host_join` notifications when people newly join, request to join, or enter the waitlist for a hosted activity.
+- Rapid same-actor joins for the same activity are batched into one delayed host notification listing all collected names instead of generating one host alert per attendee insert.
 - Automatic notifications are generated for:
   - activity shared
   - important activity updates (title/time/timezone/duration/location/description/public summary)
   - waitlist and attendance status transitions
+- Host-facing activity notifications should deep-link to `/host/events/:id`, while attendee-facing activity notifications should deep-link to `/events/:slug`.
 - Realtime updates are used for inbox/unread count while the app is open.
 
 ## PWA Push Notifications
@@ -231,6 +234,7 @@ The app includes a push-notification delivery pipeline for installed PWA usage.
   - `public.notification_preferences`
 - New rows in `public.notifications` are queued for push via `public.push_dispatch_queue`.
 - Delivery is handled by the `push-dispatch` Supabase Edge Function.
+- Push notification clicks now preserve stored activity-specific action URLs when available instead of defaulting all activity notifications to `/`.
 
 Operational note:
 

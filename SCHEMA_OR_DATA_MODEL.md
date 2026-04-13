@@ -326,10 +326,12 @@ Important fields:
 
 Important behavioral meaning:
 
-- current app-visible notification types include `activity_shared`, `activity_updated`, `waitlist_added`, `waitlist_promoted`, `attendance_changed`, `host_message`, `guest_reply`, and `system`
+- current app-visible notification types include `activity_shared`, `activity_updated`, `waitlist_added`, `waitlist_promoted`, `attendance_changed`, `host_join`, `host_message`, `guest_reply`, and `system`
 - hosts can send manual activity notifications from the host dashboard through SQL RPCs rather than raw client-side inserts
 - guests can reply to eligible `host_message` notifications through `reply_to_event_hosts(...)`, which creates `guest_reply` notifications for host/co-host recipients
+- `host_join` notifications are generated through a buffered SQL batching path so rapid same-actor joins for the same activity can be collapsed into one delayed host alert
 - notification metadata can carry reply-context information such as activity title and sender name for the inbox/detail UI
+- `action_url` is part of the routing contract: host-facing activity notifications should target `/host/events/:id`, while attendee-facing activity notifications should target `/events/:slug`
 - newer push-delivery behavior may derive from this table, but the in-app inbox remains the primary notification contract the frontend reads directly
 
 ### `attendee_profiles`
