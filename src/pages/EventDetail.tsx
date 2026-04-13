@@ -662,17 +662,14 @@ export default function EventDetail({ user }: { user: User | null }) {
     }
 
     let nextEvent = data[0] as Event & { can_view_full_details?: boolean };
-    const { data: customFieldRow } = await supabase
-      .from('events')
-      .select('custom_join_field_config')
-      .eq('id', nextEvent.id)
-      .maybeSingle();
-    if (customFieldRow) {
-      nextEvent = {
-        ...nextEvent,
-        custom_join_field_config: customFieldRow.custom_join_field_config,
-      };
-    }
+    const { data: customFieldConfig } = await supabase.rpc('get_event_custom_join_field_config_for_view', {
+      p_slug: slug,
+      p_access_code: searchParams.get('access'),
+    });
+    nextEvent = {
+      ...nextEvent,
+      custom_join_field_config: customFieldConfig ?? null,
+    };
     const requestedSlug = (slug || '').trim();
     const canonicalPublicSlug = (nextEvent.public_slug || nextEvent.slug || '').trim();
     const canonicalPrivateSlug = (nextEvent.private_slug || nextEvent.join_code || '').trim();

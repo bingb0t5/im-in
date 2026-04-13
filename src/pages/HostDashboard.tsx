@@ -26,6 +26,7 @@ import {
   buildCustomJoinFieldConfigForSave,
   normalizeCustomJoinFieldConfig,
   parseSelectOptionsFromText,
+  validateCustomJoinAnswer,
 } from '../lib/customJoinField';
 
 type InAppShareCandidate = {
@@ -103,7 +104,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [attendees, setAttendees] = useState<HostAttendee[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newAttendee, setNewAttendee] = useState({ name: '', email: '' });
+  const [newAttendee, setNewAttendee] = useState({ name: '', email: '', customAnswer: '' });
   const [actionLoading, setActionLoading] = useState(false);
   const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
   const [accessRequests, setAccessRequests] = useState<EventAccessRequest[]>([]);
@@ -1049,6 +1050,16 @@ export default function HostDashboard({ user }: { user: User | null }) {
     const normalizedEmail = (newAttendee.email || '').trim().toLowerCase();
     // Keep no-email host adds deterministic so retries dedupe to the same attendee.
     const email = normalizedEmail || toGuestPlaceholderEmail(guestName);
+    const customAnswerValidation = validateCustomJoinAnswer(
+      normalizeCustomJoinFieldConfig(event.custom_join_field_config),
+      newAttendee.customAnswer,
+    );
+
+    if (!customAnswerValidation.ok) {
+      alert(customAnswerValidation.error);
+      setActionLoading(false);
+      return;
+    }
 
     try {
       // 1. Check for existing RSVP
@@ -1075,6 +1086,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       const status = decision.status;
 
       // 3. Insert or Update RSVP
+      let attendeeId = existing?.id || '';
       if (existing) {
         const { error } = await supabase
           .from('event_attendees')
@@ -1091,7 +1103,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
         
         if (error) throw error;
       } else {
-        const { error } = await supabase
+        const { data: inserted, error } = await supabase
           .from('event_attendees')
           .insert([{
             event_id: event.id,
@@ -1100,14 +1112,39 @@ export default function HostDashboard({ user }: { user: User | null }) {
             status,
             added_by_type: 'host',
             added_by_attendee_profile_id: null
-          }]);
+          }])
+          .select('id')
+          .single();
         
         if (error) throw error;
+        attendeeId = inserted?.id || '';
+      }
+
+      if (attendeeId && customAnswerValidation.normalizedAnswer) {
+        const { error: answerError } = await supabase
+          .from('event_signup_field_answers')
+          .upsert(
+            [{
+              event_id: event.id,
+              event_attendee_id: attendeeId,
+              answer_value: customAnswerValidation.normalizedAnswer,
+              field_label_snapshot: customJoinFieldLabel,
+            }],
+            { onConflict: 'event_attendee_id' },
+          );
+        if (answerError) throw answerError;
+      } else if (attendeeId && !customAnswerValidation.normalizedAnswer) {
+        const { error: deleteAnswerError } = await supabase
+          .from('event_signup_field_answers')
+          .delete()
+          .eq('event_attendee_id', attendeeId);
+        if (deleteAnswerError) throw deleteAnswerError;
       }
 
       setShowAddModal(false);
-      setNewAttendee({ name: '', email: '' });
+      setNewAttendee({ name: '', email: '', customAnswer: '' });
       fetchAttendees(event.id);
+      fetchSignupAnswers(event.id);
     } catch (error: any) {
       console.error('Add Attendee Error:', error);
       if (isDuplicateAttendeeConstraintError(error)) {
@@ -2681,7 +2718,10 @@ export default function HostDashboard({ user }: { user: User | null }) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowAddModal(false)}
+              onClick={() => {
+                setShowAddModal(false);
+                setNewAttendee({ name: '', email: '', customAnswer: '' });
+              }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div 
@@ -2692,7 +2732,13 @@ export default function HostDashboard({ user }: { user: User | null }) {
             >
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-slate-900 tracking-tight">Add Attendee</h2>
-                <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+                <button
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setNewAttendee({ name: '', email: '', customAnswer: '' });
+                  }}
+                  className="p-2 hover:bg-slate-50 rounded-xl transition-all"
+                >
                   <X className="w-6 h-6 text-slate-400" />
                 </button>
               </div>
@@ -2719,6 +2765,35 @@ export default function HostDashboard({ user }: { user: User | null }) {
                     onChange={e => setNewAttendee({ ...newAttendee, email: e.target.value })}
                   />
                 </div>
+                {normalizeCustomJoinFieldConfig(event.custom_join_field_config)?.enabled ? (
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">
+                      {customJoinFieldLabel}
+                    </label>
+                    {normalizeCustomJoinFieldConfig(event.custom_join_field_config)?.type === 'select' ? (
+                      <select
+                        required={!!normalizeCustomJoinFieldConfig(event.custom_join_field_config)?.required}
+                        className="w-full p-3.5 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
+                        value={newAttendee.customAnswer}
+                        onChange={e => setNewAttendee({ ...newAttendee, customAnswer: e.target.value })}
+                      >
+                        <option value="">Select an option</option>
+                        {(normalizeCustomJoinFieldConfig(event.custom_join_field_config)?.options || []).map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        required={!!normalizeCustomJoinFieldConfig(event.custom_join_field_config)?.required}
+                        type={normalizeCustomJoinFieldConfig(event.custom_join_field_config)?.type === 'number' ? 'number' : 'text'}
+                        className="w-full p-3.5 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
+                        placeholder="Answer"
+                        value={newAttendee.customAnswer}
+                        onChange={e => setNewAttendee({ ...newAttendee, customAnswer: e.target.value })}
+                      />
+                    )}
+                  </div>
+                ) : null}
                 <button
                   type="submit"
                   disabled={actionLoading}
