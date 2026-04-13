@@ -15,6 +15,50 @@ export type FriendlyChangelogRelease = {
   highlights: string[];
 };
 
+const TOPIC_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/`[^`]+`/g, ''],
+  [/\/[a-z0-9\-/:_]+/gi, ''],
+  [/\b(rpc|sql|schema|migration|trigger|supabase|edge function|backend)\b/gi, 'core systems'],
+  [/\bwhatsapp auth\b/gi, 'WhatsApp sign-in'],
+  [/\brsvp\b/gi, 'joining'],
+  [/\bui\/ux\b/gi, 'experience'],
+  [/\bactivity-detail\b/gi, 'activity pages'],
+  [/\bhost\b/gi, 'organizer'],
+  [/\badmin\b/gi, 'management'],
+  [/\s+/g, ' '],
+];
+
+function toSentenceCase(value: string): string {
+  const text = value.trim();
+  if (!text) return '';
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function simplifyTopic(topic: string): string {
+  let text = topic.trim();
+  for (const [pattern, replacement] of TOPIC_REPLACEMENTS) {
+    text = text.replace(pattern, replacement);
+  }
+  text = text.replace(/[()]/g, '').replace(/\s{2,}/g, ' ').trim();
+  text = text.replace(/[,:;.\-]+$/g, '').trim();
+  if (!text) return 'the app experience';
+  return toSentenceCase(text);
+}
+
+function pickSectionVerb(items: string[]): string {
+  const body = items.join(' ').toLowerCase();
+  if (/(fixed|fix|bug|retry|hardened|reliability|stale|error|fail)/.test(body)) {
+    return 'Improved reliability for';
+  }
+  if (/(added|new|introduc|support|enable)/.test(body)) {
+    return 'Added support for';
+  }
+  if (/(updated|refresh|polish|improv|clearer|easier)/.test(body)) {
+    return 'Improved';
+  }
+  return 'Updated';
+}
+
 export function parseDeveloperChangelog(markdown: string): DevChangelogRelease[] {
   const lines = markdown.split(/\r?\n/);
   const releases: DevChangelogRelease[] = [];
@@ -79,18 +123,14 @@ export function describeReleaseFocus(release: DevChangelogRelease): string {
     .filter(Boolean);
 
   if (titledSections.length === 0) {
-    return 'A mix of fixes and improvements shipped in this release.';
+    return 'This release focuses on polish, reliability, and easier everyday use.';
   }
 
-  if (titledSections.length === 1) {
-    return `Focused on ${titledSections[0]}.`;
-  }
-
-  if (titledSections.length === 2) {
-    return `Focused on ${titledSections[0]} and ${titledSections[1]}.`;
-  }
-
-  return `Focused on ${titledSections[0]}, ${titledSections[1]}, and ${titledSections.length - 2} more areas.`;
+  const topics = titledSections.map((title) => simplifyTopic(title.toLowerCase()));
+  const lead = topics[0].toLowerCase();
+  if (topics.length === 1) return `This release mainly improves ${lead}.`;
+  if (topics.length === 2) return `This release improves ${lead} and ${topics[1].toLowerCase()}.`;
+  return `This release improves ${lead}, ${topics[1].toLowerCase()}, and other key areas.`;
 }
 
 export function buildFriendlyTitle(release: DevChangelogRelease): string {
@@ -98,17 +138,27 @@ export function buildFriendlyTitle(release: DevChangelogRelease): string {
     .map((section) => section.title.trim())
     .filter(Boolean);
 
-  if (titledSections.length === 0) return 'Release highlights';
-  if (titledSections.length === 1) return titledSections[0];
-  return `${titledSections[0]} + ${titledSections.length - 1} more`;
+  if (titledSections.length === 0) return 'Product improvements';
+  const firstTopic = simplifyTopic(titledSections[0]).replace(/[+]/g, '').trim();
+  if (titledSections.length === 1) return firstTopic;
+  return `${firstTopic} and more`;
 }
 
 export function buildFriendlyHighlights(release: DevChangelogRelease): string[] {
-  return release.sections
-    .flatMap((section) =>
-      section.items.map((item) => (section.title ? `${section.title}: ${item}` : item)),
-    )
-    .slice(0, 6);
+  const sectionHighlights = release.sections
+    .filter((section) => section.title.trim() || section.items.length > 0)
+    .map((section) => {
+      const topic = simplifyTopic(section.title || 'the app experience').toLowerCase();
+      const verb = pickSectionVerb(section.items);
+      return `${verb} ${topic}.`;
+    })
+    .slice(0, 4);
+
+  if (sectionHighlights.length > 0) {
+    return sectionHighlights;
+  }
+
+  return ['Improved the app experience with clearer flows and better reliability.'];
 }
 
 export function buildDeterministicFriendlyReleases(
