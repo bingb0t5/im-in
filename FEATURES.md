@@ -149,11 +149,13 @@ Features:
 - add another person
 - mark "thinking about it"
 - request access for semi-public activities
+- host-configurable extra signup question on join, supporting one `text`, `number`, or dropdown/multiple-choice field per activity
 - host visibility/contact display when configured
 - share actions
 - Google Calendar action
 - `.ics` download action
 - modal forms now avoid auto-opening the keyboard on arrival, which keeps the sheet from jumping down on mobile before the user taps a field
+- when a required custom join field is enabled, direct `I'm in` opens the RSVP modal first so the extra answer is collected before submit
 
 ### Create / edit page
 
@@ -172,6 +174,7 @@ Features:
 - duration select
 - capacity and waitlist settings
 - per-activity setting for requiring guest email before join
+- per-activity custom join field builder with label, required/optional toggle, and dropdown options when the field type is `select`
 - public vs private summary/location inputs
 - public location is currently restricted to an approved dropdown list, with `Hoi An, Vietnam` as the only available UI option
 - optional Google Maps link
@@ -198,8 +201,10 @@ Features:
 - post-create success modal with quick actions for WhatsApp sharing, returning to `My Activities`, or returning `Home`
 - access request review
 - join request review (when host approval is enabled)
+- host-only display of submitted custom join answers across join requests, attendees, pending approvals, and waitlist rows
 - send manual in-app activity notifications to eligible recipients
 - receive guest replies back as `guest_reply` notifications when attendees respond to host messages
+- receive `host_join` notifications when someone newly lands in `confirmed`, `pending_approval`, or `waitlist` state for the hosted activity
 - host/co-host management
 - duplicate activity, with new copies resetting the public-location filter value to the current approved option
 - duplicate activity preserves `gallery_visibility` while leaving image assets tied to the original activity
@@ -217,6 +222,8 @@ Features:
 - WhatsApp verification/link state
 - verified WhatsApp number display when returned by Lalo
 - name propagation across hosted activities and self-joined records where sync succeeds
+- installed-app push notification controls with per-category toggles once the account is WhatsApp-linked and the app is opened in standalone mode
+- push categories now include a host-side `Someone joined your activity` alert toggle for the new `host_join` notification type
 
 ### Guest bookings / recovery
 
@@ -233,6 +240,23 @@ Features:
 - restore session by token URL
 - optional guest email-upgrade flow
 - guest-email upgrades now use a dedicated SQL merge RPC so attendee ownership, inviter attribution, sessions, interests, and join requests move together
+
+### Custom join field data model
+
+Implemented through:
+
+- `events.custom_join_field_config`
+- `event_signup_field_answers`
+- `request_or_submit_rsvp_with_custom_answer(...)`
+- `add_proxy_attendee_with_custom_answer(...)`
+
+Notes:
+
+- only one custom field is currently supported per activity
+- supported field types are `text`, `number`, and `select`
+- custom join answers are intentionally stored outside `event_attendees` so they are not exposed by broader attendee-read policies on public activities
+- rollout requires the April 12 migrations for the feature itself plus the follow-up unique-index fix used by the custom-answer upsert path
+- a separate April 12 trigger reconciliation migration keeps the new host-join notification path compatible with the real `event_attendees` row shape
 
 Important caveat:
 

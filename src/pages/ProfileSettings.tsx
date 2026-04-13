@@ -41,6 +41,7 @@ const PUSH_CATEGORY_LABELS: Record<string, string> = {
   waitlist_added: 'Added to waitlist',
   waitlist_promoted: 'Promoted from waitlist',
   attendance_changed: 'Attendance changes',
+  host_join: 'Someone joined your activity',
   host_message: 'Host messages',
   guest_reply: 'Guest replies',
   system: 'System announcements',

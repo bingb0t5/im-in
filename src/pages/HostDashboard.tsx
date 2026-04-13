@@ -5,7 +5,15 @@ import { User } from '@supabase/supabase-js';
 import { Users, Copy, MessageCircle, ArrowLeft, Trash2, CheckCircle2, Clock, Edit2, Plus, X, AlertCircle, Calendar, ChevronDown, ChevronUp, MessageSquare, Mail } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, formatDurationMinutes } from '../utils';
-import { Event, Attendee, EventAccessRequest, EventInterest, EventJoinRequest } from '../types';
+import {
+  Event,
+  Attendee,
+  EventAccessRequest,
+  EventCustomJoinFieldConfig,
+  EventInterest,
+  EventJoinRequest,
+  EventSignupFieldAnswer,
+} from '../types';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/moderation';
 import { LOCKED_PUBLIC_LOCATION } from '../lib/publicLocation';
@@ -14,6 +22,11 @@ import { guestService, getAccountNameFromUser } from '../services/guestService';
 import { buildPrivateActivityUrl, buildPrivateWhatsappShareText } from '../lib/eventShare';
 import { invokeAuthedFunction } from '../lib/functions';
 import { buildEventGalleryStoragePath, EVENT_GALLERY_BUCKET } from '../lib/eventGallery';
+import {
+  buildCustomJoinFieldConfigForSave,
+  normalizeCustomJoinFieldConfig,
+  parseSelectOptionsFromText,
+} from '../lib/customJoinField';
 
 type InAppShareCandidate = {
   user_id: string;
@@ -137,6 +150,10 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [copyProgress, setCopyProgress] = useState<CopyProgressState | null>(null);
   const [settingsSavingKey, setSettingsSavingKey] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
+  const [customJoinFieldDraft, setCustomJoinFieldDraft] = useState<EventCustomJoinFieldConfig | null>(null);
+  const [customJoinFieldOptionsDraft, setCustomJoinFieldOptionsDraft] = useState('');
+  const [signupAnswersByAttendeeId, setSignupAnswersByAttendeeId] = useState<Record<string, EventSignupFieldAnswer>>({});
+  const [signupAnswersByJoinRequestId, setSignupAnswersByJoinRequestId] = useState<Record<string, EventSignupFieldAnswer>>({});
   const [activeTab, setActiveTab] = useState<HostDashboardTab>('requests');
   const [showShareInsights, setShowShareInsights] = useState(false);
   const [autoModerationWarning, setAutoModerationWarning] = useState<string | null>(null);
@@ -180,6 +197,19 @@ export default function HostDashboard({ user }: { user: User | null }) {
   };
 
   const getDisplayWhatsapp = (whatsapp?: string | null) => (whatsapp || '').trim() || 'No WhatsApp available';
+
+  useEffect(() => {
+    setCustomJoinFieldDraft(normalizeCustomJoinFieldConfig(event?.custom_join_field_config));
+  }, [event?.id, event?.custom_join_field_config]);
+
+  useEffect(() => {
+    const normalized = normalizeCustomJoinFieldConfig(customJoinFieldDraft);
+    if (!normalized?.enabled || normalized.type !== 'select') {
+      setCustomJoinFieldOptionsDraft('');
+      return;
+    }
+    setCustomJoinFieldOptionsDraft((normalized.options || []).join('\n'));
+  }, [event?.id, customJoinFieldDraft?.enabled, customJoinFieldDraft?.type]);
 
   const getEngagementTagLabel = (candidate: InAppShareCandidate) => {
     if (candidate.attended_previous || candidate.engagement_tag === 'attended' || candidate.engagement_tag === 'both') {
@@ -378,6 +408,19 @@ export default function HostDashboard({ user }: { user: User | null }) {
     } finally {
       setSettingsSavingKey(null);
     }
+  };
+
+  const saveCustomJoinFieldSettings = async () => {
+    if (!event) return;
+    const payload = buildCustomJoinFieldConfigForSave(customJoinFieldDraft);
+    if (customJoinFieldDraft?.enabled && !payload) {
+      setSettingsMessage('Add a field label first. Dropdown fields also need at least one option.');
+      return;
+    }
+    await updateEventSettings(
+      { custom_join_field_config: payload },
+      payload ? 'Custom join field saved.' : 'Custom join field removed.',
+    );
   };
 
   const fetchPrivateAccessUsers = async (eventId: string) => {
@@ -672,6 +715,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       fetchAttendees(normalizedEvent.id);
       fetchAccessRequests(normalizedEvent.id);
       fetchJoinRequests(normalizedEvent.id);
+      fetchSignupAnswers(normalizedEvent.id);
       fetchInterests(normalizedEvent.id);
       fetchHosts(normalizedEvent.id, normalizedEvent.host_user_id || null, normalizedEvent.host_name || null);
       fetchInAppShareCandidates(normalizedEvent.id);
@@ -754,6 +798,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       const attendeeRows = data as HostAttendee[];
       setAttendees(attendeeRows);
       await hydrateAdderNames(attendeeRows);
+      void fetchSignupAnswers(eventId);
     }
     setLoading(false);
   };
@@ -780,7 +825,34 @@ export default function HostDashboard({ user }: { user: User | null }) {
       return;
     }
 
-    if (data) setJoinRequests(data as HostJoinRequest[]);
+    if (data) {
+      setJoinRequests(data as HostJoinRequest[]);
+      void fetchSignupAnswers(eventId);
+    }
+  };
+
+  const fetchSignupAnswers = async (eventId: string) => {
+    const { data, error } = await supabase
+      .from('event_signup_field_answers')
+      .select('*')
+      .eq('event_id', eventId);
+
+    if (error) {
+      console.error('Could not load custom signup answers:', error);
+      setSignupAnswersByAttendeeId({});
+      setSignupAnswersByJoinRequestId({});
+      return;
+    }
+
+    const byAttendeeId: Record<string, EventSignupFieldAnswer> = {};
+    const byJoinRequestId: Record<string, EventSignupFieldAnswer> = {};
+    (data || []).forEach((answer) => {
+      const row = answer as EventSignupFieldAnswer;
+      if (row.event_attendee_id) byAttendeeId[row.event_attendee_id] = row;
+      if (row.event_join_request_id) byJoinRequestId[row.event_join_request_id] = row;
+    });
+    setSignupAnswersByAttendeeId(byAttendeeId);
+    setSignupAnswersByJoinRequestId(byJoinRequestId);
   };
 
   const fetchInterests = async (eventId: string) => {
@@ -1462,6 +1534,29 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const pendingReviewCount = pendingJoinRequests.length + pendingRequests.length;
   const canReviewJoinRequests = event.require_host_approval_for_join;
   const canReviewAccessRequests = visibility === 'semi_public';
+  const customJoinFieldLabel = normalizeCustomJoinFieldConfig(event.custom_join_field_config)?.label || 'Custom answer';
+  const customJoinFieldDraftValue = customJoinFieldDraft || {
+    enabled: false,
+    type: 'text' as const,
+    label: '',
+    required: false,
+    options: [],
+  };
+  const getAnswerForAttendee = (attendeeId: string) => signupAnswersByAttendeeId[attendeeId]?.answer_value || '';
+  const getAnswerForJoinRequest = (requestId: string) => signupAnswersByJoinRequestId[requestId]?.answer_value || '';
+  const renderCustomJoinAnswer = (answer: string) => {
+    const value = answer.trim();
+    if (!value) return null;
+    return (
+      <div className="mt-2 inline-flex max-w-full items-start gap-2 rounded-xl bg-brand-50 px-2.5 py-2 text-xs text-brand-900 border border-brand-100">
+        <MessageSquare className="h-3.5 w-3.5 shrink-0 text-brand-600 mt-0.5" />
+        <div className="min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-wider text-brand-700">{customJoinFieldLabel}</p>
+          <p className="font-semibold break-words">{value}</p>
+        </div>
+      </div>
+    );
+  };
   const renderPrimaryShareActions = ({
     iconClassName = 'w-5 h-5',
     labelClassName = 'text-sm font-bold',
@@ -1945,6 +2040,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 </button>
               </div>
             </div>
+            {normalizeCustomJoinFieldConfig(event.custom_join_field_config)?.enabled ? (
+              <div className="rounded-xl border border-brand-100 bg-brand-50 px-3 py-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-brand-700">Host-only join answer</p>
+                <p className="text-xs text-brand-800">
+                  Scanning field: <span className="font-bold">{customJoinFieldLabel}</span>
+                </p>
+              </div>
+            ) : null}
 
             {visibleJoinRequests.length === 0 ? (
               <p className="text-sm text-slate-400">
@@ -1965,6 +2068,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                         {request.request_note ? (
                           <p className="text-xs text-slate-500 mt-1">{request.request_note}</p>
                         ) : null}
+                        {renderCustomJoinAnswer(getAnswerForJoinRequest(request.id))}
                       </div>
                       <span className="text-[9px] font-medium uppercase tracking-widest text-slate-400">
                         {request.status}
@@ -2126,6 +2230,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
               <Plus className="w-3.5 h-3.5" /> Add Person
             </button>
           </div>
+          {normalizeCustomJoinFieldConfig(event.custom_join_field_config)?.enabled ? (
+            <div className="mx-5 mb-3 rounded-xl border border-brand-100 bg-brand-50 px-3 py-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-brand-700">Host-only join answer</p>
+              <p className="text-xs text-brand-800">
+                Field: <span className="font-bold">{customJoinFieldLabel}</span>
+              </p>
+            </div>
+          ) : null}
           {confirmed.length === 0 && pendingApprovalAttendees.length === 0 ? (
             <div className="px-5 pb-6 pt-2">
               <p className="text-sm text-slate-400 mb-3">No one's joined yet.</p>
@@ -2148,6 +2260,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                       )}
                     </div>
                     <p className="text-[11px] text-slate-400 mt-0.5">{getDisplayWhatsapp(a.whatsapp_number)}</p>
+                    {renderCustomJoinAnswer(getAnswerForAttendee(a.id))}
                   </div>
                   <button 
                     onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getAttendeeDisplayName(a) })} 
@@ -2165,6 +2278,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                       <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest">Pending host approval</span>
                     </div>
                     <p className="text-[11px] text-slate-400 mt-0.5">{getDisplayWhatsapp(a.whatsapp_number)}</p>
+                    {renderCustomJoinAnswer(getAnswerForAttendee(a.id))}
                   </div>
                 </div>
               ))}
@@ -2190,6 +2304,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                       )}
                     </div>
                     <p className="text-[11px] text-slate-400 mt-0.5">#{i + 1} on waitlist</p>
+                    {renderCustomJoinAnswer(getAnswerForAttendee(a.id))}
                   </div>
                   <button 
                     onClick={() => setShowDeleteModal({ show: true, type: 'attendee', id: a.id, name: getAttendeeDisplayName(a) })} 
@@ -2292,6 +2407,123 @@ export default function HostDashboard({ user }: { user: User | null }) {
                   <p className="text-xs text-slate-400">A true require-WhatsApp setting is not wired yet. Right now this only enforces email on the direct join flow.</p>
                 </div>
               </label>
+
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Custom join field</p>
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                    checked={customJoinFieldDraftValue.enabled}
+                    onChange={(evt) => {
+                      if (evt.target.checked) {
+                        setCustomJoinFieldDraft((prev) => normalizeCustomJoinFieldConfig({
+                          ...(prev || {
+                            type: 'text',
+                            label: '',
+                            required: false,
+                            options: [],
+                          }),
+                          enabled: true,
+                        }));
+                      } else {
+                        setCustomJoinFieldDraft(null);
+                      }
+                    }}
+                  />
+                  <div>
+                    <p className="text-sm font-bold text-slate-700">Ask one extra question on join</p>
+                    <p className="text-xs text-slate-400">Responses stay private to hosts.</p>
+                  </div>
+                </label>
+
+                {customJoinFieldDraftValue.enabled ? (
+                  <div className="grid grid-cols-1 gap-3">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Field label</label>
+                      <input
+                        type="text"
+                        maxLength={120}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none transition-all focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
+                        value={customJoinFieldDraftValue.label}
+                        onChange={(evt) =>
+                          setCustomJoinFieldDraft((prev) => normalizeCustomJoinFieldConfig({
+                            ...(prev || {}),
+                            enabled: true,
+                            label: evt.target.value,
+                          }))
+                        }
+                        placeholder="e.g. Child age"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Field type</label>
+                      <select
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none transition-all focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
+                        value={customJoinFieldDraftValue.type}
+                        onChange={(evt) =>
+                          setCustomJoinFieldDraft((prev) => normalizeCustomJoinFieldConfig({
+                            ...(prev || {}),
+                            enabled: true,
+                            type: evt.target.value,
+                          }))
+                        }
+                      >
+                        <option value="text">Text</option>
+                        <option value="number">Number</option>
+                        <option value="select">Dropdown / multiple choice</option>
+                      </select>
+                    </div>
+                    <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                        checked={customJoinFieldDraftValue.required}
+                        onChange={(evt) =>
+                          setCustomJoinFieldDraft((prev) => normalizeCustomJoinFieldConfig({
+                            ...(prev || {}),
+                            enabled: true,
+                            required: evt.target.checked,
+                          }))
+                        }
+                      />
+                      <div>
+                        <p className="text-sm font-bold text-slate-700">Required field</p>
+                        <p className="text-xs text-slate-400">If off, people can skip this answer.</p>
+                      </div>
+                    </label>
+                    {customJoinFieldDraftValue.type === 'select' ? (
+                      <div>
+                        <label className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-slate-400">Options (one per line)</label>
+                        <textarea
+                          rows={4}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium outline-none transition-all focus:border-brand-600 focus:ring-4 focus:ring-brand-600/10"
+                          value={customJoinFieldOptionsDraft}
+                          onChange={(evt) => {
+                            setCustomJoinFieldOptionsDraft(evt.target.value);
+                            setCustomJoinFieldDraft((prev) => normalizeCustomJoinFieldConfig({
+                              ...(prev || {}),
+                              enabled: true,
+                              options: parseSelectOptionsFromText(evt.target.value),
+                            }));
+                          }}
+                          placeholder={'Small\nMedium\nLarge'}
+                        />
+                      </div>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void saveCustomJoinFieldSettings();
+                      }}
+                      disabled={settingsSavingKey === 'custom_join_field_config'}
+                      className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white transition-all hover:bg-brand-500 active:scale-95 disabled:opacity-50"
+                    >
+                      Save custom field
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             {settingsMessage ? (

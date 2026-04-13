@@ -2,6 +2,24 @@
 
 ## 2026-04-12
 
+### Host join notifications and migration reconciliation
+
+- added a new host-facing `host_join` notification so hosts are alerted when someone newly joins an activity in `waitlist`, `pending_approval`, or `confirmed` state
+- added a dedicated installed-app push preference toggle (`Someone joined your activity`) so hosts can independently opt in or out of that alert category
+- registered the new `host_join` category across shared app types and push-preference SQL helpers so push dispatch can honor the new checkbox
+- added a follow-up SQL reconciliation migration for the attendee notification trigger so host join alerts no longer depend on a non-existent `event_attendees.resolved_display_name` row field and instead resolve names safely from attendee row/profile data
+
+### Host-configurable custom join field
+
+- added one host-configurable custom join field per activity, with support for `text`, `number`, and dropdown/multiple-choice options
+- added host-side create/edit and dashboard settings UI to enable the field, set its label, choose whether it is required, and define dropdown options
+- updated attendee join flows so both `I'm in` and `My Kids in` can capture the extra answer before submitting
+- stored custom join answers in a dedicated host-only table (`event_signup_field_answers`) instead of `event_attendees`, keeping answers off publicly readable attendee rows
+- added wrapper RSVP/proxy RPCs (`request_or_submit_rsvp_with_custom_answer`, `add_proxy_attendee_with_custom_answer`) plus follow-up migration fixes for trigger compatibility and custom-answer upsert indexes
+- improved host readability by surfacing custom answers as clearly highlighted host-only cards in join-request, attendee, pending-approval, and waitlist views
+- fixed custom-field builder UX so multi-line dropdown options accept `Enter` normally and field labels accept spaces while editing
+- fixed direct `I'm in` behavior so required custom fields force the modal open before join instead of silently bypassing the extra question
+
 ### Host add-attendee duplicate handling hardening
 
 - fixed host-side `Add Attendee` duplicate handling so duplicate inserts no longer surface raw Postgres unique-constraint errors in the UI

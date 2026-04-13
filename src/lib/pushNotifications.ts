@@ -11,6 +11,7 @@ export const PUSH_NOTIFICATION_CATEGORIES: PushNotificationCategory[] = [
   'waitlist_added',
   'waitlist_promoted',
   'attendance_changed',
+  'host_join',
   'host_message',
   'guest_reply',
   'system',
