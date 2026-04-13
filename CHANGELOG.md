@@ -14,6 +14,13 @@
 - added `Create Activity` and `Explore Activities` quick links (with icons) to the very top of the shared hamburger menu list for all menu entry points
 - updated attendee activity-detail header actions so share is compact icon-only and sits beside the shared hamburger menu control
 
+### Changelog layman-summary build pipeline
+
+- added a dedicated build/dev changelog summarizer script (`generate:changelog-summary`) that converts `CHANGELOG.md` into a generated friendly summary artifact for the first changelog tab
+- updated app build hooks so changelog summary generation runs during `predev` and `prebuild`, ensuring summaries refresh with each local/dev build cycle
+- wired the changelog page so `What changed for you` reads from the generated artifact first and gracefully falls back to deterministic non-AI summaries when AI output is unavailable
+- constrained AI usage to the build-time generator step only; opening `/changelog` in the browser never performs on-demand AI calls
+
 ## 2026-04-12
 
 ### Host join notifications and migration reconciliation

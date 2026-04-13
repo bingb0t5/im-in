@@ -84,6 +84,7 @@ The weakest / least finished areas are:
 - feedback submission success now includes a direct link to the public dev board
 - the global floating feedback button now repositions to the top-right below the sticky nav on attendee activity detail pages (`/events/:slug`) while staying bottom-floating everywhere else
 - attendee activity-detail headers now use icon-only share action plus the shared hamburger menu control in the right-side header action cluster
+- `/changelog` now uses a generated layman-summary artifact for the `What changed for you` tab, with deterministic fallback wording when AI generation is unavailable
 - long and form-heavy modals now use cleaner mobile behavior, including sticky headers, internal sheet scrolling, background-page scroll lock, and no forced keyboard pop on open
 - WhatsApp verification now persists the verified WhatsApp number on linked attendee profiles when returned by Lalo
 - host dashboard contact and notification-recipient surfaces now show WhatsApp numbers more broadly when available
@@ -115,6 +116,7 @@ The weakest / least finished areas are:
 - public and semi-public activities now always expose host names from the create/edit flow
 - share helpers now generate richer private WhatsApp share payloads with direct map and calendar shortcut links
 - WhatsApp verify UI copy/assets are now synced from the Lalo server during build so app guidance stays aligned with upstream verify UX updates
+- changelog layman summaries are now generated during `predev` / `prebuild` via `scripts/generate-changelog-summary.mjs`, and changelog page views never trigger runtime AI calls
 - hosts can now use calendar export actions even when they are not personally attending
 - calendar exports now use Google Maps share URLs as the calendar location when available
 - new-activity success state is carried into the host dashboard so the one-time modal can survive the initial dashboard load

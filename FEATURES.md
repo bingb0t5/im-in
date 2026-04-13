@@ -136,6 +136,21 @@ Features:
 - when the public list is empty, offers a `Create your own activity` CTA
 - links to the public moderation transparency page
 
+### Changelog page
+
+Implemented in `src/pages/Changelog.tsx` with build support from `scripts/generate-changelog-summary.mjs`.
+
+Features:
+
+- two-tab changelog experience:
+  - `What changed for you` (friendly layman summary)
+  - `Full changelog` (technical markdown-derived details)
+- friendly tab reads from generated `src/generated/changelogSummary.ts`
+- generated summaries are refreshed during `predev` and `prebuild`
+- when `OPENAI_API_KEY` is available, build-time AI rewrite is attempted with `OPENAI_CHANGELOG_MODEL` (default: `gpt-4.1-mini`)
+- when AI is unavailable or generation fails, deterministic fallback summaries are emitted so build and page rendering continue
+- opening `/changelog` never performs runtime AI requests; page views consume static generated content only
+
 ### Activity detail page
 
 Implemented in `src/pages/EventDetail.tsx`.
