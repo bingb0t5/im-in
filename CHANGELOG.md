@@ -8,6 +8,12 @@
 - kept the existing bottom-floating feedback button placement unchanged for all non-activity-detail routes, including main-tab routes and host/admin pages
 - preserved the same feedback modal behavior, payload source tagging, and visual button styling while applying route-aware positioning logic only
 
+### Shared hamburger menu reuse and activity-header actions
+
+- replaced the activity-detail custom hamburger dropdown with the same shared menu component used by the main top bar, so menu items and styling are now consistent across surfaces
+- added `Create Activity` and `Explore Activities` quick links (with icons) to the very top of the shared hamburger menu list for all menu entry points
+- updated attendee activity-detail header actions so share is compact icon-only and sits beside the shared hamburger menu control
+
 ## 2026-04-12
 
 ### Host join notifications and migration reconciliation

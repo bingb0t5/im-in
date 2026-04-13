@@ -394,6 +394,12 @@ Important route behavior:
 - `/bookings` is guest-session driven, not the main authenticated dashboard
 - unknown routes redirect to `/`
 
+Global menu behavior:
+
+- the hamburger menu now comes from one shared component across top-bar routes and attendee activity detail headers
+- `Create Activity` and `Explore Activities` appear at the very top of the hamburger menu list, with icons, across all menu entry points
+- attendee activity detail headers pair icon-only share with the shared hamburger menu control for compact right-side actions
+
 Feedback entry behavior:
 
 - the public home page has a `Send feedback` modal available to signed-out and signed-in users

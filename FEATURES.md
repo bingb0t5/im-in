@@ -80,6 +80,7 @@ Features:
 - "Why this exists" modal
 - "Help build it" modal
 - "Send feedback" modal (bug / feature / feedback) with optional screenshot upload
+- shared hamburger menu with consistent styling/actions, including top-of-list quick links for `Create Activity` and `Explore Activities`
 - feedback success state includes a link to the public dev board
 - long modals keep their own internal scroll and lock the page behind them while open
 - roadmap and email links
@@ -152,6 +153,7 @@ Features:
 - host-configurable extra signup question on join, supporting one `text`, `number`, or dropdown/multiple-choice field per activity
 - host visibility/contact display when configured
 - share actions
+- compact icon-only share action in the sticky header, adjacent to the shared hamburger menu control
 - Google Calendar action
 - `.ics` download action
 - floating feedback button is available on this page and anchors to the top-right below the sticky header on `/events/:slug` (it remains bottom-floating on non-detail routes)

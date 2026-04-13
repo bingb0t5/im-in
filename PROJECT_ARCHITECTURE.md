@@ -139,6 +139,12 @@ The route table lives in `src/App.tsx`.
   - attendee activity detail route (`/events/:slug`): top-right below sticky header
   - all other routes: existing bottom-floating behavior (with main-tabs safe-area offset logic)
 
+### `MainMenuButton.tsx`
+
+- shared hamburger menu control used by both the primary top bar and attendee activity detail headers
+- centralizes menu item definitions, menu styling, outside-click close, escape close, and sign-out behavior
+- keeps `Create Activity` and `Explore Activities` as icon-backed quick links at the top of the menu list across all entry points
+
 ### `MyActivities.tsx`
 
 - signed-in hosting vs attending dashboard
@@ -202,6 +208,7 @@ The route table lives in `src/App.tsx`.
 - hosts can access calendar actions even without a self RSVP
 - calendar exports prefer the Google Maps share URL as the location field when one exists
 - share-link choices
+- sticky header now uses compact icon-only share plus the shared `MainMenuButton` control for right-side actions
 - includes the global floating feedback trigger, which is positioned top-right below the sticky header specifically on this route
 - host-view detection for semi-public/private access
 - signed-in RSVP now ensures an attendee profile exists before submit, aligning it with the safer signed-in interest flow

@@ -75,6 +75,7 @@ The weakest / least finished areas are:
 - public moderation transparency page for public-facing moderation history
 - moderation transparency now prefers moderator profile display names when available instead of only pseudonymous handles
 - home-page explainer content simplified into two modals: `Why this exists` and `Help build it`
+- hamburger menu UI now uses a shared component across top-bar and activity-detail surfaces, with `Create Activity` and `Explore Activities` links pinned at the top of the menu list
 - public feedback/report modal on home page with optional screenshot upload
 - feedback ingestion pipeline with abuse filtering, sanitized Trello intake cards, and Trello list-triggered Codex prompt drafting
 - Trello board webhook path for automatic prompt generation when cards enter the configured trigger list
@@ -82,6 +83,7 @@ The weakest / least finished areas are:
 - hidden `/admin/feedback` page now also includes a passed-to-Trello bucket and permanent delete actions with typed confirmation
 - feedback submission success now includes a direct link to the public dev board
 - the global floating feedback button now repositions to the top-right below the sticky nav on attendee activity detail pages (`/events/:slug`) while staying bottom-floating everywhere else
+- attendee activity-detail headers now use icon-only share action plus the shared hamburger menu control in the right-side header action cluster
 - long and form-heavy modals now use cleaner mobile behavior, including sticky headers, internal sheet scrolling, background-page scroll lock, and no forced keyboard pop on open
 - WhatsApp verification now persists the verified WhatsApp number on linked attendee profiles when returned by Lalo
 - host dashboard contact and notification-recipient surfaces now show WhatsApp numbers more broadly when available
