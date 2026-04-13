@@ -78,6 +78,17 @@ export function MainMenuButton({ user }: MainMenuButtonProps) {
       </button>
       {menuOpen ? (
         <div className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[calc(100vw-3rem)] max-w-[calc(100vw-3rem)] overflow-hidden rounded-3xl border border-slate-200 bg-white p-3 shadow-[0_20px_50px_rgba(15,23,42,0.16)] sm:w-[320px] sm:max-w-[320px]">
+          {!user ? (
+            <button
+              type="button"
+              onClick={() => handleMenuNavigate('/login')}
+              className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+            >
+              <LogIn className="h-4.5 w-4.5 shrink-0 text-brand-600" />
+              Sign In
+            </button>
+          ) : null}
+          {!user ? <div className="my-1 h-px bg-slate-100" /> : null}
           <button
             type="button"
             onClick={() => handleMenuNavigate('/create-event')}
@@ -95,17 +106,6 @@ export function MainMenuButton({ user }: MainMenuButtonProps) {
             Explore Activities
           </button>
           <div className="my-1 h-px bg-slate-100" />
-          {!user ? (
-            <button
-              type="button"
-              onClick={() => handleMenuNavigate('/login')}
-              className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
-            >
-              <LogIn className="h-4.5 w-4.5 shrink-0 text-brand-600" />
-              Sign In
-            </button>
-          ) : null}
-          {!user ? <div className="my-1 h-px bg-slate-100" /> : null}
           {!user ? (
             <button
               type="button"

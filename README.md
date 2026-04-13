@@ -345,6 +345,14 @@ If you want the AI moderation flow to work locally as well, also configure the E
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `OPENAI_API_KEY`
 
+Changelog layman-summary generation:
+
+- `npm run dev` and `npm run build` now run `scripts/generate-changelog-summary.mjs` before Vite starts/builds
+- the script writes `src/generated/changelogSummary.ts`
+- if `OPENAI_API_KEY` is set, it attempts AI rewriting with `OPENAI_CHANGELOG_MODEL` (default: `gpt-4.1-mini`)
+- if AI credentials are missing or the API call fails, it falls back to deterministic non-AI summaries so builds still succeed
+- the website never calls AI when users open `/changelog`; page views only read the generated static artifact
+
 Default local URL:
 
 - `http://localhost:3000`
@@ -362,6 +370,7 @@ Notes:
 - `npm run lint` is currently a TypeScript no-emit check, not ESLint
 - there is no automated test suite in the repo today
 - meaningful changes should be smoke-tested manually
+- changelog layman summaries are generated once per prebuild/predev run, not per page view
 
 ## Routes
 
