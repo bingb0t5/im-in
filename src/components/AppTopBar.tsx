@@ -1,10 +1,8 @@
 import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { User } from '@supabase/supabase-js';
-import { CircleHelp, FileText, LayoutDashboard, LogIn, LogOut, Menu, MessageSquarePlus, Search, Shield, UserPlus, UserRoundCog, X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
-import { clearAllLaloStateForSignOut } from '../integrations/lalo/laloAuth';
-import { canAccessAnyAdminFrontend } from '../lib/admin';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { cn } from '../utils';
 import { useNotifications } from '../hooks/useNotifications';
@@ -12,18 +10,27 @@ import { NotificationItem } from '../types';
 import { NotificationBell } from './system/NotificationBell';
 import { NotificationsSheet } from './system/NotificationsSheet';
 import { NotificationDetailModal } from './system/NotificationDetailModal';
+import { MainMenuButton } from './MainMenuButton';
 
 type AppTopBarProps = {
   user: User | null;
 };
 
 const REPLY_TO_HOST_ACTION = 'im-in://reply-to-host';
+const HOST_NOTIFICATION_TYPES = new Set(['host_join', 'guest_reply']);
+const ATTENDEE_ACTIVITY_NOTIFICATION_TYPES = new Set([
+  'activity_shared',
+  'activity_updated',
+  'waitlist_added',
+  'waitlist_promoted',
+  'attendance_changed',
+  'host_message',
+]);
 
 export function AppTopBar({ user }: AppTopBarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchValue, setSearchValue] = useState('');
-  const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<NotificationItem | null>(null);
   const [replyNotification, setReplyNotification] = useState<NotificationItem | null>(null);
@@ -31,7 +38,6 @@ export function AppTopBar({ user }: AppTopBarProps) {
   const [replySending, setReplySending] = useState(false);
   const [replyFeedback, setReplyFeedback] = useState<string | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
   const {
     notifications,
     unreadCount,
@@ -47,7 +53,6 @@ export function AppTopBar({ user }: AppTopBarProps) {
   const isExplore = location.pathname === '/explore' || location.pathname === '/calendar';
   const showHeaderSearch = isHome || isExplore;
   const currentQuery = new URLSearchParams(location.search).get('q') || '';
-  const canAccessAdminPanel = !!user && canAccessAnyAdminFrontend(user.email);
 
   useEffect(() => {
     if (showHeaderSearch) {
@@ -56,39 +61,12 @@ export function AppTopBar({ user }: AppTopBarProps) {
   }, [showHeaderSearch, currentQuery, location.pathname]);
 
   useEffect(() => {
-    setMenuOpen(false);
-  }, [location.pathname, location.search]);
-
-  useEffect(() => {
     setNotificationsOpen(false);
     setSelectedNotification(null);
     setReplyNotification(null);
     setReplyMessage('');
     setReplyFeedback(null);
   }, [location.pathname, location.search]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (!menuRef.current) return;
-      if (!menuRef.current.contains(event.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setMenuOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onEscape);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onEscape);
-    };
-  }, [menuOpen]);
 
   const getTitle = () => {
     if (location.pathname === '/') return 'Home';
@@ -140,19 +118,73 @@ export function AppTopBar({ user }: AppTopBarProps) {
     navigate(query ? `/explore?q=${encodeURIComponent(query)}` : '/explore', { replace: isExplore });
   };
 
-  const handleMenuNavigate = (to: string) => {
-    setMenuOpen(false);
-    navigate(to);
+  const getMetadataString = (notification: NotificationItem, key: string) => {
+    const value = notification.metadata?.[key];
+    return typeof value === 'string' ? value.trim() : '';
   };
 
-  const handleMenuAction = (action: string) => {
-    const nextParams = new URLSearchParams(location.search);
-    nextParams.set('action', action);
-    setMenuOpen(false);
-    navigate({
-      pathname: location.pathname,
-      search: `?${nextParams.toString()}`,
-    });
+  const resolveNotificationAction = (notification: NotificationItem) => {
+    const explicitActionUrl = notification.action_url?.trim() || '';
+    if (explicitActionUrl) {
+      return {
+        actionUrl: explicitActionUrl,
+        actionLabel: notification.action_label || 'Open',
+      };
+    }
+
+    if (!notification.event_id) {
+      return { actionUrl: null, actionLabel: notification.action_label || 'Open' };
+    }
+
+    if (HOST_NOTIFICATION_TYPES.has(notification.type)) {
+      return {
+        actionUrl: `/host/events/${notification.event_id}`,
+        actionLabel: 'Open host dashboard',
+      };
+    }
+
+    if (ATTENDEE_ACTIVITY_NOTIFICATION_TYPES.has(notification.type)) {
+      const metadataSlug =
+        getMetadataString(notification, 'event_slug')
+        || getMetadataString(notification, 'private_slug')
+        || getMetadataString(notification, 'join_code')
+        || getMetadataString(notification, 'public_slug')
+        || getMetadataString(notification, 'slug');
+
+      if (metadataSlug) {
+        return {
+          actionUrl: `/events/${metadataSlug}`,
+          actionLabel: 'Open activity',
+        };
+      }
+    }
+
+    return { actionUrl: null, actionLabel: notification.action_label || 'Open' };
+  };
+
+  const isNotificationActionable = (notification: NotificationItem) => Boolean(resolveNotificationAction(notification).actionUrl);
+
+  const runNotificationAction = (notification: NotificationItem) => {
+    const { actionUrl } = resolveNotificationAction(notification);
+    if (!actionUrl) return false;
+
+    if (actionUrl === REPLY_TO_HOST_ACTION) {
+      setReplyNotification(notification);
+      setReplyMessage('');
+      setReplyFeedback(null);
+      setSelectedNotification(null);
+      setNotificationsOpen(false);
+      return true;
+    }
+
+    if (actionUrl.startsWith('/')) {
+      navigate(actionUrl);
+    } else {
+      window.location.href = actionUrl;
+    }
+    setSelectedNotification(null);
+    setNotificationsOpen(false);
+    return true;
   };
 
   const handleOpenNotification = async (notification: NotificationItem) => {
@@ -160,9 +192,17 @@ export function AppTopBar({ user }: AppTopBarProps) {
     if (!notification.read_at) {
       await markRead(notification.id);
     }
+
+    if (runNotificationAction(notification)) {
+      return;
+    }
+
+    const resolved = resolveNotificationAction(notification);
     setSelectedNotification({
       ...notification,
       read_at: readAt,
+      action_url: resolved.actionUrl,
+      action_label: resolved.actionLabel,
     });
   };
 
@@ -202,13 +242,6 @@ export function AppTopBar({ user }: AppTopBarProps) {
     } finally {
       setReplySending(false);
     }
-  };
-
-  const handleMenuSignOut = async () => {
-    setMenuOpen(false);
-    await supabase.auth.signOut();
-    clearAllLaloStateForSignOut();
-    navigate('/login', { replace: true });
   };
 
   return (
@@ -253,110 +286,7 @@ export function AppTopBar({ user }: AppTopBarProps) {
                 }}
               />
             ) : null}
-            <div className="relative" ref={menuRef}>
-              <button
-                type="button"
-                aria-label="Open menu"
-                onClick={() => setMenuOpen((open) => !open)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-[1.15rem] border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:text-brand-700"
-              >
-                {menuOpen ? <X className="h-4.5 w-4.5" /> : <Menu className="h-4.5 w-4.5" />}
-              </button>
-            {menuOpen ? (
-              <div className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[calc(100vw-3rem)] max-w-[calc(100vw-3rem)] overflow-hidden rounded-3xl border border-slate-200 bg-white p-3 shadow-[0_20px_50px_rgba(15,23,42,0.16)] sm:w-[320px] sm:max-w-[320px]">
-                {!user ? (
-                  <button
-                    type="button"
-                    onClick={() => handleMenuNavigate('/login')}
-                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                  >
-                    <LogIn className="h-4.5 w-4.5 shrink-0 text-brand-600" />
-                    Sign In
-                  </button>
-                ) : null}
-                {!user ? <div className="my-1 h-px bg-slate-100" /> : null}
-                {!user ? (
-                  <button
-                    type="button"
-                    onClick={() => handleMenuNavigate('/login?create=true')}
-                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                  >
-                    <UserPlus className="h-4.5 w-4.5 shrink-0 text-brand-600" />
-                    Create Account
-                  </button>
-                ) : null}
-                {!user ? <div className="my-1 h-px bg-slate-100" /> : null}
-                <button
-                  type="button"
-                  onClick={() => handleMenuNavigate('/?action=why')}
-                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                >
-                  <CircleHelp className="h-4.5 w-4.5 shrink-0 text-brand-600" />
-                  Why <span className="italic">I&apos;m In</span> Exists
-                </button>
-                <div className="my-1 h-px bg-slate-100" />
-                <button
-                  type="button"
-                  onClick={() => handleMenuNavigate('/?action=build')}
-                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                >
-                  <UserRoundCog className="h-4.5 w-4.5 shrink-0 text-brand-600" />
-                  Help Build <span className="italic">I&apos;m In</span>
-                </button>
-                <div className="my-1 h-px bg-slate-100" />
-                <button
-                  type="button"
-                  onClick={() => handleMenuAction('moderation')}
-                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                >
-                  <Shield className="h-4.5 w-4.5 shrink-0 text-brand-600" />
-                  Moderation Transparency
-                </button>
-                <div className="my-1 h-px bg-slate-100" />
-                <button
-                  type="button"
-                  onClick={() => handleMenuNavigate('/changelog')}
-                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                >
-                  <FileText className="h-4.5 w-4.5 shrink-0 text-brand-600" />
-                  App Updates and Changelog
-                </button>
-                <div className="my-1 h-px bg-slate-100" />
-                <button
-                  type="button"
-                  onClick={() => handleMenuNavigate('/?action=feedback')}
-                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                >
-                  <MessageSquarePlus className="h-4.5 w-4.5 shrink-0 text-brand-600" />
-                  Send feedback
-                </button>
-                {canAccessAdminPanel ? <div className="my-1 h-px bg-slate-100" /> : null}
-                {canAccessAdminPanel ? (
-                  <button
-                    type="button"
-                    onClick={() => handleMenuNavigate('/admin')}
-                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                  >
-                    <LayoutDashboard className="h-4.5 w-4.5 shrink-0 text-brand-600" />
-                    Admin Panel
-                  </button>
-                ) : null}
-                {user ? (
-                  <>
-                    <div className="my-1 h-px bg-slate-100" />
-                    <button
-                      type="button"
-                      onClick={() => void handleMenuSignOut()}
-                      className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                    >
-                      <LogOut className="h-4.5 w-4.5 shrink-0 text-brand-600" />
-                      Sign out
-                    </button>
-                  </>
-                ) : null}
-              </div>
-            ) : null}
-            </div>
+            <MainMenuButton user={user} />
           </div>
         </div>
         {showHeaderSearch ? (
@@ -387,6 +317,7 @@ export function AppTopBar({ user }: AppTopBarProps) {
         onOpenNotification={(notification) => {
           void handleOpenNotification(notification);
         }}
+        isNotificationActionable={isNotificationActionable}
         onMarkAllRead={() => void markAllRead()}
       />
       <NotificationDetailModal
@@ -394,22 +325,7 @@ export function AppTopBar({ user }: AppTopBarProps) {
         notification={selectedNotification}
         onClose={() => setSelectedNotification(null)}
         onAction={(notification) => {
-          if (!notification.action_url) return;
-          if (notification.action_url === REPLY_TO_HOST_ACTION) {
-            setReplyNotification(notification);
-            setReplyMessage('');
-            setReplyFeedback(null);
-            setSelectedNotification(null);
-            setNotificationsOpen(false);
-            return;
-          }
-          if (notification.action_url.startsWith('/')) {
-            navigate(notification.action_url);
-          } else {
-            window.location.href = notification.action_url;
-          }
-          setSelectedNotification(null);
-          setNotificationsOpen(false);
+          runNotificationAction(notification);
         }}
       />
       {replyNotification ? (

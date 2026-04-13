@@ -6,7 +6,7 @@ This document describes the feedback/reporting pipeline that sends user submissi
 
 ## High-level flow
 
-1. User opens `Send feedback` modal on `/`.
+1. User opens a feedback entry surface (home-page `Send feedback` modal or the global floating feedback button).
 2. User submits a bug report, feature request, or general feedback.
 3. Frontend success state confirms the submission and offers a link to the public dev board.
 4. `submit-feedback` Edge Function:
@@ -19,6 +19,10 @@ This document describes the feedback/reporting pipeline that sends user submissi
    - `trello-prompt-sync` generates a Codex-ready prompt
    - writes prompt into Trello card description
    - logs run metadata in `trello_prompt_jobs`
+
+UI placement note:
+
+- the global floating feedback button is route-aware: on attendee activity detail pages (`/events/:slug`) it sits top-right below the sticky nav bar; on other routes it remains bottom-floating
 
 ## Why prompt generation is separate
 

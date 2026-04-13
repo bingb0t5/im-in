@@ -3,7 +3,7 @@ import { supabase } from '../supabase';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Calendar as CalendarIcon, MapPin, Users } from 'lucide-react';
 import { motion } from 'motion/react';
-import { formatDay, formatTime, isOnOrAfterTodayInTimeZone } from '../utils';
+import { formatDay, formatTime, isEventActiveOrUpcoming } from '../utils';
 import { Event } from '../types';
 import { buildEventPath } from '../lib/events';
 import { User } from '@supabase/supabase-js';
@@ -32,7 +32,7 @@ function getWeekdayLabel(date: Date) {
 }
 
 function upcomingOnly(events: Event[]) {
-  return events.filter((event) => isOnOrAfterTodayInTimeZone(event.starts_at, event.timezone));
+  return events.filter((event) => isEventActiveOrUpcoming(event));
 }
 
 function groupCalendarEvents(events: Event[]) {

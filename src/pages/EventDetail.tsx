@@ -13,6 +13,7 @@ import { findMyInterest, getNamedThinkingInterests, getThinkingCount } from '../
 import { goBackOr } from '../lib/navigation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { EventGallerySection } from '../components/EventGallerySection';
+import { MainMenuButton } from '../components/MainMenuButton';
 import { invokeAuthedFunction, invokePublicFunction } from '../lib/functions';
 import { normalizeCustomJoinFieldConfig, validateCustomJoinAnswer } from '../lib/customJoinField';
 import {
@@ -163,6 +164,20 @@ export default function EventDetail({ user }: { user: User | null }) {
     if (error instanceof Error && error.message) return error.message;
     return fallback;
   };
+
+  const renderHeaderActions = (onShare: () => void) => (
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={onShare}
+        className="p-2 hover:bg-slate-50 rounded-xl transition-all"
+        aria-label="Share activity"
+      >
+        <Share2 className="w-5 h-5 text-slate-600" />
+      </button>
+      <MainMenuButton user={user} />
+    </div>
+  );
 
   const fallbackNameFromEmail = (email?: string | null) => {
     if (!email || isSystemGuestEmail(email)) return '';
@@ -1428,13 +1443,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               <ArrowLeft className="w-5 h-5 text-slate-600" />
             </button>
             <span className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">Activity Preview</span>
-            <button
-              onClick={() => shareInvite(publicEventUrl)}
-              className="px-3 py-2 hover:bg-slate-50 rounded-xl transition-all flex items-center gap-1.5"
-            >
-              <Share2 className="w-5 h-5 text-slate-600" />
-              <span className="text-xs font-bold text-slate-500">Share</span>
-            </button>
+            {renderHeaderActions(() => shareInvite(publicEventUrl))}
           </div>
         </div>
 
@@ -1604,19 +1613,13 @@ export default function EventDetail({ user }: { user: User | null }) {
             <ArrowLeft className="w-5 h-5 text-slate-600" />
           </button>
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Activity Details</span>
-          <button 
-            onClick={() => {
-              if (eventVisibility === 'semi_public' && hasFullEventAccess) {
-                setShowShareChoiceModal(true);
-                return;
-              }
-              shareInvite(privateEventUrl);
-            }}
-            className="px-3 py-2 hover:bg-slate-50 rounded-xl transition-all flex items-center gap-1.5"
-          >
-            <Share2 className="w-5 h-5 text-slate-600" />
-            <span className="text-xs font-bold text-slate-500">Share</span>
-          </button>
+          {renderHeaderActions(() => {
+            if (eventVisibility === 'semi_public' && hasFullEventAccess) {
+              setShowShareChoiceModal(true);
+              return;
+            }
+            shareInvite(privateEventUrl);
+          })}
         </div>
       </div>
 

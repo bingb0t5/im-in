@@ -48,6 +48,7 @@ Use this before shipping a new build of `I'm In`.
 - **Proxy add:** "Add someone else" works in both guest-email-required and optional-email modes, including re-adding a previously cancelled name.
 - **Thinking about it:** public and non-public activity interest flows still work.
 - **Semi-public:** request-to-view, private link access, and host request actions still work.
+- **Feedback button placement:** on `/events/:slug`, floating feedback button appears top-right below the nav; on other routes it keeps bottom-floating placement.
 - **Host dashboard:** co-host access still works and host list loads correctly.
 - **WhatsApp verify/link:** the Lalo verification/link flow completes successfully and persists the verified WhatsApp number when one is returned.
 - **Profile:** `/profile` shows the linked WhatsApp state and verified WhatsApp number correctly after verification.

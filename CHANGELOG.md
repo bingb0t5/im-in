@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 2026-04-14
+
+### Activity-detail feedback button placement
+
+- moved the global floating feedback button to the top-right area (below the sticky header) on attendee-facing activity detail pages at `/events/:slug`
+- kept the existing bottom-floating feedback button placement unchanged for all non-activity-detail routes, including main-tab routes and host/admin pages
+- preserved the same feedback modal behavior, payload source tagging, and visual button styling while applying route-aware positioning logic only
+
 ## 2026-04-12
 
 ### Host join notifications and migration reconciliation

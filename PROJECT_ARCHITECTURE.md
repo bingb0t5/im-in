@@ -131,6 +131,14 @@ The route table lives in `src/App.tsx`.
 - signed-in users get a CTA into `/my-activities` instead of replacing the page with a dashboard
 - long home-page modals now keep their own internal scroll and use body-scroll locking so the page behind them stays put
 
+### `GlobalFeedbackWidget.tsx`
+
+- globally mounted feedback trigger/modal component rendered from `App.tsx` outside route elements
+- opens a shared feedback form modal for signed-in and signed-out users
+- uses route-aware floating placement:
+  - attendee activity detail route (`/events/:slug`): top-right below sticky header
+  - all other routes: existing bottom-floating behavior (with main-tabs safe-area offset logic)
+
 ### `MyActivities.tsx`
 
 - signed-in hosting vs attending dashboard
@@ -194,6 +202,7 @@ The route table lives in `src/App.tsx`.
 - hosts can access calendar actions even without a self RSVP
 - calendar exports prefer the Google Maps share URL as the location field when one exists
 - share-link choices
+- includes the global floating feedback trigger, which is positioned top-right below the sticky header specifically on this route
 - host-view detection for semi-public/private access
 - signed-in RSVP now ensures an attendee profile exists before submit, aligning it with the safer signed-in interest flow
 - modal forms avoid automatic keyboard pop on open, and the page behind the modal is now scroll-locked while a modal is active

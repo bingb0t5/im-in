@@ -394,9 +394,12 @@ Important route behavior:
 - `/bookings` is guest-session driven, not the main authenticated dashboard
 - unknown routes redirect to `/`
 
-Home-page feedback behavior:
+Feedback entry behavior:
 
 - the public home page has a `Send feedback` modal available to signed-out and signed-in users
+- a global floating feedback button is available across app routes and opens the same feedback modal
+- on attendee activity detail pages (`/events/:slug`), that floating button is repositioned to the top-right below the sticky nav bar
+- on all other routes, the floating button keeps its existing bottom-floating placement
 - feedback supports `bug`, `feature`, and `feedback` types, plus optional screenshot upload
 - submissions run a lightweight abuse filter first, then create a sanitized Trello card in the configured intake list
 - the success state now also links people to the public dev board so they can see what is being worked on

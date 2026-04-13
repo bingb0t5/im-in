@@ -81,6 +81,7 @@ The weakest / least finished areas are:
 - hidden `/admin/feedback` page for blocked abuse items, failed Trello syncs, unsent submissions, retry-to-board actions, and archive/restore
 - hidden `/admin/feedback` page now also includes a passed-to-Trello bucket and permanent delete actions with typed confirmation
 - feedback submission success now includes a direct link to the public dev board
+- the global floating feedback button now repositions to the top-right below the sticky nav on attendee activity detail pages (`/events/:slug`) while staying bottom-floating everywhere else
 - long and form-heavy modals now use cleaner mobile behavior, including sticky headers, internal sheet scrolling, background-page scroll lock, and no forced keyboard pop on open
 - WhatsApp verification now persists the verified WhatsApp number on linked attendee profiles when returned by Lalo
 - host dashboard contact and notification-recipient surfaces now show WhatsApp numbers more broadly when available

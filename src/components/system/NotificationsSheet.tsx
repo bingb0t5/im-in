@@ -1,4 +1,4 @@
-import { Bell, RefreshCw, X } from 'lucide-react';
+import { Bell, ExternalLink, RefreshCw, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { NotificationItem } from '../../types';
@@ -13,6 +13,7 @@ type NotificationsSheetProps = {
   onClose: () => void;
   onRefresh: () => void;
   onOpenNotification: (notification: NotificationItem) => void;
+  isNotificationActionable?: (notification: NotificationItem) => boolean;
   onMarkAllRead: () => void;
 };
 
@@ -24,6 +25,7 @@ export function NotificationsSheet({
   onClose,
   onRefresh,
   onOpenNotification,
+  isNotificationActionable,
   onMarkAllRead,
 }: NotificationsSheetProps) {
   useBodyScrollLock(open);
@@ -119,6 +121,7 @@ export function NotificationsSheet({
                 <div className="space-y-2">
                   {notifications.map((notification) => {
                     const unread = !notification.read_at;
+                    const actionable = isNotificationActionable ? isNotificationActionable(notification) : false;
                     return (
                       <button
                         key={notification.id}
@@ -138,7 +141,15 @@ export function NotificationsSheet({
                             <p className="mt-1 line-clamp-2 text-xs text-slate-500">{notification.message}</p>
                             <p className="mt-2 text-[11px] font-medium text-slate-400">{formatDate(notification.created_at)}</p>
                           </div>
-                          {unread ? <span className="mt-1 h-2.5 w-2.5 rounded-full bg-brand-500" /> : null}
+                          <div className="mt-1 flex items-center gap-2">
+                            {actionable ? (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-brand-100 bg-brand-50 px-2 py-1 text-[10px] font-semibold text-brand-700">
+                                Open
+                                <ExternalLink className="h-3 w-3" />
+                              </span>
+                            ) : null}
+                            {unread ? <span className="h-2.5 w-2.5 rounded-full bg-brand-500" /> : null}
+                          </div>
                         </div>
                       </button>
                     );

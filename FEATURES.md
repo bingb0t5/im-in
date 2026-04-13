@@ -154,6 +154,7 @@ Features:
 - share actions
 - Google Calendar action
 - `.ics` download action
+- floating feedback button is available on this page and anchors to the top-right below the sticky header on `/events/:slug` (it remains bottom-floating on non-detail routes)
 - modal forms now avoid auto-opening the keyboard on arrival, which keeps the sheet from jumping down on mobile before the user taps a field
 - when a required custom join field is enabled, direct `I'm in` opens the RSVP modal first so the extra answer is collected before submit
 
@@ -272,11 +273,12 @@ Important caveat:
 
 ### What it does
 
-Lets any visitor submit bug reports, feature requests, or general feedback from the public home page, then routes those submissions into a Trello-driven review flow.
+Lets visitors submit bug reports, feature requests, or general feedback from the app feedback surfaces (home modal plus global floating button), then routes those submissions into a Trello-driven review flow.
 
 ### How it works
 
-- home page `Send feedback` modal sends data to `submit-feedback` Edge Function
+- home page `Send feedback` modal and the global floating feedback button both send data to `submit-feedback` Edge Function
+- on attendee activity detail (`/events/:slug`), the floating feedback button is positioned top-right below the sticky header; on other routes it remains bottom-floating
 - payload supports:
   - type (`bug`, `feature`, `feedback`)
   - title

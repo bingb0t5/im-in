@@ -46,9 +46,13 @@ export function GlobalFeedbackWidget({ user }: { user: User | null }) {
   }, [showFeedbackModal, user?.email, user?.user_metadata]);
 
   const shouldFloatAboveMainTabs = !!user && isMainTabsRoute(location.pathname);
+  const isGuestActivityDetailRoute = /^\/events\/[^/]+\/?$/.test(location.pathname);
   const buttonBottomOffset = shouldFloatAboveMainTabs
     ? 'calc(env(safe-area-inset-bottom) + 5.2rem)'
     : 'calc(env(safe-area-inset-bottom) + 0.9rem)';
+  const buttonPositionStyle = isGuestActivityDetailRoute
+    ? { top: 'calc(env(safe-area-inset-top) + 4.75rem)' }
+    : { bottom: buttonBottomOffset };
 
   const closeFeedbackModal = () => {
     if (feedbackSubmitting) return;
@@ -139,7 +143,7 @@ export function GlobalFeedbackWidget({ user }: { user: User | null }) {
         type="button"
         onClick={() => setShowFeedbackModal(true)}
         className="fixed right-5 z-20 inline-flex h-12 w-12 items-center justify-center rounded-full border border-brand-600 bg-gradient-to-br from-teal-300 via-brand-500 to-teal-700 text-white shadow-[0_10px_24px_rgba(13,148,136,0.34)] ring-1 ring-white/70 transition-all hover:brightness-105"
-        style={{ bottom: buttonBottomOffset }}
+        style={buttonPositionStyle}
         aria-label="Send feedback"
       >
         <MessageSquare className="h-5 w-5" />
