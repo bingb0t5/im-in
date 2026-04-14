@@ -12,6 +12,8 @@ type TrelloCard = {
 type PromptResult = {
   summary: string;
   codex_prompt: string;
+  confidenceLevel: 'High' | 'Medium' | 'Low';
+  triageLabel: 'bug_fix' | 'design_opportunity' | 'ops_followup' | 'needs_clarification' | 'not_actionable';
 };
 
 const corsHeaders = {
@@ -19,19 +21,19 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-trello-webhook',
 };
 
-const PROMPT_SCHEMA = {
-  name: 'codex_prompt_generation',
-  strict: true,
-  schema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      summary: { type: 'string' },
-      codex_prompt: { type: 'string' },
-    },
-    required: ['summary', 'codex_prompt'],
-  },
-} as const;
+type LaloFeedbackPromptResponse = {
+  summary?: string;
+  rootCauseHypothesisOrOpportunity?: string;
+  implementationPrompt?: string;
+  verificationChecklist?: string[];
+  docsToUpdate?: string[];
+  confidenceLevel?: 'High' | 'Medium' | 'Low';
+  triageLabel?: 'bug_fix' | 'design_opportunity' | 'ops_followup' | 'needs_clarification' | 'not_actionable';
+  requestId?: string;
+  model?: string;
+  error?: string;
+  details?: string;
+};
 
 function json(data: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(data), {
@@ -46,6 +48,13 @@ function json(data: unknown, init: ResponseInit = {}) {
 
 function normalizeText(value?: string | null) {
   return (value || '').replace(/\s+/g, ' ').trim();
+}
+
+function inferFeedbackType(cardName: string, cardDescription: string): 'bug' | 'feature' | 'feedback' {
+  const source = `${cardName} ${cardDescription}`.toLowerCase();
+  if (source.includes('bug')) return 'bug';
+  if (source.includes('feature')) return 'feature';
+  return 'feedback';
 }
 
 function parseEmailAllowlist(raw?: string | null) {
@@ -104,63 +113,69 @@ async function getOptionalUser(supabaseUrl: string, supabaseAnonKey: string, aut
 }
 
 async function generateCodexPrompt({
-  apiKey,
-  model,
+  laloBaseUrl,
+  laloApiKey,
+  laloApp,
   card,
 }: {
-  apiKey: string;
-  model: string;
+  laloBaseUrl: string;
+  laloApiKey: string;
+  laloApp: 'im_in' | 'lalo';
   card: TrelloCard;
 }): Promise<PromptResult> {
-  const systemPrompt = `
-You write implementation-ready prompts for Cursor/Codex from Trello cards.
-Produce a practical engineering prompt focused on this specific codebase task.
-Always include an approval gate:
-"Do not implement immediately. First review the codebase and propose a plan. Wait for approval before making changes."
-Keep output concise, clear, and actionable.
-Return strict JSON only.
-`.trim();
-
-  const userPayload = {
-    cardName: card.name,
-    cardDescription: card.desc || '',
-    cardUrl: card.url,
+  const feedbackType = inferFeedbackType(card.name, card.desc || '');
+  const payload = {
+    app: laloApp,
+    feedbackType,
+    title: card.name,
+    description: card.desc || '(No card description provided)',
+    extraContext: {
+      source: 'trello_prompt_sync',
+      trelloCard: {
+        id: card.id,
+        url: card.url,
+        idList: card.idList,
+        dateLastActivity: card.dateLastActivity || null,
+      },
+    },
   };
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch(`${laloBaseUrl.replace(/\/+$/, '')}/v1/feedback/prompts/generate`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${laloApiKey}`,
     },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      response_format: {
-        type: 'json_schema',
-        json_schema: PROMPT_SCHEMA,
-      },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: JSON.stringify(userPayload) },
-      ],
-    }),
+    body: JSON.stringify(payload),
   });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Prompt generation failed: ${response.status} ${text}`);
+  const bodyText = await response.text();
+  let parsed: LaloFeedbackPromptResponse = {};
+  try {
+    parsed = JSON.parse(bodyText) as LaloFeedbackPromptResponse;
+  } catch {
+    parsed = {};
   }
 
-  const completion = await response.json();
-  const content = completion?.choices?.[0]?.message?.content;
-  const parsed = JSON.parse(content || '{}') as Partial<PromptResult>;
+  if (!response.ok) {
+    const errorDetail = normalizeText(parsed.error || parsed.details || bodyText || 'Unknown Lalo error');
+    throw new Error(`Lalo feedback prompt generation failed (${response.status}): ${errorDetail}`);
+  }
+
+  const summary = normalizeText(parsed.summary);
+  const implementationPrompt = normalizeText(parsed.implementationPrompt);
+  const confidenceLevel = parsed.confidenceLevel;
+  const triageLabel = parsed.triageLabel;
+
+  if (!summary || !implementationPrompt || !confidenceLevel || !triageLabel) {
+    throw new Error('Lalo feedback prompt response was missing required fields.');
+  }
 
   return {
-    summary: normalizeText(parsed.summary) || `Prompt generated for "${card.name}"`,
-    codex_prompt:
-      normalizeText(parsed.codex_prompt) ||
-      `Do not implement immediately. First review the codebase and propose a plan. Wait for approval before making changes.\n\nTask: ${card.name}\n\nContext:\n${card.desc || '(No card description provided)'}`,
+    summary,
+    codex_prompt: implementationPrompt,
+    confidenceLevel,
+    triageLabel,
   };
 }
 
@@ -172,8 +187,9 @@ async function processCard({
   actionId,
   trelloKey,
   trelloToken,
-  openAiKey,
-  openAiModel,
+  laloBaseUrl,
+  laloApiKey,
+  laloApp,
 }: {
   adminClient: ReturnType<typeof createClient>;
   card: TrelloCard;
@@ -182,8 +198,9 @@ async function processCard({
   actionId: string | null;
   trelloKey: string;
   trelloToken: string;
-  openAiKey: string;
-  openAiModel: string;
+  laloBaseUrl: string;
+  laloApiKey: string;
+  laloApp: 'im_in' | 'lalo';
 }) {
   if (card.idList !== triggerListId) {
     return { processed: false, reason: 'not_in_trigger_list' };
@@ -216,13 +233,16 @@ async function processCard({
 
   try {
     const promptResult = await generateCodexPrompt({
-      apiKey: openAiKey,
-      model: openAiModel,
+      laloBaseUrl,
+      laloApiKey,
+      laloApp,
       card,
     });
 
     const stampedPrompt = [
       `Generated: ${new Date().toISOString()}`,
+      `Triage: ${promptResult.triageLabel}`,
+      `Confidence: ${promptResult.confidenceLevel}`,
       '',
       promptResult.summary,
       '',
@@ -290,8 +310,9 @@ Deno.serve(async (req) => {
     const trelloKey = Deno.env.get('TRELLO_API_KEY');
     const trelloToken = Deno.env.get('TRELLO_API_TOKEN');
     const triggerListId = Deno.env.get('TRELLO_PROMPT_TRIGGER_LIST_ID');
-    const openAiKey = Deno.env.get('OPENAI_API_KEY');
-    const openAiModel = Deno.env.get('OPENAI_PROMPT_MODEL') || Deno.env.get('OPENAI_MODERATION_MODEL') || 'gpt-5.4-nano';
+    const laloBaseUrl = normalizeText(Deno.env.get('LALO_ENGINEERING_API_BASE_URL')) || 'http://localhost:3000';
+    const laloApiKey = normalizeText(Deno.env.get('LALO_ENGINEERING_INTERNAL_API_KEY'));
+    const laloApp = (normalizeText(Deno.env.get('LALO_ENGINEERING_APP')) || 'im_in') as 'im_in' | 'lalo';
 
     if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
       throw new Error('Supabase credentials are not configured for trello-prompt-sync.');
@@ -299,8 +320,11 @@ Deno.serve(async (req) => {
     if (!trelloKey || !trelloToken || !triggerListId) {
       throw new Error('Trello credentials are not configured for trello-prompt-sync.');
     }
-    if (!openAiKey) {
-      throw new Error('OPENAI_API_KEY is required for trello-prompt-sync.');
+    if (!laloApiKey) {
+      throw new Error('LALO_ENGINEERING_INTERNAL_API_KEY is required for trello-prompt-sync.');
+    }
+    if (laloApp !== 'im_in' && laloApp !== 'lalo') {
+      throw new Error('LALO_ENGINEERING_APP must be either "im_in" or "lalo".');
     }
 
     const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
@@ -336,8 +360,9 @@ Deno.serve(async (req) => {
           actionId: null,
           trelloKey,
           trelloToken,
-          openAiKey,
-          openAiModel,
+          laloBaseUrl,
+          laloApiKey,
+          laloApp,
         });
         if (result.processed) processedCount += 1;
         else skippedCount += 1;
@@ -378,8 +403,9 @@ Deno.serve(async (req) => {
       actionId,
       trelloKey,
       trelloToken,
-      openAiKey,
-      openAiModel,
+      laloBaseUrl,
+      laloApiKey,
+      laloApp,
     });
 
     return json({

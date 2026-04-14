@@ -304,8 +304,6 @@ Optional edge function runtime:
   - defaults to `gpt-5.4-nano`
 - `OPENAI_FEEDBACK_MODEL`
   - model for abuse-only filtering in the feedback intake function
-- `OPENAI_PROMPT_MODEL`
-  - model for Trello-triggered Codex prompt drafting
 - `OPENAI_API_BASE_URL`
   - for OpenAI-compatible endpoints if needed
 - `MODERATION_ADMIN_EMAILS`
@@ -318,6 +316,12 @@ Optional edge function runtime:
   - Trello list that receives sanitized cards from in-app feedback submissions
 - `TRELLO_PROMPT_TRIGGER_LIST_ID`
   - moving any card into this list triggers Codex prompt generation
+- `LALO_ENGINEERING_INTERNAL_API_KEY`
+  - internal key used by `trello-prompt-sync` to call Lalo feedback prompt API
+- `LALO_ENGINEERING_API_BASE_URL`
+  - base URL for Lalo internal engineering API (`http://localhost:3000` by default)
+- `LALO_ENGINEERING_APP`
+  - app identifier sent to Lalo (`im_in` by default)
 - `FEEDBACK_SCREENSHOT_BUCKET`
   - defaults to `feedback-screenshots`
 - `WEB_PUSH_SUBJECT`
@@ -419,6 +423,7 @@ Feedback entry behavior:
 - submissions run a lightweight abuse filter first, then create a sanitized Trello card in the configured intake list
 - the success state now also links people to the public dev board so they can see what is being worked on
 - Codex prompt generation is intentionally separate and only runs when a Trello card is moved to the configured prompt-trigger list
+- prompt generation now runs through Lalo internal API (`POST /v1/feedback/prompts/generate`) so `lalo/docs/ai/*` is the reusable rules source
 - the recommended production setup is a Trello board webhook pointed at `trello-prompt-sync`
 - a manual admin fallback still exists via `{"syncFromTriggerList": true}` when webhook setup is unavailable
 - internal review for blocked/failed/not-sent feedback now lives at `/admin/feedback`
