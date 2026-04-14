@@ -14,7 +14,6 @@ import {
   EventJoinRequest,
   EventSignupFieldAnswer,
 } from '../types';
-import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/moderation';
 import { LOCKED_PUBLIC_LOCATION } from '../lib/publicLocation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
@@ -104,7 +103,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [attendees, setAttendees] = useState<HostAttendee[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newAttendee, setNewAttendee] = useState({ name: '', email: '', customAnswer: '' });
+  const [newAttendee, setNewAttendee] = useState({ name: '', whatsapp: '', customAnswer: '' });
   const [actionLoading, setActionLoading] = useState(false);
   const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
   const [accessRequests, setAccessRequests] = useState<EventAccessRequest[]>([]);
@@ -221,14 +220,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
   const normalizeWhatsapp = (value: string) => value.replace(/[^\d]/g, '');
   const normalizeGuestName = (value: string) => value.trim().replace(/\s+/g, ' ');
-  const toGuestPlaceholderEmail = (guestName: string) => {
-    const slug = guestName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48);
-    return `guest_${slug || 'guest'}@example.com`;
-  };
+  const HOST_ADD_ATTENDEE_TIMEOUT_MS = 15000;
   const isDuplicateAttendeeConstraintError = (error: { code?: string; message?: string; details?: string; constraint?: string } | null | undefined) => {
     if (!error) return false;
     const text = `${error.message || ''} ${error.details || ''} ${error.constraint || ''}`.toLowerCase();
@@ -1047,9 +1039,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       return;
     }
 
-    const normalizedEmail = (newAttendee.email || '').trim().toLowerCase();
-    // Keep no-email host adds deterministic so retries dedupe to the same attendee.
-    const email = normalizedEmail || toGuestPlaceholderEmail(guestName);
+    const whatsapp = (newAttendee.whatsapp || '').trim();
     const customAnswerValidation = validateCustomJoinAnswer(
       normalizeCustomJoinFieldConfig(event.custom_join_field_config),
       newAttendee.customAnswer,
@@ -1062,87 +1052,26 @@ export default function HostDashboard({ user }: { user: User | null }) {
     }
 
     try {
-      // 1. Check for existing RSVP
-      const { data: existing } = await supabase
-        .from('event_attendees')
-        .select('id, status')
-        .eq('event_id', event.id)
-        .ilike('guest_email', email)
-        .maybeSingle();
-
-      if (existing && existing.status !== 'cancelled') {
-        alert('This attendee is already on the activity.');
-        setActionLoading(false);
-        return;
-      }
-
-      // 2. Determine status from shared RSVP strategy
-      const decision = decideRsvpStatus(getConfirmedCount(attendees), event.capacity, event.allow_waitlist);
-      if (isRsvpBlocked(decision)) {
-        alert(decision.reason);
-        setActionLoading(false);
-        return;
-      }
-      const status = decision.status;
-
-      // 3. Insert or Update RSVP
-      let attendeeId = existing?.id || '';
-      if (existing) {
-        const { error } = await supabase
-          .from('event_attendees')
-          .update({
-            status,
-            guest_name: guestName,
-            guest_email: email,
-            added_by_type: 'host',
-            added_by_attendee_profile_id: null,
-            joined_at: new Date().toISOString(),
-            cancelled_at: null
-          })
-          .eq('id', existing.id);
-        
-        if (error) throw error;
-      } else {
-        const { data: inserted, error } = await supabase
-          .from('event_attendees')
-          .insert([{
-            event_id: event.id,
-            guest_name: guestName,
-            guest_email: email,
-            status,
-            added_by_type: 'host',
-            added_by_attendee_profile_id: null
-          }])
-          .select('id')
-          .single();
-        
-        if (error) throw error;
-        attendeeId = inserted?.id || '';
-      }
-
-      if (attendeeId && customAnswerValidation.normalizedAnswer) {
-        const { error: answerError } = await supabase
-          .from('event_signup_field_answers')
-          .upsert(
-            [{
-              event_id: event.id,
-              event_attendee_id: attendeeId,
-              answer_value: customAnswerValidation.normalizedAnswer,
-              field_label_snapshot: customJoinFieldLabel,
-            }],
-            { onConflict: 'event_attendee_id' },
-          );
-        if (answerError) throw answerError;
-      } else if (attendeeId && !customAnswerValidation.normalizedAnswer) {
-        const { error: deleteAnswerError } = await supabase
-          .from('event_signup_field_answers')
-          .delete()
-          .eq('event_attendee_id', attendeeId);
-        if (deleteAnswerError) throw deleteAnswerError;
-      }
+      const rpcResult = await Promise.race([
+        supabase.rpc('host_add_attendee_with_custom_answer', {
+          p_event_id: event.id,
+          p_guest_name: guestName,
+          p_whatsapp: whatsapp || null,
+          p_custom_join_answer: customAnswerValidation.normalizedAnswer || null,
+        }),
+        new Promise<{ data: null; error: { message: string } }>((resolve) =>
+          setTimeout(
+            () => resolve({ data: null, error: { message: 'Add attendee request timed out. Please try again.' } }),
+            HOST_ADD_ATTENDEE_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+      const { data, error } = rpcResult;
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error as string);
 
       setShowAddModal(false);
-      setNewAttendee({ name: '', email: '', customAnswer: '' });
+      setNewAttendee({ name: '', whatsapp: '', customAnswer: '' });
       fetchAttendees(event.id);
       fetchSignupAnswers(event.id);
     } catch (error: any) {
@@ -2719,8 +2648,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => {
+                setActionLoading(false);
                 setShowAddModal(false);
-                setNewAttendee({ name: '', email: '', customAnswer: '' });
+                setNewAttendee({ name: '', whatsapp: '', customAnswer: '' });
               }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
@@ -2733,9 +2663,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-slate-900 tracking-tight">Add Attendee</h2>
                 <button
+                  type="button"
                   onClick={() => {
+                    setActionLoading(false);
                     setShowAddModal(false);
-                    setNewAttendee({ name: '', email: '', customAnswer: '' });
+                    setNewAttendee({ name: '', whatsapp: '', customAnswer: '' });
                   }}
                   className="p-2 hover:bg-slate-50 rounded-xl transition-all"
                 >
@@ -2756,13 +2688,13 @@ export default function HostDashboard({ user }: { user: User | null }) {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Email (Optional)</label>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">WhatsApp (Optional)</label>
                   <input
-                    type="email"
+                    type="tel"
                     className="w-full p-3.5 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold"
-                    placeholder="guest@example.com"
-                    value={newAttendee.email}
-                    onChange={e => setNewAttendee({ ...newAttendee, email: e.target.value })}
+                    placeholder="e.g. +61 412 345 678"
+                    value={newAttendee.whatsapp}
+                    onChange={e => setNewAttendee({ ...newAttendee, whatsapp: e.target.value })}
                   />
                 </div>
                 {normalizeCustomJoinFieldConfig(event.custom_join_field_config)?.enabled ? (
