@@ -7,6 +7,7 @@ import { supabase } from '../supabase';
 import { Card } from '../components/ui/Card';
 import { HomeCommunitySection } from '../components/HomeCommunitySection';
 import { mapJoinedBookingsToEvents, pickUpcomingActivities } from '../lib/activityRelations';
+import { fetchEventForView } from '../lib/eventLookup';
 import { buildEventPath } from '../lib/events';
 import { Event } from '../types';
 import { formatDate } from '../utils';
@@ -114,35 +115,13 @@ export default function Home({ user }: { user: User | null }) {
     setJoinError(null);
 
     try {
-      if (user) {
-        const { data, error } = await supabase.rpc('share_event_by_join_code', {
-          p_join_code: normalizedCode,
-        });
-
-        if (error) throw error;
-        if (!Array.isArray(data) || data.length === 0) {
-          throw new Error('No activity was found for that code.');
-        }
-
-        const sharedEvent = data[0] as Event;
-        setJoinCode('');
-        navigate(buildEventPath(sharedEvent, { preferPrivateAccess: true }));
-        return;
-      }
-
-      const { data, error } = await supabase.rpc('get_event_for_view', {
-        p_slug: normalizedCode,
-        p_access_code: null,
-      });
-
-      if (error) throw error;
-      if (!Array.isArray(data) || data.length === 0) {
+      const eventForView = await fetchEventForView(normalizedCode, null);
+      if (!eventForView) {
         throw new Error('No activity was found for that code.');
       }
 
-      const openedEvent = data[0] as Event;
       setJoinCode('');
-      navigate(buildEventPath(openedEvent, { preferPrivateAccess: true }));
+      navigate(buildEventPath(eventForView, { preferPrivateAccess: true }));
     } catch (joinCodeError) {
       setJoinError(joinCodeError instanceof Error ? joinCodeError.message : 'Could not open that activity.');
     } finally {
