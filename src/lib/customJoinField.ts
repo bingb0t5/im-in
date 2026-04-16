@@ -1,6 +1,6 @@
-import { EventCustomJoinFieldConfig } from '../types';
+import { EventCustomJoinFieldConfig, EventCustomJoinFieldType } from '../types';
 
-const FIELD_TYPES = new Set(['text', 'number', 'select']);
+const FIELD_TYPES = new Set<EventCustomJoinFieldType>(['text', 'number', 'select']);
 
 const normalizeLabel = (value: unknown) => {
   if (typeof value !== 'string') return '';
@@ -18,7 +18,10 @@ const normalizeOptions = (value: unknown) => {
 export const normalizeCustomJoinFieldConfig = (value: unknown): EventCustomJoinFieldConfig | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
-  const type = typeof raw.type === 'string' && FIELD_TYPES.has(raw.type) ? raw.type : 'text';
+  const type =
+    typeof raw.type === 'string' && FIELD_TYPES.has(raw.type as EventCustomJoinFieldType)
+      ? (raw.type as EventCustomJoinFieldType)
+      : 'text';
   const label = normalizeLabel(raw.label);
   const required = raw.required === true;
   const enabled = raw.enabled === true;

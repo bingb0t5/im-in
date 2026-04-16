@@ -1479,6 +1479,13 @@ export default function EventDetail({ user }: { user: User | null }) {
                   <p className="font-bold text-slate-800 text-sm">Hosted by {event.host_name}</p>
                 </div>
               )}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                <span className="flex shrink-0 items-center gap-1">
+                  <Users className="h-3.5 w-3.5 text-brand-600" />
+                  {confirmedCount}/{event.capacity} going
+                </span>
+                <span className="shrink-0">{thinkingCount} thinking about it</span>
+              </div>
             </div>
 
             <p className="text-slate-500 leading-relaxed whitespace-pre-wrap text-sm">{previewSummary}</p>

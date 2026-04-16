@@ -1354,6 +1354,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
 
   const handleFillLocationFromGoogleMaps = async () => {
     const rawUrl = formData.google_maps_url.trim();
+    const selectedPublicLocation = normalizePublicLocationText(formData.public_location_text);
 
     if (!rawUrl) {
       setMapsAutofillError('Paste a Google Maps share link first.');
@@ -1383,7 +1384,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
           public_location_text: formData.public_location_text,
         },
         parsedLocation,
-        { lockedPublicLocation: LOCKED_PUBLIC_LOCATION },
+        { lockedPublicLocation: selectedPublicLocation },
       );
 
       setFormData((prev) => ({
@@ -1394,11 +1395,11 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
       }));
 
       if (parsedLocation.exactLocation && parsedLocation.publicLocation) {
-        setMapsAutofillMessage(`Filled the exact location from the link. Public location stays set to ${LOCKED_PUBLIC_LOCATION}.`);
+        setMapsAutofillMessage(`Filled the exact location from the link. Public location stays set to ${selectedPublicLocation}.`);
       } else if (parsedLocation.exactLocation) {
-        setMapsAutofillMessage(`Filled the exact location from the link. Public location stays set to ${LOCKED_PUBLIC_LOCATION}.`);
+        setMapsAutofillMessage(`Filled the exact location from the link. Public location stays set to ${selectedPublicLocation}.`);
       } else {
-        setMapsAutofillMessage(`Saved the link. Public location stays set to ${LOCKED_PUBLIC_LOCATION}.`);
+        setMapsAutofillMessage(`Saved the link. Public location stays set to ${selectedPublicLocation}.`);
       }
     } catch (autofillError) {
       setMapsAutofillError(

@@ -99,8 +99,9 @@ function ActivityEventList({
       {events.map((event, index) => (
         (() => {
           const path = pathForEvent ? pathForEvent(event) : buildEventPath(event, { preferPrivateAccess: true });
+          const visibility = event.visibility || (event.is_public ? 'public' : 'private');
           const dayOnly = formatDay(event.starts_at, event.timezone);
-          const timeOnly = formatTime(event.starts_at, event.timezone);
+          const timeOnly = visibility === 'semi_public' ? null : formatTime(event.starts_at, event.timezone);
           const previewLocation = getPreviewLocation(event);
           const visibilityMeta = getVisibilityMeta(event);
           const confirmedCount = event.confirmed_count || 0;
@@ -140,7 +141,7 @@ function ActivityEventList({
 
                 <div className="shrink-0 text-right">
                   <p className="text-sm font-bold text-slate-700">{dayOnly}</p>
-                  <p className="mt-0.5 text-xs text-slate-400">{timeOnly}</p>
+                  {timeOnly ? <p className="mt-0.5 text-xs text-slate-400">{timeOnly}</p> : null}
                 </div>
               </div>
             </Link>
