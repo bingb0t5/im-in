@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## 2026-04-16
+
+### Licensing and brand protection clarification
+
+- kept AGPL-3.0 as the software license with no non-compete restriction added to the `LICENSE` text
+- rewrote `LICENSING.md` to remove duplicate content and clearly separate code-license rights from reserved brand/trademark rights
+- added a top-level `NOTICE` file and a `public/README.md` asset notice clarifying that the official I'm In name, logos, and visual identity are excluded from the AGPL grant
+- added a short `License And Branding` section to `README.md` so contributors immediately see that forks may use the code under AGPL but must rebrand and avoid implying official affiliation
+
 ## 2026-04-14
 
 ### Activity-detail feedback button placement

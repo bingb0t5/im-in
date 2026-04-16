@@ -12,6 +12,9 @@ type TrelloCard = {
 type PromptResult = {
   summary: string;
   codex_prompt: string;
+  confidenceLevel: 'High' | 'Medium' | 'Low';
+  triageLabel: 'bug_fix' | 'design_opportunity' | 'ops_followup' | 'needs_clarification' | 'not_actionable';
+  contractVersion: string;
 };
 
 const corsHeaders = {
@@ -19,19 +22,41 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-trello-webhook',
 };
 
-const PROMPT_SCHEMA = {
-  name: 'codex_prompt_generation',
-  strict: true,
-  schema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      summary: { type: 'string' },
-      codex_prompt: { type: 'string' },
-    },
-    required: ['summary', 'codex_prompt'],
-  },
-} as const;
+type LaloFeedbackPromptResponse = {
+  contractVersion?: string;
+  summary?: string;
+  rootCauseHypothesisOrOpportunity?: string;
+  implementationPrompt?: string;
+  verificationChecklist?: string[];
+  docsToUpdate?: string[];
+  confidenceLevel?: 'High' | 'Medium' | 'Low';
+  triageLabel?: 'bug_fix' | 'design_opportunity' | 'ops_followup' | 'needs_clarification' | 'not_actionable';
+  requestId?: string;
+  model?: string;
+  error?: string;
+  details?: string;
+};
+
+class LaloPromptGenerationError extends Error {
+  code: 'upstream' | 'unauthorized' | 'invalid_response';
+  status: number | null;
+
+  constructor(code: 'upstream' | 'unauthorized' | 'invalid_response', message: string, status: number | null = null) {
+    super(message);
+    this.name = 'LaloPromptGenerationError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
+const ALLOWED_TRIAGE_LABELS = new Set([
+  'bug_fix',
+  'design_opportunity',
+  'ops_followup',
+  'needs_clarification',
+  'not_actionable',
+]);
+const ALLOWED_CONFIDENCE_LEVELS = new Set(['High', 'Medium', 'Low']);
 
 function json(data: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(data), {
@@ -48,11 +73,69 @@ function normalizeText(value?: string | null) {
   return (value || '').replace(/\s+/g, ' ').trim();
 }
 
+function inferFeedbackType(cardName: string, cardDescription: string): 'bug' | 'feature' | 'feedback' {
+  const source = `${cardName} ${cardDescription}`.toLowerCase();
+  if (source.includes('bug')) return 'bug';
+  if (source.includes('feature')) return 'feature';
+  return 'feedback';
+}
+
 function parseEmailAllowlist(raw?: string | null) {
   return (raw || '')
     .split(',')
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
+}
+
+function timingSafeStringEqual(a: string, b: string) {
+  if (!a || !b || a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
+function toBase64(input: Uint8Array) {
+  let binary = '';
+  for (const byte of input) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+async function computeTrelloWebhookSignature(rawBody: string, callbackUrl: string, appSecret: string) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(appSecret),
+    {
+      name: 'HMAC',
+      hash: 'SHA-1',
+    },
+    false,
+    ['sign'],
+  );
+  const payload = `${rawBody}${callbackUrl}`;
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
+  return toBase64(new Uint8Array(signature));
+}
+
+function buildFallbackPrompt(card: TrelloCard) {
+  return [
+    'Do not implement immediately. First inspect the codebase and propose a safe plan before editing.',
+    'Wait for explicit approval before implementation.',
+    '',
+    `Task: ${card.name}`,
+    '',
+    'Context:',
+    card.desc || '(No card description provided)',
+    '',
+    'Verification:',
+    '- Verify the primary user flow end-to-end.',
+    '- Verify no auth/permission regressions.',
+    '- Verify any docs/config updates needed for deployment.',
+  ].join('\n');
 }
 
 function upsertPromptSection(existingDescription: string, promptBody: string) {
@@ -104,63 +187,92 @@ async function getOptionalUser(supabaseUrl: string, supabaseAnonKey: string, aut
 }
 
 async function generateCodexPrompt({
-  apiKey,
-  model,
+  laloBaseUrl,
+  laloApiKey,
+  laloApp,
   card,
 }: {
-  apiKey: string;
-  model: string;
+  laloBaseUrl: string;
+  laloApiKey: string;
+  laloApp: 'im_in' | 'lalo';
   card: TrelloCard;
 }): Promise<PromptResult> {
-  const systemPrompt = `
-You write implementation-ready prompts for Cursor/Codex from Trello cards.
-Produce a practical engineering prompt focused on this specific codebase task.
-Always include an approval gate:
-"Do not implement immediately. First review the codebase and propose a plan. Wait for approval before making changes."
-Keep output concise, clear, and actionable.
-Return strict JSON only.
-`.trim();
-
-  const userPayload = {
-    cardName: card.name,
-    cardDescription: card.desc || '',
-    cardUrl: card.url,
+  const feedbackType = inferFeedbackType(card.name, card.desc || '');
+  const payload = {
+    app: laloApp,
+    feedbackType,
+    title: card.name,
+    description: card.desc || '(No card description provided)',
+    extraContext: {
+      source: 'trello_prompt_sync',
+      trelloCard: {
+        id: card.id,
+        url: card.url,
+        idList: card.idList,
+        dateLastActivity: card.dateLastActivity || null,
+      },
+    },
   };
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      response_format: {
-        type: 'json_schema',
-        json_schema: PROMPT_SCHEMA,
+  let response: Response;
+  try {
+    response = await fetch(`${laloBaseUrl.replace(/\/+$/, '')}/v1/feedback/prompts/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${laloApiKey}`,
       },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: JSON.stringify(userPayload) },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Prompt generation failed: ${response.status} ${text}`);
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Lalo endpoint was unreachable.';
+    throw new LaloPromptGenerationError('upstream', `Lalo feedback prompt request failed: ${message}`, null);
   }
 
-  const completion = await response.json();
-  const content = completion?.choices?.[0]?.message?.content;
-  const parsed = JSON.parse(content || '{}') as Partial<PromptResult>;
+  const bodyText = await response.text();
+  let parsed: LaloFeedbackPromptResponse = {};
+  try {
+    parsed = JSON.parse(bodyText) as LaloFeedbackPromptResponse;
+  } catch {
+    parsed = {};
+  }
+
+  if (!response.ok) {
+    const errorDetail = normalizeText(parsed.error || parsed.details || bodyText || 'Unknown Lalo error');
+    if (response.status === 401 || response.status === 403) {
+      throw new LaloPromptGenerationError(
+        'unauthorized',
+        `Lalo feedback prompt request unauthorized (${response.status}): ${errorDetail}`,
+        response.status,
+      );
+    }
+    throw new LaloPromptGenerationError(
+      'upstream',
+      `Lalo feedback prompt generation failed (${response.status}): ${errorDetail}`,
+      response.status,
+    );
+  }
+
+  const summary = normalizeText(parsed.summary) || `Prompt generated for "${card.name}"`;
+  const implementationPrompt = normalizeText(parsed.implementationPrompt) || buildFallbackPrompt(card);
+  const confidenceLevel = ALLOWED_CONFIDENCE_LEVELS.has(parsed.confidenceLevel || '')
+    ? (parsed.confidenceLevel as PromptResult['confidenceLevel'])
+    : 'Medium';
+  const triageLabel = ALLOWED_TRIAGE_LABELS.has(parsed.triageLabel || '')
+    ? (parsed.triageLabel as PromptResult['triageLabel'])
+    : 'needs_clarification';
+  const contractVersion = normalizeText(parsed.contractVersion) || 'feedback_prompt_v1_compat';
+
+  if (!implementationPrompt) {
+    throw new LaloPromptGenerationError('invalid_response', 'Lalo feedback prompt response could not be normalized.', 502);
+  }
 
   return {
-    summary: normalizeText(parsed.summary) || `Prompt generated for "${card.name}"`,
-    codex_prompt:
-      normalizeText(parsed.codex_prompt) ||
-      `Do not implement immediately. First review the codebase and propose a plan. Wait for approval before making changes.\n\nTask: ${card.name}\n\nContext:\n${card.desc || '(No card description provided)'}`,
+    summary,
+    codex_prompt: implementationPrompt,
+    confidenceLevel,
+    triageLabel,
+    contractVersion,
   };
 }
 
@@ -172,8 +284,9 @@ async function processCard({
   actionId,
   trelloKey,
   trelloToken,
-  openAiKey,
-  openAiModel,
+  laloBaseUrl,
+  laloApiKey,
+  laloApp,
 }: {
   adminClient: ReturnType<typeof createClient>;
   card: TrelloCard;
@@ -182,8 +295,9 @@ async function processCard({
   actionId: string | null;
   trelloKey: string;
   trelloToken: string;
-  openAiKey: string;
-  openAiModel: string;
+  laloBaseUrl: string;
+  laloApiKey: string;
+  laloApp: 'im_in' | 'lalo';
 }) {
   if (card.idList !== triggerListId) {
     return { processed: false, reason: 'not_in_trigger_list' };
@@ -216,13 +330,17 @@ async function processCard({
 
   try {
     const promptResult = await generateCodexPrompt({
-      apiKey: openAiKey,
-      model: openAiModel,
+      laloBaseUrl,
+      laloApiKey,
+      laloApp,
       card,
     });
 
     const stampedPrompt = [
       `Generated: ${new Date().toISOString()}`,
+      `Contract: ${promptResult.contractVersion}`,
+      `Triage: ${promptResult.triageLabel}`,
+      `Confidence: ${promptResult.confidenceLevel}`,
       '',
       promptResult.summary,
       '',
@@ -283,6 +401,11 @@ Deno.serve(async (req) => {
     return json({ error: 'Method not allowed' }, { status: 405 });
   }
 
+  const contentLength = Number(req.headers.get('content-length') || '0');
+  if (Number.isFinite(contentLength) && contentLength > 250_000) {
+    return json({ error: 'Payload too large' }, { status: 413 });
+  }
+
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
@@ -290,8 +413,15 @@ Deno.serve(async (req) => {
     const trelloKey = Deno.env.get('TRELLO_API_KEY');
     const trelloToken = Deno.env.get('TRELLO_API_TOKEN');
     const triggerListId = Deno.env.get('TRELLO_PROMPT_TRIGGER_LIST_ID');
-    const openAiKey = Deno.env.get('OPENAI_API_KEY');
-    const openAiModel = Deno.env.get('OPENAI_PROMPT_MODEL') || Deno.env.get('OPENAI_MODERATION_MODEL') || 'gpt-5.4-nano';
+    const configuredLaloBaseUrl = normalizeText(Deno.env.get('LALO_ENGINEERING_API_BASE_URL'));
+    const reqHost = new URL(req.url).hostname;
+    const isLocalDevRequest = reqHost === 'localhost' || reqHost === '127.0.0.1';
+    const laloBaseUrl = configuredLaloBaseUrl || (isLocalDevRequest ? 'http://localhost:3000' : '');
+    const laloApiKey = normalizeText(Deno.env.get('LALO_ENGINEERING_INTERNAL_API_KEY'));
+    const laloApp = (normalizeText(Deno.env.get('LALO_ENGINEERING_APP')) || 'im_in') as 'im_in' | 'lalo';
+    const trelloApiSecret = normalizeText(Deno.env.get('TRELLO_API_SECRET'));
+    const trelloWebhookCallbackUrl =
+      normalizeText(Deno.env.get('TRELLO_WEBHOOK_CALLBACK_URL')) || `${new URL(req.url).origin}${new URL(req.url).pathname}`;
 
     if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
       throw new Error('Supabase credentials are not configured for trello-prompt-sync.');
@@ -299,12 +429,25 @@ Deno.serve(async (req) => {
     if (!trelloKey || !trelloToken || !triggerListId) {
       throw new Error('Trello credentials are not configured for trello-prompt-sync.');
     }
-    if (!openAiKey) {
-      throw new Error('OPENAI_API_KEY is required for trello-prompt-sync.');
+    if (!laloApiKey) {
+      throw new Error('LALO_ENGINEERING_INTERNAL_API_KEY is required for trello-prompt-sync.');
+    }
+    if (!laloBaseUrl) {
+      throw new Error('LALO_ENGINEERING_API_BASE_URL is required outside local development.');
+    }
+    if (laloApp !== 'im_in' && laloApp !== 'lalo') {
+      throw new Error('LALO_ENGINEERING_APP must be either "im_in" or "lalo".');
     }
 
     const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
-    const body = await req.json().catch(() => ({}));
+    const rawBody = await req.text();
+    const body = (() => {
+      try {
+        return JSON.parse(rawBody);
+      } catch {
+        return {};
+      }
+    })();
 
     // Manual sync mode: for trusted admins, process all cards currently in trigger list.
     if (body?.syncFromTriggerList === true) {
@@ -336,8 +479,9 @@ Deno.serve(async (req) => {
           actionId: null,
           trelloKey,
           trelloToken,
-          openAiKey,
-          openAiModel,
+          laloBaseUrl,
+          laloApiKey,
+          laloApp,
         });
         if (result.processed) processedCount += 1;
         else skippedCount += 1;
@@ -362,6 +506,22 @@ Deno.serve(async (req) => {
       return json({ ok: true, ignored: true, reason: 'not_prompt_trigger_event' });
     }
 
+    if (!trelloApiSecret) {
+      return json({ error: 'TRELLO_API_SECRET is required for webhook mode.' }, { status: 503 });
+    }
+    const incomingWebhookSignature = normalizeText(req.headers.get('x-trello-webhook'));
+    if (!incomingWebhookSignature) {
+      return json({ error: 'Missing x-trello-webhook signature.' }, { status: 401 });
+    }
+    const expectedWebhookSignature = await computeTrelloWebhookSignature(
+      rawBody,
+      trelloWebhookCallbackUrl,
+      trelloApiSecret,
+    );
+    if (!timingSafeStringEqual(incomingWebhookSignature, expectedWebhookSignature)) {
+      return json({ error: 'Unauthorized webhook request.' }, { status: 401 });
+    }
+
     const card = await trelloRequest<TrelloCard>({
       method: 'GET',
       path: `/cards/${encodeURIComponent(cardId)}?fields=name,desc,idList,url,dateLastActivity`,
@@ -378,8 +538,9 @@ Deno.serve(async (req) => {
       actionId,
       trelloKey,
       trelloToken,
-      openAiKey,
-      openAiModel,
+      laloBaseUrl,
+      laloApiKey,
+      laloApp,
     });
 
     return json({

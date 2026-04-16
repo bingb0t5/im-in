@@ -5,6 +5,8 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.trello-prompt-sync]
+# Public endpoint for Trello callbacks.
+# The function verifies Trello-native x-trello-webhook signatures using TRELLO_API_SECRET.
 verify_jwt = false
 
 [functions.feedback-admin]

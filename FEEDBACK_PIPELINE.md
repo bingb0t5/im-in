@@ -16,7 +16,7 @@ This document describes the feedback/reporting pipeline that sends user submissi
    - uploads optional screenshot to private storage bucket
    - creates a sanitized Trello card in intake list (when not blocked)
 5. Later, when a Trello card is moved into the prompt-trigger list:
-   - `trello-prompt-sync` generates a Codex-ready prompt
+   - `trello-prompt-sync` calls Lalo internal feedback automation API to generate a Codex-ready prompt
    - writes prompt into Trello card description
    - logs run metadata in `trello_prompt_jobs`
 
@@ -31,6 +31,7 @@ Prompt generation is intentionally not automatic at intake time. This allows:
 - using the same Trello prompt flow for cards created manually in Trello
 - controlling when engineering prompts are generated
 - reducing unnecessary AI prompt generation for low-value cards
+- centralizing reusable prompt-generation rules in `lalo/docs/ai/*` for multi-app reuse
 
 ## Data model
 
@@ -91,13 +92,17 @@ That page can:
 - `TRELLO_API_TOKEN`
 - `TRELLO_INTAKE_LIST_ID`
 - `TRELLO_PROMPT_TRIGGER_LIST_ID`
+- `LALO_ENGINEERING_INTERNAL_API_KEY`
+- `TRELLO_API_SECRET` (Trello app secret used to verify `x-trello-webhook` signature)
 
 Optional:
 
 - `OPENAI_FEEDBACK_MODEL`
-- `OPENAI_PROMPT_MODEL`
 - `FEEDBACK_SCREENSHOT_BUCKET` (default `feedback-screenshots`)
 - `FEEDBACK_ADMIN_EMAILS` (fallback: `MODERATION_ADMIN_EMAILS`)
+- `LALO_ENGINEERING_API_BASE_URL` (required outside local dev)
+- `LALO_ENGINEERING_APP` (default `im_in`)
+- `TRELLO_WEBHOOK_CALLBACK_URL` (optional override; should exactly match webhook callbackURL used in Trello)
 
 ## Functions
 
@@ -112,8 +117,10 @@ Optional:
 
 - supports Trello webhook payloads for list-move triggers
 - supports admin-triggered manual sync mode (`syncFromTriggerList: true`)
-- generates Codex prompts only when card is in trigger list
+- generates Codex prompts only when card is in trigger list by calling `POST /v1/feedback/prompts/generate` on Lalo internal API
 - writes prompt section into card description
+- verifies Trello-native `x-trello-webhook` signature using `TRELLO_API_SECRET` and callback URL
+- tolerates partial Lalo responses by safely defaulting summary/metadata while preserving the generated implementation prompt when present
 
 ### `feedback-admin`
 
@@ -136,15 +143,27 @@ Why board-level webhook:
 - Trello sends all card-change events for the board
 - the function filters internally and only reacts when the destination list matches `TRELLO_PROMPT_TRIGGER_LIST_ID`
 
+## Cross-repo rollout order
+
+For deployments using shared `im-in -> lalo` prompt generation:
+
+1. Deploy Lalo engineering API changes first.
+2. Confirm `POST /v1/feedback/prompts/generate` is healthy with your internal key.
+3. Deploy `im-in` `trello-prompt-sync` changes with:
+   - `LALO_ENGINEERING_API_BASE_URL`
+   - `LALO_ENGINEERING_INTERNAL_API_KEY`
+   - `TRELLO_API_SECRET`
+   - `TRELLO_WEBHOOK_CALLBACK_URL` (if you need explicit callback URL matching)
+4. Run one manual sync (`{"syncFromTriggerList": true}`) before fully relying on webhook automation.
+
 ## Recommended model split
 
 - `OPENAI_FEEDBACK_MODEL=gpt-5.4-nano`
-- `OPENAI_PROMPT_MODEL=gpt-5.4`
 
 Reasoning:
 
 - abuse filtering is narrow, repetitive, and cost-sensitive
-- prompt generation is low-volume and higher-value, so stronger reasoning quality is worth the extra cost
+- prompt generation is now centralized in Lalo internal engineering API and uses the model configured there
 
 ## Manual run example
 

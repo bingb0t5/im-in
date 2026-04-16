@@ -524,7 +524,7 @@ So contributors should think of:
 
 - `moderate-activity`: activity moderation for public discovery
 - `submit-feedback`: public feedback intake, abuse filtering, and Trello intake card creation
-- `trello-prompt-sync`: Trello webhook/manual-sync endpoint for list-triggered Codex prompt generation written back to card descriptions
+- `trello-prompt-sync`: Trello webhook/manual-sync endpoint that calls Lalo internal feedback automation API for list-triggered Codex prompt generation written back to card descriptions, with Trello-native `x-trello-webhook` signature verification in webhook mode
 - `feedback-admin`: hidden admin listing/retry/archive endpoint for internal feedback review
 - `feedback-admin`: hidden admin listing/retry/archive/delete endpoint for internal feedback review
 
@@ -622,14 +622,19 @@ Edge runtime additions used by the feedback pipeline:
 - `TRELLO_API_TOKEN`
 - `TRELLO_INTAKE_LIST_ID`
 - `TRELLO_PROMPT_TRIGGER_LIST_ID`
+- `TRELLO_API_SECRET` (required for Trello webhook signature verification)
 - `FEEDBACK_SCREENSHOT_BUCKET` (defaults to `feedback-screenshots`)
 - `FEEDBACK_ADMIN_EMAILS` (falls back to `MODERATION_ADMIN_EMAILS`)
 - `OPENAI_FEEDBACK_MODEL`
-- `OPENAI_PROMPT_MODEL`
+- `LALO_ENGINEERING_INTERNAL_API_KEY`
+- `LALO_ENGINEERING_API_BASE_URL` (required outside local development)
+- `LALO_ENGINEERING_APP` (defaults to `im_in`)
+- `TRELLO_WEBHOOK_CALLBACK_URL` (optional explicit callback URL for signature verification)
 
 Runtime note:
 
 - `SUPABASE_SERVICE_ROLE_KEY` is expected by the functions, but is provided by Supabase automatically rather than being manually created as a project secret
+- For shared feedback automation, deploy Lalo engineering API updates before deploying `trello-prompt-sync` changes in `im-in`.
 
 ### Build/runtime assumptions
 
