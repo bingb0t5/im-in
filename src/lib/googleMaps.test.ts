@@ -5,7 +5,11 @@ import {
   isGoogleMapsShortUrl,
   parseGoogleMapsLocation,
 } from './googleMaps';
-import { LOCKED_PUBLIC_LOCATION } from './publicLocation';
+import {
+  LOCKED_PUBLIC_LOCATION,
+  LOCKED_PUBLIC_LOCATION_OPTIONS,
+  normalizePublicLocationText,
+} from './publicLocation';
 
 describe('googleMaps parsing', () => {
   it('detects shortened Google Maps links', () => {
@@ -72,6 +76,23 @@ describe('googleMaps parsing', () => {
     expect(next.public_location_text).toBe(LOCKED_PUBLIC_LOCATION);
   });
 
+  it('keeps a selected approved public location during autofill', () => {
+    const selectedPublicLocation = LOCKED_PUBLIC_LOCATION_OPTIONS[1];
+    const next = applyGoogleMapsAutofill(
+      {
+        google_maps_url: '',
+        location_text: '',
+        public_location_text: selectedPublicLocation,
+      },
+      parseGoogleMapsLocation(
+        'https://www.google.com/maps/place/An+Bang+Beach,+Cam+An,+Hoi+An,+Quang+Nam,+Vietnam/@15.9274,108.3275,17z',
+      ),
+      { lockedPublicLocation: selectedPublicLocation },
+    );
+
+    expect(next.public_location_text).toBe(selectedPublicLocation);
+  });
+
   it('rejects non-Google Maps links', () => {
     expect(() => parseGoogleMapsLocation('https://example.com/place/test')).toThrow(
       'Please use a Google Maps share link.',
@@ -89,5 +110,12 @@ describe('googleMaps parsing', () => {
 
   it('avoids guessing a public area from short venue-style names', () => {
     expect(derivePublicLocationText('An Bang Beach')).toBeNull();
+  });
+
+  it('keeps approved public location selections when normalizing', () => {
+    expect(normalizePublicLocationText(LOCKED_PUBLIC_LOCATION_OPTIONS[1])).toBe(
+      LOCKED_PUBLIC_LOCATION_OPTIONS[1],
+    );
+    expect(normalizePublicLocationText('Melbourne, Australia')).toBe(LOCKED_PUBLIC_LOCATION);
   });
 });
