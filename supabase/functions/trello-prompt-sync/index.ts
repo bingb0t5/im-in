@@ -14,6 +14,7 @@ type PromptResult = {
   codex_prompt: string;
   confidenceLevel: 'High' | 'Medium' | 'Low';
   triageLabel: 'bug_fix' | 'design_opportunity' | 'ops_followup' | 'needs_clarification' | 'not_actionable';
+  contractVersion: string;
 };
 
 const corsHeaders = {
@@ -22,6 +23,7 @@ const corsHeaders = {
 };
 
 type LaloFeedbackPromptResponse = {
+  contractVersion?: string;
   summary?: string;
   rootCauseHypothesisOrOpportunity?: string;
   implementationPrompt?: string;
@@ -34,6 +36,27 @@ type LaloFeedbackPromptResponse = {
   error?: string;
   details?: string;
 };
+
+class LaloPromptGenerationError extends Error {
+  code: 'upstream' | 'unauthorized' | 'invalid_response';
+  status: number | null;
+
+  constructor(code: 'upstream' | 'unauthorized' | 'invalid_response', message: string, status: number | null = null) {
+    super(message);
+    this.name = 'LaloPromptGenerationError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
+const ALLOWED_TRIAGE_LABELS = new Set([
+  'bug_fix',
+  'design_opportunity',
+  'ops_followup',
+  'needs_clarification',
+  'not_actionable',
+]);
+const ALLOWED_CONFIDENCE_LEVELS = new Set(['High', 'Medium', 'Low']);
 
 function json(data: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(data), {
@@ -62,6 +85,57 @@ function parseEmailAllowlist(raw?: string | null) {
     .split(',')
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
+}
+
+function timingSafeStringEqual(a: string, b: string) {
+  if (!a || !b || a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
+function toBase64(input: Uint8Array) {
+  let binary = '';
+  for (const byte of input) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+async function computeTrelloWebhookSignature(rawBody: string, callbackUrl: string, appSecret: string) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(appSecret),
+    {
+      name: 'HMAC',
+      hash: 'SHA-1',
+    },
+    false,
+    ['sign'],
+  );
+  const payload = `${rawBody}${callbackUrl}`;
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
+  return toBase64(new Uint8Array(signature));
+}
+
+function buildFallbackPrompt(card: TrelloCard) {
+  return [
+    'Do not implement immediately. First inspect the codebase and propose a safe plan before editing.',
+    'Wait for explicit approval before implementation.',
+    '',
+    `Task: ${card.name}`,
+    '',
+    'Context:',
+    card.desc || '(No card description provided)',
+    '',
+    'Verification:',
+    '- Verify the primary user flow end-to-end.',
+    '- Verify no auth/permission regressions.',
+    '- Verify any docs/config updates needed for deployment.',
+  ].join('\n');
 }
 
 function upsertPromptSection(existingDescription: string, promptBody: string) {
@@ -140,14 +214,20 @@ async function generateCodexPrompt({
     },
   };
 
-  const response = await fetch(`${laloBaseUrl.replace(/\/+$/, '')}/v1/feedback/prompts/generate`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${laloApiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${laloBaseUrl.replace(/\/+$/, '')}/v1/feedback/prompts/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${laloApiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Lalo endpoint was unreachable.';
+    throw new LaloPromptGenerationError('upstream', `Lalo feedback prompt request failed: ${message}`, null);
+  }
 
   const bodyText = await response.text();
   let parsed: LaloFeedbackPromptResponse = {};
@@ -159,16 +239,32 @@ async function generateCodexPrompt({
 
   if (!response.ok) {
     const errorDetail = normalizeText(parsed.error || parsed.details || bodyText || 'Unknown Lalo error');
-    throw new Error(`Lalo feedback prompt generation failed (${response.status}): ${errorDetail}`);
+    if (response.status === 401 || response.status === 403) {
+      throw new LaloPromptGenerationError(
+        'unauthorized',
+        `Lalo feedback prompt request unauthorized (${response.status}): ${errorDetail}`,
+        response.status,
+      );
+    }
+    throw new LaloPromptGenerationError(
+      'upstream',
+      `Lalo feedback prompt generation failed (${response.status}): ${errorDetail}`,
+      response.status,
+    );
   }
 
-  const summary = normalizeText(parsed.summary);
-  const implementationPrompt = normalizeText(parsed.implementationPrompt);
-  const confidenceLevel = parsed.confidenceLevel;
-  const triageLabel = parsed.triageLabel;
+  const summary = normalizeText(parsed.summary) || `Prompt generated for "${card.name}"`;
+  const implementationPrompt = normalizeText(parsed.implementationPrompt) || buildFallbackPrompt(card);
+  const confidenceLevel = ALLOWED_CONFIDENCE_LEVELS.has(parsed.confidenceLevel || '')
+    ? (parsed.confidenceLevel as PromptResult['confidenceLevel'])
+    : 'Medium';
+  const triageLabel = ALLOWED_TRIAGE_LABELS.has(parsed.triageLabel || '')
+    ? (parsed.triageLabel as PromptResult['triageLabel'])
+    : 'needs_clarification';
+  const contractVersion = normalizeText(parsed.contractVersion) || 'feedback_prompt_v1_compat';
 
-  if (!summary || !implementationPrompt || !confidenceLevel || !triageLabel) {
-    throw new Error('Lalo feedback prompt response was missing required fields.');
+  if (!implementationPrompt) {
+    throw new LaloPromptGenerationError('invalid_response', 'Lalo feedback prompt response could not be normalized.', 502);
   }
 
   return {
@@ -176,6 +272,7 @@ async function generateCodexPrompt({
     codex_prompt: implementationPrompt,
     confidenceLevel,
     triageLabel,
+    contractVersion,
   };
 }
 
@@ -241,6 +338,7 @@ async function processCard({
 
     const stampedPrompt = [
       `Generated: ${new Date().toISOString()}`,
+      `Contract: ${promptResult.contractVersion}`,
       `Triage: ${promptResult.triageLabel}`,
       `Confidence: ${promptResult.confidenceLevel}`,
       '',
@@ -303,6 +401,11 @@ Deno.serve(async (req) => {
     return json({ error: 'Method not allowed' }, { status: 405 });
   }
 
+  const contentLength = Number(req.headers.get('content-length') || '0');
+  if (Number.isFinite(contentLength) && contentLength > 250_000) {
+    return json({ error: 'Payload too large' }, { status: 413 });
+  }
+
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
@@ -310,9 +413,15 @@ Deno.serve(async (req) => {
     const trelloKey = Deno.env.get('TRELLO_API_KEY');
     const trelloToken = Deno.env.get('TRELLO_API_TOKEN');
     const triggerListId = Deno.env.get('TRELLO_PROMPT_TRIGGER_LIST_ID');
-    const laloBaseUrl = normalizeText(Deno.env.get('LALO_ENGINEERING_API_BASE_URL')) || 'http://localhost:3000';
+    const configuredLaloBaseUrl = normalizeText(Deno.env.get('LALO_ENGINEERING_API_BASE_URL'));
+    const reqHost = new URL(req.url).hostname;
+    const isLocalDevRequest = reqHost === 'localhost' || reqHost === '127.0.0.1';
+    const laloBaseUrl = configuredLaloBaseUrl || (isLocalDevRequest ? 'http://localhost:3000' : '');
     const laloApiKey = normalizeText(Deno.env.get('LALO_ENGINEERING_INTERNAL_API_KEY'));
     const laloApp = (normalizeText(Deno.env.get('LALO_ENGINEERING_APP')) || 'im_in') as 'im_in' | 'lalo';
+    const trelloApiSecret = normalizeText(Deno.env.get('TRELLO_API_SECRET'));
+    const trelloWebhookCallbackUrl =
+      normalizeText(Deno.env.get('TRELLO_WEBHOOK_CALLBACK_URL')) || `${new URL(req.url).origin}${new URL(req.url).pathname}`;
 
     if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
       throw new Error('Supabase credentials are not configured for trello-prompt-sync.');
@@ -323,12 +432,22 @@ Deno.serve(async (req) => {
     if (!laloApiKey) {
       throw new Error('LALO_ENGINEERING_INTERNAL_API_KEY is required for trello-prompt-sync.');
     }
+    if (!laloBaseUrl) {
+      throw new Error('LALO_ENGINEERING_API_BASE_URL is required outside local development.');
+    }
     if (laloApp !== 'im_in' && laloApp !== 'lalo') {
       throw new Error('LALO_ENGINEERING_APP must be either "im_in" or "lalo".');
     }
 
     const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
-    const body = await req.json().catch(() => ({}));
+    const rawBody = await req.text();
+    const body = (() => {
+      try {
+        return JSON.parse(rawBody);
+      } catch {
+        return {};
+      }
+    })();
 
     // Manual sync mode: for trusted admins, process all cards currently in trigger list.
     if (body?.syncFromTriggerList === true) {
@@ -385,6 +504,22 @@ Deno.serve(async (req) => {
 
     if (actionType !== 'updateCard' || !cardId || listAfterId !== triggerListId) {
       return json({ ok: true, ignored: true, reason: 'not_prompt_trigger_event' });
+    }
+
+    if (!trelloApiSecret) {
+      return json({ error: 'TRELLO_API_SECRET is required for webhook mode.' }, { status: 503 });
+    }
+    const incomingWebhookSignature = normalizeText(req.headers.get('x-trello-webhook'));
+    if (!incomingWebhookSignature) {
+      return json({ error: 'Missing x-trello-webhook signature.' }, { status: 401 });
+    }
+    const expectedWebhookSignature = await computeTrelloWebhookSignature(
+      rawBody,
+      trelloWebhookCallbackUrl,
+      trelloApiSecret,
+    );
+    if (!timingSafeStringEqual(incomingWebhookSignature, expectedWebhookSignature)) {
+      return json({ error: 'Unauthorized webhook request.' }, { status: 401 });
     }
 
     const card = await trelloRequest<TrelloCard>({

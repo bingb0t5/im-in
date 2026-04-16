@@ -4,6 +4,14 @@
 
 It is built to work alongside the chat groups people already use. The app does not try to replace WhatsApp-style coordination; it adds a cleaner way to publish an activity, track who is coming, handle waitlists, share the right link, and give hosts a simple management view.
 
+## License And Branding
+
+The software code is available under AGPL-3.0 (see `LICENSE` and `LICENSING.md`).
+
+The "I'm In" name, logo, marks, and visual identity are not licensed under AGPL.
+If you fork or deploy this project, you must use your own name and branding and
+must not imply affiliation with the official I'm In or Lalo-operated services.
+
 ## Current Status
 
 The app is an active early-stage product with substantial real functionality, but it is still evolving.
@@ -316,12 +324,16 @@ Optional edge function runtime:
   - Trello list that receives sanitized cards from in-app feedback submissions
 - `TRELLO_PROMPT_TRIGGER_LIST_ID`
   - moving any card into this list triggers Codex prompt generation
+- `TRELLO_API_SECRET`
+  - Trello app secret used to verify `x-trello-webhook` signatures
 - `LALO_ENGINEERING_INTERNAL_API_KEY`
   - internal key used by `trello-prompt-sync` to call Lalo feedback prompt API
 - `LALO_ENGINEERING_API_BASE_URL`
-  - base URL for Lalo internal engineering API (`http://localhost:3000` by default)
+  - base URL for Lalo internal engineering API (required in hosted environments)
 - `LALO_ENGINEERING_APP`
   - app identifier sent to Lalo (`im_in` by default)
+- `TRELLO_WEBHOOK_CALLBACK_URL`
+  - optional explicit callback URL used when verifying Trello signatures (must match Trello webhook callbackURL exactly if set)
 - `FEEDBACK_SCREENSHOT_BUCKET`
   - defaults to `feedback-screenshots`
 - `WEB_PUSH_SUBJECT`
@@ -425,6 +437,7 @@ Feedback entry behavior:
 - Codex prompt generation is intentionally separate and only runs when a Trello card is moved to the configured prompt-trigger list
 - prompt generation now runs through Lalo internal API (`POST /v1/feedback/prompts/generate`) so `lalo/docs/ai/*` is the reusable rules source
 - the recommended production setup is a Trello board webhook pointed at `trello-prompt-sync`
+- webhook-triggered runs verify Trello-native `x-trello-webhook` signatures using `TRELLO_API_SECRET`
 - a manual admin fallback still exists via `{"syncFromTriggerList": true}` when webhook setup is unavailable
 - internal review for blocked/failed/not-sent feedback now lives at `/admin/feedback`
 - `/admin/feedback` now includes `Review`, `Passed`, `Blocked`, `Failed`, `Archived`, and `All` buckets
@@ -531,6 +544,7 @@ For automatic Codex prompt generation, create a Trello webhook on the board and 
 - `https://<your-project-ref>.functions.supabase.co/trello-prompt-sync`
 
 The function filters board events internally and only reacts when a card is moved into `TRELLO_PROMPT_TRIGGER_LIST_ID`.
+Configure a Trello webhook callback URL that exactly matches your deployed endpoint URL. Signature verification uses the raw request body plus callback URL and `TRELLO_API_SECRET`.
 
 ## Important Limitations And Risks
 

@@ -63,11 +63,18 @@ function resolveManifestUrl() {
   if (explicit) {
     return normalizeManifestUrl(explicit);
   }
+  const platformBaseUrl = normalizeBaseUrl((process.env.PLATFORM_PUBLIC_BASE_URL || '').trim());
   const base = normalizeBaseUrl(
-    (process.env.LALO_VERIFY_BASE_URL || process.env.VITE_LALO_VERIFY_BASE_URL || 'https://llalo.app/lalo-verify').trim(),
+    (process.env.LALO_VERIFY_BASE_URL || process.env.VITE_LALO_VERIFY_BASE_URL || '').trim(),
   );
   const version = (process.env.LALO_VERIFY_VERSION || process.env.VITE_LALO_VERIFY_VERSION || 'latest').trim();
-  return `${base}/${version}/manifest.json`;
+  if (base) {
+    return `${base}/${version}/manifest.json`;
+  }
+  if (platformBaseUrl) {
+    return `${platformBaseUrl}/lalo-verify/${version}/manifest.json`;
+  }
+  throw new Error('Set LALO_VERIFY_MANIFEST_URL, LALO_VERIFY_BASE_URL, or PLATFORM_PUBLIC_BASE_URL before syncing lalo-verify.');
 }
 
 function assertSafeRelativePath(filePath) {
