@@ -15,6 +15,8 @@ type PromptResult = {
   confidenceLevel: 'High' | 'Medium' | 'Low';
   triageLabel: 'bug_fix' | 'design_opportunity' | 'ops_followup' | 'needs_clarification' | 'not_actionable';
   contractVersion: string;
+  workItemId?: string;
+  verificationChecklist?: string[];
 };
 
 const corsHeaders = {
@@ -23,16 +25,21 @@ const corsHeaders = {
 };
 
 type LaloFeedbackPromptResponse = {
-  contractVersion?: string;
-  summary?: string;
-  rootCauseHypothesisOrOpportunity?: string;
-  implementationPrompt?: string;
-  verificationChecklist?: string[];
-  docsToUpdate?: string[];
-  confidenceLevel?: 'High' | 'Medium' | 'Low';
-  triageLabel?: 'bug_fix' | 'design_opportunity' | 'ops_followup' | 'needs_clarification' | 'not_actionable';
-  requestId?: string;
-  model?: string;
+  workItem?: {
+    id?: string;
+  };
+  reviewPacket?: {
+    promptPacket?: {
+      issueSummary?: string;
+      cursorPrompt?: string;
+      verificationChecklist?: string[];
+      confidenceLevel?: 'High' | 'Medium' | 'Low';
+      triageLabel?: 'bug_fix' | 'design_opportunity' | 'ops_followup' | 'needs_clarification' | 'not_actionable';
+    };
+    analysis?: {
+      quickTake?: string;
+    };
+  };
   error?: string;
   details?: string;
 };
@@ -191,20 +198,32 @@ async function generateCodexPrompt({
   laloApiKey,
   laloApp,
   card,
+  feedbackContext,
 }: {
   laloBaseUrl: string;
   laloApiKey: string;
   laloApp: 'im_in' | 'lalo';
   card: TrelloCard;
+  feedbackContext?: {
+    feedbackSubmissionId?: string | null;
+    pageUrl?: string | null;
+    screenshotPath?: string | null;
+  };
 }): Promise<PromptResult> {
   const feedbackType = inferFeedbackType(card.name, card.desc || '');
   const payload = {
     app: laloApp,
     feedbackType,
+    source: 'feedback',
+    runRepro: feedbackType === 'bug',
+    requiresVerification: feedbackType === 'bug',
     title: card.name,
     description: card.desc || '(No card description provided)',
     extraContext: {
       source: 'trello_prompt_sync',
+      feedbackSubmissionId: feedbackContext?.feedbackSubmissionId || null,
+      routeOrArea: feedbackContext?.pageUrl || null,
+      screenshotRefs: feedbackContext?.screenshotPath ? [feedbackContext.screenshotPath] : [],
       trelloCard: {
         id: card.id,
         url: card.url,
@@ -216,7 +235,7 @@ async function generateCodexPrompt({
 
   let response: Response;
   try {
-    response = await fetch(`${laloBaseUrl.replace(/\/+$/, '')}/v1/feedback/prompts/generate`, {
+    response = await fetch(`${laloBaseUrl.replace(/\/+$/, '')}/api/platform/internal/engineering-worker/work-items`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -253,15 +272,15 @@ async function generateCodexPrompt({
     );
   }
 
-  const summary = normalizeText(parsed.summary) || `Prompt generated for "${card.name}"`;
-  const implementationPrompt = normalizeText(parsed.implementationPrompt) || buildFallbackPrompt(card);
-  const confidenceLevel = ALLOWED_CONFIDENCE_LEVELS.has(parsed.confidenceLevel || '')
-    ? (parsed.confidenceLevel as PromptResult['confidenceLevel'])
+  const summary = normalizeText(parsed.reviewPacket?.analysis?.quickTake) || `Prompt generated for "${card.name}"`;
+  const implementationPrompt = normalizeText(parsed.reviewPacket?.promptPacket?.cursorPrompt) || buildFallbackPrompt(card);
+  const confidenceLevel = ALLOWED_CONFIDENCE_LEVELS.has(parsed.reviewPacket?.promptPacket?.confidenceLevel || '')
+    ? (parsed.reviewPacket?.promptPacket?.confidenceLevel as PromptResult['confidenceLevel'])
     : 'Medium';
-  const triageLabel = ALLOWED_TRIAGE_LABELS.has(parsed.triageLabel || '')
-    ? (parsed.triageLabel as PromptResult['triageLabel'])
+  const triageLabel = ALLOWED_TRIAGE_LABELS.has(parsed.reviewPacket?.promptPacket?.triageLabel || '')
+    ? (parsed.reviewPacket?.promptPacket?.triageLabel as PromptResult['triageLabel'])
     : 'needs_clarification';
-  const contractVersion = normalizeText(parsed.contractVersion) || 'feedback_prompt_v1_compat';
+  const contractVersion = 'engineering_work_item_v1';
 
   if (!implementationPrompt) {
     throw new LaloPromptGenerationError('invalid_response', 'Lalo feedback prompt response could not be normalized.', 502);
@@ -273,6 +292,10 @@ async function generateCodexPrompt({
     confidenceLevel,
     triageLabel,
     contractVersion,
+    workItemId: normalizeText(parsed.workItem?.id) || undefined,
+    verificationChecklist: Array.isArray(parsed.reviewPacket?.promptPacket?.verificationChecklist)
+      ? parsed.reviewPacket?.promptPacket?.verificationChecklist
+      : [],
   };
 }
 
@@ -329,11 +352,22 @@ async function processCard({
   }
 
   try {
+    const { data: feedbackSubmission } = await adminClient
+      .from('feedback_submissions')
+      .select('id, page_url, screenshot_storage_path')
+      .eq('trello_card_id', card.id)
+      .maybeSingle();
+
     const promptResult = await generateCodexPrompt({
       laloBaseUrl,
       laloApiKey,
       laloApp,
       card,
+      feedbackContext: {
+        feedbackSubmissionId: feedbackSubmission?.id || null,
+        pageUrl: feedbackSubmission?.page_url || null,
+        screenshotPath: feedbackSubmission?.screenshot_storage_path || null,
+      },
     });
 
     const stampedPrompt = [
@@ -341,10 +375,14 @@ async function processCard({
       `Contract: ${promptResult.contractVersion}`,
       `Triage: ${promptResult.triageLabel}`,
       `Confidence: ${promptResult.confidenceLevel}`,
+      promptResult.workItemId ? `Work item: ${promptResult.workItemId}` : null,
       '',
       promptResult.summary,
       '',
       promptResult.codex_prompt,
+      promptResult.verificationChecklist && promptResult.verificationChecklist.length > 0
+        ? ['', 'Verification checklist:', ...promptResult.verificationChecklist.map((item) => `- ${item}`)].join('\n')
+        : null,
     ].join('\n');
 
     const nextDescription = upsertPromptSection(card.desc || '', stampedPrompt);
@@ -413,10 +451,12 @@ Deno.serve(async (req) => {
     const trelloKey = Deno.env.get('TRELLO_API_KEY');
     const trelloToken = Deno.env.get('TRELLO_API_TOKEN');
     const triggerListId = Deno.env.get('TRELLO_PROMPT_TRIGGER_LIST_ID');
-    const configuredLaloBaseUrl = normalizeText(Deno.env.get('LALO_ENGINEERING_API_BASE_URL'));
+    const configuredEngineeringBaseUrl =
+      normalizeText(Deno.env.get('ENGINEERING_SERVICE_BASE_URL'))
+      || normalizeText(Deno.env.get('LALO_ENGINEERING_API_BASE_URL'));
     const reqHost = new URL(req.url).hostname;
     const isLocalDevRequest = reqHost === 'localhost' || reqHost === '127.0.0.1';
-    const laloBaseUrl = configuredLaloBaseUrl || (isLocalDevRequest ? 'http://localhost:3000' : '');
+    const laloBaseUrl = configuredEngineeringBaseUrl || (isLocalDevRequest ? 'http://localhost:3000' : '');
     const laloApiKey = normalizeText(Deno.env.get('LALO_ENGINEERING_INTERNAL_API_KEY'));
     const laloApp = (normalizeText(Deno.env.get('LALO_ENGINEERING_APP')) || 'im_in') as 'im_in' | 'lalo';
     const trelloApiSecret = normalizeText(Deno.env.get('TRELLO_API_SECRET'));
@@ -433,7 +473,7 @@ Deno.serve(async (req) => {
       throw new Error('LALO_ENGINEERING_INTERNAL_API_KEY is required for trello-prompt-sync.');
     }
     if (!laloBaseUrl) {
-      throw new Error('LALO_ENGINEERING_API_BASE_URL is required outside local development.');
+      throw new Error('ENGINEERING_SERVICE_BASE_URL or LALO_ENGINEERING_API_BASE_URL is required outside local development.');
     }
     if (laloApp !== 'im_in' && laloApp !== 'lalo') {
       throw new Error('LALO_ENGINEERING_APP must be either "im_in" or "lalo".');

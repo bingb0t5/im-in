@@ -63,7 +63,9 @@ function resolveManifestUrl() {
   if (explicit) {
     return normalizeManifestUrl(explicit);
   }
-  const platformBaseUrl = normalizeBaseUrl((process.env.PLATFORM_PUBLIC_BASE_URL || '').trim());
+  const verifyBaseUrl = normalizeBaseUrl(
+    (process.env.LALO_VERIFY_BASE_URL || process.env.PLATFORM_PUBLIC_BASE_URL || process.env.LALO_BASE_URL || '').trim(),
+  );
   const base = normalizeBaseUrl(
     (process.env.LALO_VERIFY_BASE_URL || process.env.VITE_LALO_VERIFY_BASE_URL || '').trim(),
   );
@@ -71,10 +73,10 @@ function resolveManifestUrl() {
   if (base) {
     return `${base}/${version}/manifest.json`;
   }
-  if (platformBaseUrl) {
-    return `${platformBaseUrl}/lalo-verify/${version}/manifest.json`;
+  if (verifyBaseUrl) {
+    return `${verifyBaseUrl}/lalo-verify/${version}/manifest.json`;
   }
-  throw new Error('Set LALO_VERIFY_MANIFEST_URL, LALO_VERIFY_BASE_URL, or PLATFORM_PUBLIC_BASE_URL before syncing lalo-verify.');
+  throw new Error('Set LALO_VERIFY_MANIFEST_URL, LALO_VERIFY_BASE_URL, PLATFORM_PUBLIC_BASE_URL, or LALO_BASE_URL before syncing lalo-verify.');
 }
 
 function assertSafeRelativePath(filePath) {

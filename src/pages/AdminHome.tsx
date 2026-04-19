@@ -1,6 +1,6 @@
 import { Link, Navigate } from 'react-router-dom';
 import { User } from '@supabase/supabase-js';
-import { ArrowLeft, Image, MessageSquare, Shield, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, FlaskConical, Image, MessageSquare, Shield, SlidersHorizontal } from 'lucide-react';
 import { canAccessAnyAdminFrontend, canAccessFeedbackAdminFrontend, canAccessModerationAdminFrontend } from '../lib/admin';
 
 export default function AdminHome({ user }: { user: User | null }) {
@@ -46,6 +46,14 @@ export default function AdminHome({ user }: { user: User | null }) {
           icon: MessageSquare,
           title: 'Feedback',
           description: 'Review internal feedback submissions, blocked items, failed Trello syncs, and retries.',
+        }
+      : null,
+    canModerate
+      ? {
+          to: '/admin/beta-features',
+          icon: FlaskConical,
+          title: 'Beta features',
+          description: 'Enable feature rollouts per user and manage testing overrides like WhatsApp numbers.',
         }
       : null,
   ].filter(Boolean) as Array<{
