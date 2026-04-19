@@ -156,10 +156,18 @@ export function json(data: unknown, init: ResponseInit = {}) {
 }
 
 export function getLaloEnv(): LaloEnv {
-  const laloBaseUrl = normalizeBaseUrl(Deno.env.get('PLATFORM_PUBLIC_BASE_URL') || Deno.env.get('LALO_BASE_URL') || '');
-  const laloApiKey = (Deno.env.get('LALO_PLATFORM_API_KEY') || '').trim();
-  const laloAuthEnabled = parseBooleanEnv(Deno.env.get('LALO_WHATSAPP_AUTH_BETA'), false);
-  const laloAppId = (Deno.env.get('LALO_APP_ID') || 'im_in').trim() || 'im_in';
+  const laloBaseUrl = normalizeBaseUrl(
+    Deno.env.get('LALO_VERIFY_BASE_URL')
+    || Deno.env.get('PLATFORM_PUBLIC_BASE_URL')
+    || Deno.env.get('LALO_BASE_URL')
+    || '',
+  );
+  const laloApiKey = (Deno.env.get('LALO_VERIFY_API_KEY') || Deno.env.get('LALO_PLATFORM_API_KEY') || '').trim();
+  const laloAuthEnabled = parseBooleanEnv(
+    Deno.env.get('LALO_VERIFY_WHATSAPP_AUTH_BETA') || Deno.env.get('LALO_WHATSAPP_AUTH_BETA'),
+    false,
+  );
+  const laloAppId = (Deno.env.get('LALO_VERIFY_APP_ID') || Deno.env.get('LALO_APP_ID') || 'im_in').trim() || 'im_in';
 
   return {
     laloBaseUrl,

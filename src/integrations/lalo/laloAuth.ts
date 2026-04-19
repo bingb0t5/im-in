@@ -85,7 +85,8 @@ function clearStorageByPrefix(prefixes: string[]) {
 }
 
 export function isLaloWhatsAppAuthEnabled() {
-  return String(import.meta.env.VITE_LALO_WHATSAPP_AUTH_BETA || '').toLowerCase() === 'true';
+  return String(import.meta.env.VITE_LALO_VERIFY_WHATSAPP_AUTH_BETA || import.meta.env.VITE_LALO_WHATSAPP_AUTH_BETA || '')
+    .toLowerCase() === 'true';
 }
 
 export function getStoredLaloAuthAttempt() {

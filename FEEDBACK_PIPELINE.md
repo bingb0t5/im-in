@@ -16,9 +16,10 @@ This document describes the feedback/reporting pipeline that sends user submissi
    - uploads optional screenshot to private storage bucket
    - creates a sanitized Trello card in intake list (when not blocked)
 5. Later, when a Trello card is moved into the prompt-trigger list:
-   - `trello-prompt-sync` calls Lalo internal feedback automation API to generate a Codex-ready prompt
-   - writes prompt into Trello card description
-   - logs run metadata in `trello_prompt_jobs`
+   - `trello-prompt-sync` calls the Lalo internal engineering work-item API
+   - platform creates a durable engineering work item and review packet
+   - Trello gets the latest Cursor-ready prompt draft plus work-item id
+   - run metadata is logged in `trello_prompt_jobs`
 
 UI placement note:
 
@@ -31,7 +32,7 @@ Prompt generation is intentionally not automatic at intake time. This allows:
 - using the same Trello prompt flow for cards created manually in Trello
 - controlling when engineering prompts are generated
 - reducing unnecessary AI prompt generation for low-value cards
-- centralizing reusable prompt-generation rules in `lalo/docs/ai/*` for multi-app reuse
+- centralizing reusable prompt-generation rules in `lalo-platform/docs/ai/*` for multi-app reuse
 
 ## Data model
 
@@ -100,7 +101,8 @@ Optional:
 - `OPENAI_FEEDBACK_MODEL`
 - `FEEDBACK_SCREENSHOT_BUCKET` (default `feedback-screenshots`)
 - `FEEDBACK_ADMIN_EMAILS` (fallback: `MODERATION_ADMIN_EMAILS`)
-- `LALO_ENGINEERING_API_BASE_URL` (required outside local dev)
+- `ENGINEERING_SERVICE_BASE_URL` (preferred; required outside local dev unless using fallback)
+- `LALO_ENGINEERING_API_BASE_URL` (legacy fallback outside local dev)
 - `LALO_ENGINEERING_APP` (default `im_in`)
 - `TRELLO_WEBHOOK_CALLBACK_URL` (optional override; should exactly match webhook callbackURL used in Trello)
 
@@ -117,7 +119,7 @@ Optional:
 
 - supports Trello webhook payloads for list-move triggers
 - supports admin-triggered manual sync mode (`syncFromTriggerList: true`)
-- generates Codex prompts only when card is in trigger list by calling `POST /v1/feedback/prompts/generate` on Lalo internal API
+- creates platform-owned engineering work items only when card is in trigger list by calling `POST /api/platform/internal/engineering-worker/work-items` on Lalo internal API
 - writes prompt section into card description
 - verifies Trello-native `x-trello-webhook` signature using `TRELLO_API_SECRET` and callback URL
 - tolerates partial Lalo responses by safely defaulting summary/metadata while preserving the generated implementation prompt when present
@@ -148,9 +150,9 @@ Why board-level webhook:
 For deployments using shared `im-in -> lalo` prompt generation:
 
 1. Deploy Lalo engineering API changes first.
-2. Confirm `POST /v1/feedback/prompts/generate` is healthy with your internal key.
+2. Confirm `POST /api/platform/internal/engineering-worker/work-items` is healthy with your internal key.
 3. Deploy `im-in` `trello-prompt-sync` changes with:
-   - `LALO_ENGINEERING_API_BASE_URL`
+   - `ENGINEERING_SERVICE_BASE_URL` (or legacy `LALO_ENGINEERING_API_BASE_URL`)
    - `LALO_ENGINEERING_INTERNAL_API_KEY`
    - `TRELLO_API_SECRET`
    - `TRELLO_WEBHOOK_CALLBACK_URL` (if you need explicit callback URL matching)
