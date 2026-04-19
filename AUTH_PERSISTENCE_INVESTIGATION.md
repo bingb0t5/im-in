@@ -1,17 +1,17 @@
 # Im In Auth Persistence Investigation
 
-This document captures a production auth/session persistence issue in `im-in` that appears adjacent to, but distinct from, the `lalo-platform` migration work.
+This document captures a production auth/session persistence issue in `im-in` that appears adjacent to, but distinct from, the `lalo-verify` migration work.
 
 ## Current conclusion
 
 - WhatsApp auth appears to complete successfully in production.
 - Users do get logged in and the app works in the moment.
 - The likely issue is that the Supabase browser session is not persisting or surviving later bootstrap/focus refresh reliably.
-- This should be treated as a separate investigation from the `lalo-platform` migration.
+- This should be treated as a separate investigation from the `lalo-verify` migration.
 
 ## Why this is probably separate from the migration
 
-During migration testing, the new `lalo-platform` host successfully served:
+During migration testing, the new `lalo-verify` host successfully served:
 
 - `lalo-verify` manifest and artifact files
 - standalone platform auth routes
@@ -160,13 +160,13 @@ If it is missing or disappears quickly, the persistence issue is almost certainl
 
 ## Why this should be parked for now
 
-This issue is important, but it is not required to continue validating the `lalo-platform` migration itself.
+This issue is important, but it is not required to continue validating the `lalo-verify` migration itself.
 
 Migration testing should continue with these goals:
 
-- confirm `im-in` can talk to standalone `lalo-platform`
-- confirm auth/verify routes are served by `lalo-platform`
-- confirm engineering/feedback routes are served by `lalo-platform`
+- confirm `im-in` can talk to standalone `lalo-verify`
+- confirm auth/verify routes are served by `lalo-verify`
+- confirm engineering/feedback routes are served by `lalo-verify`
 - confirm `lalo-app` is no longer required for `im-in`
 
 Then return to this auth persistence investigation as a dedicated follow-up.

@@ -436,7 +436,7 @@ Feedback entry behavior:
 - submissions run a lightweight abuse filter first, then create a sanitized Trello card in the configured intake list
 - the success state now also links people to the public dev board so they can see what is being worked on
 - Codex prompt generation is intentionally separate and only runs when a Trello card is moved to the configured prompt-trigger list
-- prompt generation now creates a platform-owned engineering work item through Lalo internal API (`POST /api/platform/internal/engineering-worker/work-items`) and uses canonical reusable rules from `lalo-platform/docs/ai/*`
+- prompt generation now creates a platform-owned engineering work item through Lalo internal API (`POST /api/platform/internal/engineering-worker/work-items`) and uses canonical reusable rules from `lalo-verify/docs/ai/*`
 - the recommended production setup is a Trello board webhook pointed at `trello-prompt-sync`
 - webhook-triggered runs verify Trello-native `x-trello-webhook` signatures using `TRELLO_API_SECRET`
 - a manual admin fallback still exists via `{"syncFromTriggerList": true}` when webhook setup is unavailable

@@ -32,7 +32,7 @@ Prompt generation is intentionally not automatic at intake time. This allows:
 - using the same Trello prompt flow for cards created manually in Trello
 - controlling when engineering prompts are generated
 - reducing unnecessary AI prompt generation for low-value cards
-- centralizing reusable prompt-generation rules in `lalo-platform/docs/ai/*` for multi-app reuse
+- centralizing reusable prompt-generation rules in `lalo-verify/docs/ai/*` for multi-app reuse
 
 ## Data model
 
