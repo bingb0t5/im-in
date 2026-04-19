@@ -32,7 +32,7 @@ Prompt generation is intentionally not automatic at intake time. This allows:
 - using the same Trello prompt flow for cards created manually in Trello
 - controlling when engineering prompts are generated
 - reducing unnecessary AI prompt generation for low-value cards
-- centralizing reusable prompt-generation rules in `lalo-verify/docs/ai/*` for multi-app reuse
+- centralizing reusable prompt-generation rules in `lalo-platform/docs/ai/*` for multi-app reuse
 
 ## Data model
 
@@ -147,9 +147,9 @@ Why board-level webhook:
 
 ## Cross-repo rollout order
 
-For deployments using shared `im-in -> lalo` prompt generation:
+For deployments using shared `im-in -> lalo-platform` prompt generation:
 
-1. Deploy Lalo engineering API changes first.
+1. Deploy `lalo-platform` engineering API changes first.
 2. Confirm `POST /api/platform/internal/engineering-worker/work-items` is healthy with your internal key.
 3. Deploy `im-in` `trello-prompt-sync` changes with:
    - `ENGINEERING_SERVICE_BASE_URL` (or legacy `LALO_ENGINEERING_API_BASE_URL`)

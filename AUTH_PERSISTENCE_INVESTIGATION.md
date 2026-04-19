@@ -15,7 +15,7 @@ During migration testing, the new `lalo-verify` host successfully served:
 
 - `lalo-verify` manifest and artifact files
 - standalone platform auth routes
-- standalone engineering/feedback routes
+- standalone engineering/feedback routing during the earlier migration stage
 
 The production behavior reported on `joinimin.com` matches an existing `im-in` browser-session persistence problem more than a platform-host routing failure.
 
@@ -166,8 +166,8 @@ Migration testing should continue with these goals:
 
 - confirm `im-in` can talk to standalone `lalo-verify`
 - confirm auth/verify routes are served by `lalo-verify`
-- confirm engineering/feedback routes are served by `lalo-verify`
-- confirm `lalo-app` is no longer required for `im-in`
+- confirm engineering/feedback routes are served by `lalo-platform`
+- confirm the legacy `lalo` app is no longer required for shared-service calls from `im-in`
 
 Then return to this auth persistence investigation as a dedicated follow-up.
 

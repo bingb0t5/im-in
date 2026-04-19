@@ -41,6 +41,26 @@ What is still rough or partial:
 - automated verification is still light and focused, not broad regression coverage
 - some older docs/checklists are historical and not the full source of truth
 
+## Repo Responsibility
+
+`im-in` is responsible for:
+
+- the activity/community product experience
+- `im-in` UI, product workflows, and Supabase-owned app logic
+- feedback intake and the app-side integration code that calls shared Lalo services
+
+`im-in` is not responsible for:
+
+- shared auth or WhatsApp verify ownership
+- engineering control-plane ownership
+- worker execution
+
+Shared dependencies:
+
+- `lalo-verify` for auth, identity, and WhatsApp verify flows
+- `lalo-platform` for engineering work items and prompt-generation APIs
+- `lalo-workers` only indirectly through shared service contracts
+
 ## Product Overview
 
 Although the codebase still uses many `event` names internally, the live product language is **activity / activities**.
@@ -436,7 +456,7 @@ Feedback entry behavior:
 - submissions run a lightweight abuse filter first, then create a sanitized Trello card in the configured intake list
 - the success state now also links people to the public dev board so they can see what is being worked on
 - Codex prompt generation is intentionally separate and only runs when a Trello card is moved to the configured prompt-trigger list
-- prompt generation now creates a platform-owned engineering work item through Lalo internal API (`POST /api/platform/internal/engineering-worker/work-items`) and uses canonical reusable rules from `lalo-verify/docs/ai/*`
+- prompt generation now creates a platform-owned engineering work item through Lalo internal API (`POST /api/platform/internal/engineering-worker/work-items`) and uses canonical reusable rules from `lalo-platform/docs/ai/*`
 - the recommended production setup is a Trello board webhook pointed at `trello-prompt-sync`
 - webhook-triggered runs verify Trello-native `x-trello-webhook` signatures using `TRELLO_API_SECRET`
 - a manual admin fallback still exists via `{"syncFromTriggerList": true}` when webhook setup is unavailable
