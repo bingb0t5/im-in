@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 
@@ -33,7 +33,7 @@ import WhatsAppAuthSuccess from './pages/WhatsAppAuthSuccess';
 import AccountMergeComplete from './pages/AccountMergeComplete';
 import EventShortLinkPage from './pages/EventShortLinkPage';
 import { GuestProfileMergePromptModal } from './components/GuestProfileMergePromptModal';
-import { guestService, type GuestAutoClaimResult } from './services/guestService';
+import { getProfileDisplayName, guestService, type GuestAutoClaimResult } from './services/guestService';
 import { MainTabsLayout } from './layouts/MainTabsLayout';
 import { GlobalFeedbackWidget } from './components/GlobalFeedbackWidget';
 import { ModerationTransparencyModal } from './components/ModerationTransparencyModal';
@@ -48,9 +48,67 @@ function buildGuestMergePromptDismissKey(result: GuestAutoClaimResult) {
   return `${GUEST_MERGE_PROMPT_DISMISS_PREFIX}${result.targetProfile.id}:${guestProfileId}`;
 }
 
+function IdentityDebugPanel({
+  result,
+  promptOpen,
+}: {
+  result: GuestAutoClaimResult | null;
+  promptOpen: boolean;
+}) {
+  const location = useLocation();
+  const [dismissed, setDismissed] = useState(false);
+  const searchParams = new URLSearchParams(location.search);
+  const enabled = import.meta.env.DEV || searchParams.get('debugIdentity') === '1';
+
+  useEffect(() => {
+    setDismissed(false);
+  }, [location.search]);
+
+  if (!enabled || dismissed) return null;
+
+  const status = result?.status || 'not_run';
+  const reasons = result?.reasons || [];
+  const promptEligible = !!result?.canPromptForMerge;
+  const storedGuestSessionPresent = !!result?.guestSession;
+  const guestProfileId = result?.guestProfile?.id || '-';
+  const guestProfileName = getProfileDisplayName(result?.guestProfile).trim() || '-';
+  const signedInProfileId = result?.targetProfile?.id || '-';
+  const signedInProfileName = getProfileDisplayName(result?.targetProfile).trim() || '-';
+
+  return (
+    <div className="fixed bottom-3 left-3 right-3 z-[200] max-w-xl rounded-2xl border border-slate-300 bg-white p-3 shadow-2xl sm:left-auto sm:right-3">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Identity debug</p>
+          <p className="text-xs font-semibold text-slate-700">guest to auth merge flow</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setDismissed(true)}
+          className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-500"
+        >
+          Dismiss
+        </button>
+      </div>
+      <div className="max-h-56 space-y-1 overflow-auto rounded-xl bg-slate-50 p-2 text-[11px] text-slate-700">
+        <p><span className="font-bold">stored guest session:</span> {storedGuestSessionPresent ? 'yes' : 'no'}</p>
+        <p><span className="font-bold">guest profile id:</span> {guestProfileId}</p>
+        <p><span className="font-bold">guest profile name:</span> {guestProfileName}</p>
+        <p><span className="font-bold">signed-in profile id:</span> {signedInProfileId}</p>
+        <p><span className="font-bold">signed-in profile name:</span> {signedInProfileName}</p>
+        <p><span className="font-bold">result status:</span> {status}</p>
+        <p><span className="font-bold">reasons:</span> {reasons.length > 0 ? reasons.join(', ') : '-'}</p>
+        <p><span className="font-bold">promptEligible:</span> {promptEligible ? 'true' : 'false'}</p>
+        <p><span className="font-bold">promptOpen:</span> {promptOpen ? 'true' : 'false'}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const { user, loading, configError } = useSupabaseSession();
   const [pendingGuestMerge, setPendingGuestMerge] = useState<GuestAutoClaimResult | null>(null);
+  const [lastGuestAutoClaimResult, setLastGuestAutoClaimResult] = useState<GuestAutoClaimResult | null>(null);
   const [mergeLoading, setMergeLoading] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [preferredNameSource, setPreferredNameSource] = useState<'guest' | 'signed_in'>('signed_in');
@@ -64,6 +122,7 @@ export default function App() {
     if (!user) {
       console.info('[identity-debug] app-guest-sync:skip-no-user');
       setPendingGuestMerge(null);
+      setLastGuestAutoClaimResult(null);
       setMergeError(null);
       return;
     }
@@ -76,6 +135,7 @@ export default function App() {
       try {
         const result = await guestService.syncStoredGuestSessionForUser(user);
         if (cancelled) return;
+        setLastGuestAutoClaimResult(result);
         console.info('[identity-debug] app-guest-sync:result', {
           status: result.status,
           reasons: result.reasons,
@@ -188,6 +248,10 @@ export default function App() {
         <InAppBrowserPrompt user={user} />
         <GlobalFeedbackWidget user={user} />
         <ModerationTransparencyModal />
+        <IdentityDebugPanel
+          result={lastGuestAutoClaimResult}
+          promptOpen={!!pendingGuestMerge}
+        />
         <GuestProfileMergePromptModal
           open={!!pendingGuestMerge}
           result={pendingGuestMerge}
