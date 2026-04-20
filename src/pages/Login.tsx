@@ -41,6 +41,10 @@ export default function Login({ user }: { user: User | null }) {
         return;
       }
       const result = await completeWhatsAppAuth(attempt);
+      console.info('[identity-debug] login:whatsapp-verified-navigate', {
+        attemptRedirectTo: attempt.redirectTo,
+        resultRedirectTo: result.redirectTo || '/',
+      });
       navigate(result.redirectTo || '/', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not finish signing in.');

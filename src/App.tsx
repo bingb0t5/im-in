@@ -62,25 +62,42 @@ export default function App() {
 
   useEffect(() => {
     if (!user) {
+      console.info('[identity-debug] app-guest-sync:skip-no-user');
       setPendingGuestMerge(null);
       setMergeError(null);
       return;
     }
 
+    console.info('[identity-debug] app-guest-sync:start', {
+      userId: user.id,
+    });
     let cancelled = false;
     void (async () => {
       try {
         const result = await guestService.syncStoredGuestSessionForUser(user);
         if (cancelled) return;
+        console.info('[identity-debug] app-guest-sync:result', {
+          status: result.status,
+          reasons: result.reasons,
+          canPromptForMerge: result.canPromptForMerge,
+          guestProfileId: result.guestProfile?.id || null,
+          targetProfileId: result.targetProfile.id,
+        });
 
         if (
           result.status === 'skipped_conflict'
           && result.canPromptForMerge
           && !sessionStorage.getItem(buildGuestMergePromptDismissKey(result))
         ) {
+          console.info('[identity-debug] app-guest-sync:prompt-open', {
+            reasons: result.reasons,
+          });
           setPendingGuestMerge(result);
           setPreferredNameSource(result.reasons.includes('name_conflict') ? 'signed_in' : 'signed_in');
         } else {
+          console.info('[identity-debug] app-guest-sync:prompt-closed', {
+            reason: result.status,
+          });
           setPendingGuestMerge(null);
         }
         setMergeError(null);
@@ -95,6 +112,7 @@ export default function App() {
   }, [user]);
 
   const handleKeepGuestProfilesSeparate = () => {
+    console.info('[identity-debug] app-guest-sync:keep-separate');
     if (mergePromptDismissKey) {
       sessionStorage.setItem(mergePromptDismissKey, new Date().toISOString());
     }
@@ -105,6 +123,9 @@ export default function App() {
   const handleMergeGuestProfiles = async () => {
     if (!user || !pendingGuestMerge) return;
 
+    console.info('[identity-debug] app-guest-sync:merge-clicked', {
+      reasons: pendingGuestMerge.reasons,
+    });
     setMergeLoading(true);
     setMergeError(null);
     try {
