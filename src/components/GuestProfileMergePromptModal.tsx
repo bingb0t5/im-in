@@ -67,14 +67,14 @@ export function GuestProfileMergePromptModal({
   const shouldChooseName = result.reasons.includes('name_conflict');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:items-center">
       <button
         type="button"
         aria-label="Close merge prompt"
         onClick={onKeepSeparate}
         className="absolute inset-0 bg-slate-900/45 backdrop-blur-sm"
       />
-      <div className="relative w-full max-w-lg rounded-[2rem] border border-slate-200 bg-white p-6 shadow-2xl">
+      <div className="relative my-4 max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[2rem] border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
         <button
           type="button"
           onClick={onKeepSeparate}
