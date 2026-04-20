@@ -93,6 +93,8 @@ type CreateEventDraft = {
     show_host_publicly: boolean;
     visibility: 'public' | 'semi_public' | 'private';
     gallery_visibility: EventGalleryVisibility;
+    participation_mode: 'rsvp' | 'interest_only';
+    interest_visibility: 'count_only' | 'named' | 'hidden';
     allow_waitlist: boolean;
     require_host_approval_for_join: boolean;
     require_guest_email_for_join: boolean;
@@ -174,6 +176,8 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
     show_host_publicly: true,
     visibility: 'semi_public' as 'public' | 'semi_public' | 'private',
     gallery_visibility: 'private_only' as EventGalleryVisibility,
+    participation_mode: 'rsvp' as 'rsvp' | 'interest_only',
+    interest_visibility: 'count_only' as 'count_only' | 'named' | 'hidden',
     allow_waitlist: true,
     require_host_approval_for_join: false,
     require_guest_email_for_join: false,
@@ -750,6 +754,8 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         show_host_publicly: normalizedEvent.show_host_publicly ?? false,
         visibility: normalizedEvent.visibility || (normalizedEvent.is_public ? 'public' : 'private'),
         gallery_visibility: normalizedEvent.gallery_visibility || 'private_only',
+        participation_mode: (normalizedEvent.participation_mode as 'rsvp' | 'interest_only') || 'rsvp',
+        interest_visibility: (normalizedEvent.interest_visibility as 'count_only' | 'named' | 'hidden') || 'count_only',
         allow_waitlist: normalizedEvent.allow_waitlist ?? true,
         require_host_approval_for_join: normalizedEvent.require_host_approval_for_join ?? false,
         require_guest_email_for_join: normalizedEvent.require_guest_email_for_join ?? false,
@@ -1023,6 +1029,13 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
           host_contact_text: resolvedHostContact || null,
           custom_join_field_config: buildCustomJoinFieldConfigForSave(formData.custom_join_field_config),
         };
+
+        if (formData.participation_mode === 'interest_only') {
+          submissionData.allow_waitlist = false;
+          submissionData.require_host_approval_for_join = false;
+          submissionData.require_guest_email_for_join = false;
+          submissionData.custom_join_field_config = null;
+        }
 
         if (resolvedVisibility === 'public') {
           submissionData.public_summary = submissionData.public_summary || submissionData.description;
@@ -1896,142 +1909,217 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
                     <div className="px-6 py-5 space-y-4">
                       <div className="space-y-1">
                         <p className="ui-eyebrow">Joining rules</p>
-                        <p className="text-sm font-medium text-slate-500">Set capacity, waitlist behaviour, and how people join.</p>
+                        <p className="text-sm font-medium text-slate-500">Choose whether this activity uses RSVP or lightweight interest tracking.</p>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Capacity</label>
-                          <input
-                            required
-                            type="number"
-                            min="1"
-                            className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
-                            value={formData.capacity}
-                            onChange={(e) => setFormData({ ...formData, capacity: parseInt(e.target.value, 10) })}
-                          />
-                        </div>
-                        <label className="flex items-center gap-3 cursor-pointer select-none rounded-2xl bg-slate-50 px-4 py-4">
-                          <input
-                            type="checkbox"
-                            className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all"
-                            checked={formData.allow_waitlist}
-                            onChange={(e) => setFormData({ ...formData, allow_waitlist: e.target.checked })}
-                          />
-                          <div>
-                            <p className="text-sm font-bold text-slate-700">Allow waitlist</p>
-                            <p className="text-xs text-slate-400">Let people join the queue when it fills up.</p>
-                          </div>
-                        </label>
-                      </div>
-
-                      <label className="mt-4 flex items-start gap-3 cursor-pointer select-none rounded-2xl bg-slate-50 px-4 py-4">
-                        <input
-                          type="checkbox"
-                          className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all mt-0.5"
-                          checked={formData.require_host_approval_for_join}
-                          onChange={(e) => setFormData({ ...formData, require_host_approval_for_join: e.target.checked })}
-                        />
-                        <div>
-                          <p className="text-sm font-bold text-slate-700">Require approval to join</p>
-                          <p className="text-xs text-slate-400">People can request to join, and you approve them later.</p>
-                        </div>
-                      </label>
-
-                      <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Guest sign-up</p>
-                        <label className="flex items-start gap-3 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all mt-0.5"
-                          checked={formData.require_guest_email_for_join}
-                          onChange={(e) => setFormData({ ...formData, require_guest_email_for_join: e.target.checked })}
-                        />
-                        <div>
-                          <p className="text-sm font-bold text-slate-700">Require email for guest sign up</p>
-                          <p className="text-xs text-slate-400">
-                            If off, guests can join with just a name and add email later for recovery.
-                          </p>
-                        </div>
-                        </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              participation_mode: 'rsvp',
+                            }))
+                          }
+                          className={`rounded-2xl border px-4 py-4 text-left transition-all ${
+                            formData.participation_mode === 'rsvp'
+                              ? 'border-brand-300 bg-brand-50'
+                              : 'border-slate-200 bg-white hover:bg-slate-50'
+                          }`}
+                        >
+                          <p className="text-sm font-bold text-slate-800">RSVP activity</p>
+                          <p className="mt-1 text-xs text-slate-500">People can join, waitlist, and request approval.</p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              participation_mode: 'interest_only',
+                              allow_waitlist: false,
+                              require_host_approval_for_join: false,
+                              require_guest_email_for_join: false,
+                              custom_join_field_config: null,
+                            }))
+                          }
+                          className={`rounded-2xl border px-4 py-4 text-left transition-all ${
+                            formData.participation_mode === 'interest_only'
+                              ? 'border-brand-300 bg-brand-50'
+                              : 'border-slate-200 bg-white hover:bg-slate-50'
+                          }`}
+                        >
+                          <p className="text-sm font-bold text-slate-800">Non-signup activity</p>
+                          <p className="mt-1 text-xs text-slate-500">People can save interest without native RSVP.</p>
+                        </button>
                       </div>
 
-                      <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Custom join field (1)</p>
-                        <label className="flex items-start gap-3 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all mt-0.5"
-                            checked={customJoinFieldConfig.enabled}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                updateCustomJoinFieldConfig({ enabled: true });
-                              } else {
-                                setFormData((prev) => ({ ...prev, custom_join_field_config: null }));
-                              }
-                            }}
-                          />
-                          <div>
-                            <p className="text-sm font-bold text-slate-700">Ask one extra question when someone joins</p>
-                            <p className="text-xs text-slate-400">Answers are only visible in your host dashboard.</p>
-                          </div>
-                        </label>
-
-                        {customJoinFieldConfig.enabled ? (
-                          <div className="grid grid-cols-1 gap-3">
+                      {formData.participation_mode === 'rsvp' ? (
+                        <>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
                             <div>
-                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Field label</label>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Capacity</label>
                               <input
-                                required={customJoinFieldConfig.enabled}
-                                type="text"
-                                maxLength={120}
-                                className="w-full p-3 rounded-xl bg-white border border-slate-200 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-semibold text-sm"
-                                placeholder="e.g. Child age, Shirt size, Dietary needs"
-                                value={customJoinFieldConfig.label}
-                                onChange={(e) => updateCustomJoinFieldConfig({ label: e.target.value })}
+                                required
+                                type="number"
+                                min="1"
+                                className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-bold text-sm"
+                                value={formData.capacity}
+                                onChange={(e) => setFormData({ ...formData, capacity: parseInt(e.target.value, 10) })}
                               />
                             </div>
+                            <label className="flex items-center gap-3 cursor-pointer select-none rounded-2xl bg-slate-50 px-4 py-4">
+                              <input
+                                type="checkbox"
+                                className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all"
+                                checked={formData.allow_waitlist}
+                                onChange={(e) => setFormData({ ...formData, allow_waitlist: e.target.checked })}
+                              />
+                              <div>
+                                <p className="text-sm font-bold text-slate-700">Allow waitlist</p>
+                                <p className="text-xs text-slate-400">Let people join the queue when it fills up.</p>
+                              </div>
+                            </label>
+                          </div>
+
+                          <label className="mt-4 flex items-start gap-3 cursor-pointer select-none rounded-2xl bg-slate-50 px-4 py-4">
+                            <input
+                              type="checkbox"
+                              className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all mt-0.5"
+                              checked={formData.require_host_approval_for_join}
+                              onChange={(e) => setFormData({ ...formData, require_host_approval_for_join: e.target.checked })}
+                            />
                             <div>
-                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Field type</label>
-                              <select
-                                className="w-full p-3 rounded-xl bg-white border border-slate-200 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-semibold text-sm"
-                                value={customJoinFieldConfig.type}
-                                onChange={(e) => updateCustomJoinFieldConfig({ type: e.target.value as EventCustomJoinFieldConfig['type'] })}
-                              >
-                                <option value="text">Text</option>
-                                <option value="number">Number</option>
-                                <option value="select">Dropdown / multiple choice</option>
-                              </select>
+                              <p className="text-sm font-bold text-slate-700">Require approval to join</p>
+                              <p className="text-xs text-slate-400">People can request to join, and you approve them later.</p>
                             </div>
-                            <label className="flex items-start gap-3 cursor-pointer select-none rounded-xl bg-white border border-slate-200 px-3 py-3">
+                          </label>
+
+                          <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Guest sign-up</p>
+                            <label className="flex items-start gap-3 cursor-pointer select-none">
                               <input
                                 type="checkbox"
                                 className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all mt-0.5"
-                                checked={customJoinFieldConfig.required}
-                                onChange={(e) => updateCustomJoinFieldConfig({ required: e.target.checked })}
+                                checked={formData.require_guest_email_for_join}
+                                onChange={(e) => setFormData({ ...formData, require_guest_email_for_join: e.target.checked })}
                               />
                               <div>
-                                <p className="text-sm font-bold text-slate-700">Required field</p>
-                                <p className="text-xs text-slate-400">If off, guests can skip it.</p>
+                                <p className="text-sm font-bold text-slate-700">Require email for guest sign up</p>
+                                <p className="text-xs text-slate-400">
+                                  If off, guests can join with just a name and add email later for recovery.
+                                </p>
                               </div>
                             </label>
-                            {customJoinFieldConfig.type === 'select' ? (
+                          </div>
+
+                          <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Custom join field (1)</p>
+                            <label className="flex items-start gap-3 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all mt-0.5"
+                                checked={customJoinFieldConfig.enabled}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    updateCustomJoinFieldConfig({ enabled: true });
+                                  } else {
+                                    setFormData((prev) => ({ ...prev, custom_join_field_config: null }));
+                                  }
+                                }}
+                              />
                               <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Options (one per line)</label>
-                                <textarea
-                                  rows={4}
-                                  className="w-full p-3 rounded-xl bg-white border border-slate-200 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-medium text-sm"
-                                  value={customJoinFieldOptionsDraft}
-                                  onChange={(e) => {
-                                    setCustomJoinFieldOptionsDraft(e.target.value);
-                                    updateCustomJoinFieldConfig({ options: parseSelectOptionsFromText(e.target.value) });
-                                  }}
-                                  placeholder={'Small\nMedium\nLarge'}
-                                />
+                                <p className="text-sm font-bold text-slate-700">Ask one extra question when someone joins</p>
+                                <p className="text-xs text-slate-400">Answers are only visible in your host dashboard.</p>
+                              </div>
+                            </label>
+
+                            {customJoinFieldConfig.enabled ? (
+                              <div className="grid grid-cols-1 gap-3">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Field label</label>
+                                  <input
+                                    required={customJoinFieldConfig.enabled}
+                                    type="text"
+                                    maxLength={120}
+                                    className="w-full p-3 rounded-xl bg-white border border-slate-200 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-semibold text-sm"
+                                    placeholder="e.g. Child age, Shirt size, Dietary needs"
+                                    value={customJoinFieldConfig.label}
+                                    onChange={(e) => updateCustomJoinFieldConfig({ label: e.target.value })}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Field type</label>
+                                  <select
+                                    className="w-full p-3 rounded-xl bg-white border border-slate-200 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-semibold text-sm"
+                                    value={customJoinFieldConfig.type}
+                                    onChange={(e) => updateCustomJoinFieldConfig({ type: e.target.value as EventCustomJoinFieldConfig['type'] })}
+                                  >
+                                    <option value="text">Text</option>
+                                    <option value="number">Number</option>
+                                    <option value="select">Dropdown / multiple choice</option>
+                                  </select>
+                                </div>
+                                <label className="flex items-start gap-3 cursor-pointer select-none rounded-xl bg-white border border-slate-200 px-3 py-3">
+                                  <input
+                                    type="checkbox"
+                                    className="w-4 h-4 rounded border-slate-200 text-brand-600 focus:ring-brand-600 transition-all mt-0.5"
+                                    checked={customJoinFieldConfig.required}
+                                    onChange={(e) => updateCustomJoinFieldConfig({ required: e.target.checked })}
+                                  />
+                                  <div>
+                                    <p className="text-sm font-bold text-slate-700">Required field</p>
+                                    <p className="text-xs text-slate-400">If off, guests can skip it.</p>
+                                  </div>
+                                </label>
+                                {customJoinFieldConfig.type === 'select' ? (
+                                  <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Options (one per line)</label>
+                                    <textarea
+                                      rows={4}
+                                      className="w-full p-3 rounded-xl bg-white border border-slate-200 outline-none focus:ring-4 focus:ring-brand-600/10 focus:border-brand-600 transition-all font-medium text-sm"
+                                      value={customJoinFieldOptionsDraft}
+                                      onChange={(e) => {
+                                        setCustomJoinFieldOptionsDraft(e.target.value);
+                                        updateCustomJoinFieldConfig({ options: parseSelectOptionsFromText(e.target.value) });
+                                      }}
+                                      placeholder={'Small\nMedium\nLarge'}
+                                    />
+                                  </div>
+                                ) : null}
                               </div>
                             ) : null}
                           </div>
-                        ) : null}
-                      </div>
+                        </>
+                      ) : (
+                        <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Interest visibility</p>
+                          <p className="text-xs text-slate-500">Choose how much interest activity is visible for this non-signup activity.</p>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            {[
+                              { value: 'count_only', label: 'Show count only' },
+                              { value: 'named', label: 'Show names' },
+                              { value: 'hidden', label: 'Show nothing' },
+                            ].map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() =>
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    interest_visibility: option.value as 'count_only' | 'named' | 'hidden',
+                                  }))
+                                }
+                                className={`rounded-xl border px-3 py-2 text-xs font-bold transition-all ${
+                                  formData.interest_visibility === option.value
+                                    ? 'border-brand-300 bg-white text-brand-700'
+                                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                                }`}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="px-6 py-5 border-t border-slate-100 space-y-4">

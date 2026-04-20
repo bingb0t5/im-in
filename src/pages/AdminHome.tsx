@@ -1,9 +1,22 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { User } from '@supabase/supabase-js';
-import { ArrowLeft, FlaskConical, Image, MessageSquare, Shield, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, FlaskConical, Image, MessageSquare, Shield, SlidersHorizontal, Upload } from 'lucide-react';
 import { canAccessAnyAdminFrontend, canAccessFeedbackAdminFrontend, canAccessModerationAdminFrontend } from '../lib/admin';
+import { supabase } from '../supabase';
+
+type SourceHealthRow = {
+  id: string;
+  name: string;
+  last_fetch_status: string | null;
+  last_fetch_error: string | null;
+  last_imported_at: string | null;
+};
 
 export default function AdminHome({ user }: { user: User | null }) {
+  const [sourceHealthRows, setSourceHealthRows] = useState<SourceHealthRow[]>([]);
+  const [sourceHealthError, setSourceHealthError] = useState<string | null>(null);
+
   if (!user) {
     return <Navigate to="/login" replace />;
   }
@@ -14,6 +27,58 @@ export default function AdminHome({ user }: { user: User | null }) {
   if (!canAccessAnyAdminFrontend(user.email)) {
     return <Navigate to="/" replace />;
   }
+
+  useEffect(() => {
+    if (!canModerate) return;
+    const loadSourceHealth = async () => {
+      const { data, error } = await supabase
+        .from('event_sources')
+        .select('id,name,last_fetch_status,last_fetch_error,last_imported_at')
+        .order('updated_at', { ascending: false })
+        .limit(120);
+      if (error) {
+        setSourceHealthError(error.message || 'Could not load imported listing health.');
+        return;
+      }
+      setSourceHealthRows((data || []) as SourceHealthRow[]);
+    };
+    void loadSourceHealth();
+  }, [canModerate]);
+
+  const sourceHealthSummary = useMemo(() => {
+    const summary = {
+      total: sourceHealthRows.length,
+      active: 0,
+      failed: 0,
+      queued: 0,
+      stale: 0,
+      topFailures: [] as SourceHealthRow[],
+    };
+    const now = Date.now();
+    const staleThresholdMs = 1000 * 60 * 60 * 24 * 7;
+    for (const row of sourceHealthRows) {
+      const status = (row.last_fetch_status || 'idle').toLowerCase();
+      if (status === 'queued' || status === 'fetching' || status === 'extracting' || status === 'submitting') {
+        summary.queued += 1;
+      }
+      if (status === 'failed' || status === 'retryable') {
+        summary.failed += 1;
+        if (summary.topFailures.length < 3) {
+          summary.topFailures.push(row);
+        }
+      }
+      if (status === 'succeeded') {
+        summary.active += 1;
+      }
+      if (row.last_imported_at) {
+        const importedAtMs = new Date(row.last_imported_at).getTime();
+        if (Number.isFinite(importedAtMs) && now - importedAtMs > staleThresholdMs) {
+          summary.stale += 1;
+        }
+      }
+    }
+    return summary;
+  }, [sourceHealthRows]);
 
   const tools = [
     canModerate
@@ -46,6 +111,14 @@ export default function AdminHome({ user }: { user: User | null }) {
           icon: MessageSquare,
           title: 'Feedback',
           description: 'Review internal feedback submissions, blocked items, failed Trello syncs, and retries.',
+        }
+      : null,
+    canModerate
+      ? {
+          to: '/admin/imported-listings',
+          icon: Upload,
+          title: 'Imported listings',
+          description: 'Create community sources, parse snapshots into drafts, review, and publish imported events.',
         }
       : null,
     canModerate
@@ -85,6 +158,51 @@ export default function AdminHome({ user }: { user: User | null }) {
             Use this page as the single entry point for hidden admin tools. Any new `/admin/*` feature should be linked from here.
           </p>
         </section>
+
+        {canModerate ? (
+          <section className="bg-white rounded-2xl p-5 border border-slate-100">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-bold text-slate-900">Imported listing source health</p>
+              <Link
+                to="/admin/imported-listings"
+                className="text-xs font-semibold text-brand-600 hover:text-brand-700"
+              >
+                Open imported listings
+              </Link>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="rounded-xl bg-slate-50 p-3">
+                <p className="text-[10px] uppercase tracking-wider text-slate-500">Total</p>
+                <p className="text-lg font-bold text-slate-900">{sourceHealthSummary.total}</p>
+              </div>
+              <div className="rounded-xl bg-blue-50 p-3">
+                <p className="text-[10px] uppercase tracking-wider text-blue-700">Queued</p>
+                <p className="text-lg font-bold text-blue-900">{sourceHealthSummary.queued}</p>
+              </div>
+              <div className="rounded-xl bg-rose-50 p-3">
+                <p className="text-[10px] uppercase tracking-wider text-rose-700">Failing</p>
+                <p className="text-lg font-bold text-rose-900">{sourceHealthSummary.failed}</p>
+              </div>
+              <div className="rounded-xl bg-amber-50 p-3">
+                <p className="text-[10px] uppercase tracking-wider text-amber-700">Stale 7d</p>
+                <p className="text-lg font-bold text-amber-900">{sourceHealthSummary.stale}</p>
+              </div>
+            </div>
+            {sourceHealthError ? <p className="mt-3 text-xs text-rose-600">{sourceHealthError}</p> : null}
+            {sourceHealthSummary.topFailures.length > 0 ? (
+              <div className="mt-3 rounded-xl border border-rose-100 bg-rose-50 p-3">
+                <p className="text-xs font-semibold text-rose-800">Top failing sources</p>
+                <div className="mt-2 space-y-1">
+                  {sourceHealthSummary.topFailures.map((row) => (
+                    <p key={row.id} className="text-xs text-rose-700">
+                      {row.name}: {row.last_fetch_error || row.last_fetch_status || 'Unknown error'}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         <section className="grid gap-4 md:grid-cols-2">
           {tools.map((tool) => {

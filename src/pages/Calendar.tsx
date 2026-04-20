@@ -145,6 +145,8 @@ function ExploreEventRow({
   const visibilityMeta = getVisibilityMeta(event);
   const confirmedCount = event.confirmed_count || 0;
   const thinkingCount = event.thinking_count || 0;
+  const isInterestOnly = (event.participation_mode || 'rsvp') === 'interest_only';
+  const interestedLabel = `${thinkingCount} ${thinkingCount === 1 ? 'person interested' : 'people interested'}`;
 
   return (
     <Link
@@ -159,6 +161,11 @@ function ExploreEventRow({
               <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.16em] ${visibilityMeta.className}`}>
                 {visibilityMeta.label}
               </span>
+              {isInterestOnly ? (
+                <span className="rounded-full bg-amber-50 px-2 py-1 text-[9px] font-black uppercase tracking-[0.16em] text-amber-700">
+                  No sign-up
+                </span>
+              ) : null}
             </div>
           </div>
 
@@ -169,11 +176,20 @@ function ExploreEventRow({
                 <span className="truncate">{previewLocation}</span>
               </span>
             ) : null}
-            <span className="flex shrink-0 items-center gap-1">
-              <Users className="h-3.5 w-3.5 text-brand-600" />
-              {confirmedCount}/{event.capacity} going
-            </span>
-            <span className="shrink-0">{thinkingCount} thinking about it</span>
+            {isInterestOnly ? (
+              <span className="flex shrink-0 items-center gap-1">
+                <Users className="h-3.5 w-3.5 text-brand-600" />
+                {interestedLabel}
+              </span>
+            ) : (
+              <>
+                <span className="flex shrink-0 items-center gap-1">
+                  <Users className="h-3.5 w-3.5 text-brand-600" />
+                  {confirmedCount}/{event.capacity} going
+                </span>
+                <span className="shrink-0">{thinkingCount} thinking about it</span>
+              </>
+            )}
           </div>
         </div>
 
