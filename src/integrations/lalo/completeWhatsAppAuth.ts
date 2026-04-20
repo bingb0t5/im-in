@@ -39,7 +39,9 @@ export async function completeWhatsAppAuth(
 
   let profile = null;
   try {
-    profile = await guestService.getOrCreateClaimedProfileForUser(user);
+    // Keep auth completion side-effect free from merge/claim logic.
+    // Guest claim + merge prompt handling runs centrally in App bootstrap.
+    profile = await guestService.getOrCreateProfileForUser(user);
   } catch {
     profile = null;
   }

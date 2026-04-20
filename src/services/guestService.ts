@@ -273,7 +273,7 @@ async function countRowsForProfile(
 
 async function getProfileHistorySummary(profileId: string, options?: { userId?: string }): Promise<ProfileHistorySummary> {
   const userId = options?.userId;
-  const [attendeeCount, interestCount, joinRequestCount, accessRequestCount] = await Promise.all([
+  const [attendeeCount, interestCount, joinRequestCount] = await Promise.all([
     countRowsForProfile('event_attendees', 'attendee_profile_id', profileId, {
       userColumn: userId ? 'user_id' : undefined,
       userId,
@@ -288,17 +288,15 @@ async function getProfileHistorySummary(profileId: string, options?: { userId?: 
       userId,
       excludeStatus: 'cancelled',
     }),
-    countRowsForProfile('event_access_requests', 'requester_attendee_profile_id', profileId, {
-      userColumn: userId ? 'requester_user_id' : undefined,
-      userId,
-    }),
   ]);
 
   return {
     attendeeCount,
     interestCount,
     joinRequestCount,
-    accessRequestCount,
+    // Keep this zero on client-side checks for now.
+    // `event_access_requests` is not universally readable under current RLS.
+    accessRequestCount: 0,
   };
 }
 
