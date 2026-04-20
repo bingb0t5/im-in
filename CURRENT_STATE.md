@@ -109,6 +109,8 @@ The weakest / least finished areas are:
 - private and semi-public guest join flows no longer silently mint a fresh guest identity before the user explicitly chooses to sign in, recover, or continue as a new guest
 - stored guest sessions are now auto-claimed into the signed-in profile only when the guest profile is unclaimed or already owned by that user, the signed-in target profile is still low-history, and there is no overlapping attendee history
 - when the app detects an obvious identity conflict during post-auth sync, it now leaves the guest and signed-in identities separate with no merge UI yet
+- post-auth guest/auth conflicts that are safe to ask about now surface a lightweight merge prompt with profile names, small history hints, and a keep-separate option instead of silently disappearing
+- remembered guests now get a clearer local-account experience on Home, including an explicit guest-on-this-device indicator, a shortcut into guest activities, local upcoming activity previews, and a sign-in CTA for cross-device continuity
 
 ### Backend/data behavior
 

@@ -190,6 +190,8 @@ Current identity model in practice:
 - guest-email upgrades now merge identities through a dedicated SQL RPC so attendee ownership, inviter attribution, sessions, interests, and join requests move together
 - when a user becomes authenticated on a device with a valid stored guest session, the app now auto-claims that guest identity only when the target signed-in profile is still shell-like and there is no overlapping attendee history
 - when those safety checks fail, the app leaves guest and signed-in identities separate for now instead of attempting a risky silent merge
+- when auto-claim declines for a promptable conflict, the app now shows a lightweight merge-or-keep-separate prompt instead of silently no-oping
+- remembered guests now see a clearly labeled local guest-account state on Home, plus upcoming activities saved on that device and a sign-in CTA for cross-device continuity
 
 Current hardening notes:
 

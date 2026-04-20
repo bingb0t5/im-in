@@ -27,6 +27,40 @@ export interface SignedInProfileUpdateResult {
   nameSyncComplete: boolean;
 }
 
+export interface ProfileHistorySummary {
+  attendeeCount: number;
+  interestCount: number;
+  joinRequestCount: number;
+  accessRequestCount: number;
+}
+
+export type GuestAutoClaimReason =
+  | 'guest_owned_by_other_user'
+  | 'guest_identity_mismatch'
+  | 'verified_identity_conflict'
+  | 'attendee_overlap'
+  | 'target_has_history'
+  | 'name_conflict';
+
+export type GuestAutoClaimStatus =
+  | 'merged'
+  | 'already_unified'
+  | 'no_guest'
+  | 'skipped_conflict'
+  | 'skipped_blocked';
+
+export interface GuestAutoClaimResult {
+  status: GuestAutoClaimStatus;
+  reasons: GuestAutoClaimReason[];
+  canPromptForMerge: boolean;
+  profile: AttendeeProfile;
+  guestSession: GuestSession | null;
+  guestProfile: AttendeeProfile | null;
+  targetProfile: AttendeeProfile;
+  guestHistory: ProfileHistorySummary | null;
+  targetHistory: ProfileHistorySummary | null;
+}
+
 const GUEST_SESSION_KEY = 'im_in_guest_session';
 
 function normalizeEmail(email: string) {
@@ -201,39 +235,71 @@ function generateSessionToken() {
 }
 
 async function profileHasExistingAuthHistory(profileId: string, userId: string) {
-  const [attendeesResult, interestsResult, joinRequestsResult, accessRequestsResult] = await Promise.all([
-    supabase
-      .from('event_attendees')
-      .select('id')
-      .or(`attendee_profile_id.eq.${profileId},user_id.eq.${userId}`)
-      .neq('status', 'cancelled')
-      .limit(1),
-    supabase
-      .from('event_interests')
-      .select('id')
-      .or(`attendee_profile_id.eq.${profileId},user_id.eq.${userId}`)
-      .limit(1),
-    supabase
-      .from('event_join_requests')
-      .select('id')
-      .or(`attendee_profile_id.eq.${profileId},user_id.eq.${userId}`)
-      .neq('status', 'cancelled')
-      .limit(1),
-    supabase
-      .from('event_access_requests')
-      .select('id')
-      .or(`requester_attendee_profile_id.eq.${profileId},requester_user_id.eq.${userId}`)
-      .limit(1),
-  ]);
+  const summary = await getProfileHistorySummary(profileId, { userId });
+  return getProfileHistoryCount(summary) > 0;
+}
 
-  const failedResult = [attendeesResult, interestsResult, joinRequestsResult, accessRequestsResult]
-    .find((result) => result.error);
-  if (failedResult?.error) {
-    throw failedResult.error;
+function getProfileHistoryCount(summary: ProfileHistorySummary | null | undefined) {
+  if (!summary) return 0;
+  return summary.attendeeCount + summary.interestCount + summary.joinRequestCount + summary.accessRequestCount;
+}
+
+async function countRowsForProfile(
+  table: 'event_attendees' | 'event_interests' | 'event_join_requests' | 'event_access_requests',
+  profileColumn: string,
+  profileId: string,
+  options?: {
+    userColumn?: string;
+    userId?: string;
+    excludeStatus?: string;
+  },
+) {
+  let query = supabase.from(table).select('id', { count: 'exact', head: true });
+
+  if (options?.userColumn && options.userId) {
+    query = query.or(`${profileColumn}.eq.${profileId},${options.userColumn}.eq.${options.userId}`);
+  } else {
+    query = query.eq(profileColumn, profileId);
   }
 
-  return [attendeesResult, interestsResult, joinRequestsResult, accessRequestsResult]
-    .some((result) => (result.data || []).length > 0);
+  if (options?.excludeStatus) {
+    query = query.neq('status', options.excludeStatus);
+  }
+
+  const { count, error } = await query;
+  if (error) throw error;
+  return count ?? 0;
+}
+
+async function getProfileHistorySummary(profileId: string, options?: { userId?: string }): Promise<ProfileHistorySummary> {
+  const userId = options?.userId;
+  const [attendeeCount, interestCount, joinRequestCount, accessRequestCount] = await Promise.all([
+    countRowsForProfile('event_attendees', 'attendee_profile_id', profileId, {
+      userColumn: userId ? 'user_id' : undefined,
+      userId,
+      excludeStatus: 'cancelled',
+    }),
+    countRowsForProfile('event_interests', 'attendee_profile_id', profileId, {
+      userColumn: userId ? 'user_id' : undefined,
+      userId,
+    }),
+    countRowsForProfile('event_join_requests', 'attendee_profile_id', profileId, {
+      userColumn: userId ? 'user_id' : undefined,
+      userId,
+      excludeStatus: 'cancelled',
+    }),
+    countRowsForProfile('event_access_requests', 'requester_attendee_profile_id', profileId, {
+      userColumn: userId ? 'requester_user_id' : undefined,
+      userId,
+    }),
+  ]);
+
+  return {
+    attendeeCount,
+    interestCount,
+    joinRequestCount,
+    accessRequestCount,
+  };
 }
 
 async function hasOverlappingAttendeeRows(sourceProfileId: string, targetProfileId: string, userId: string) {
@@ -296,6 +362,23 @@ function hasConflictingVerifiedIdentitySignals(
   }
 
   return false;
+}
+
+function buildGuestAutoClaimResult(
+  targetProfile: AttendeeProfile,
+  options: Partial<Omit<GuestAutoClaimResult, 'targetProfile'>> & Pick<GuestAutoClaimResult, 'status'>,
+): GuestAutoClaimResult {
+  return {
+    status: options.status,
+    reasons: options.reasons || [],
+    canPromptForMerge: options.canPromptForMerge || false,
+    profile: options.profile || targetProfile,
+    guestSession: options.guestSession || null,
+    guestProfile: options.guestProfile || null,
+    targetProfile,
+    guestHistory: options.guestHistory || null,
+    targetHistory: options.targetHistory || null,
+  };
 }
 export const guestService = {
   getStoredSession(): string | null {
@@ -502,20 +585,28 @@ export const guestService = {
     return updated as AttendeeProfile;
   },
 
-  async claimStoredGuestSessionForUser(user: User, targetProfile?: AttendeeProfile): Promise<AttendeeProfile> {
+  async claimStoredGuestSessionForUser(user: User, targetProfile?: AttendeeProfile): Promise<GuestAutoClaimResult> {
     const guestSession = await this.getStoredGuestSession();
     const signedInProfile = targetProfile || await this.getOrCreateProfileForUser(user);
 
     if (!guestSession) {
-      return signedInProfile;
+      return buildGuestAutoClaimResult(signedInProfile, {
+        status: 'no_guest',
+      });
     }
 
     if (guestSession.profile.id === signedInProfile.id) {
-      return signedInProfile;
+      return buildGuestAutoClaimResult(signedInProfile, {
+        status: 'already_unified',
+        guestSession,
+        guestProfile: guestSession.profile,
+      });
     }
 
+    const reasons: GuestAutoClaimReason[] = [];
+
     if (guestSession.profile.user_id && guestSession.profile.user_id !== user.id) {
-      return signedInProfile;
+      reasons.push('guest_owned_by_other_user');
     }
 
     const guestEmail = normalizeEmail(guestSession.profile.email || '');
@@ -528,22 +619,64 @@ export const guestService = {
     );
 
     if (!guestOwnershipAllowsAutoClaim || !guestIdentityMatchesAuth) {
-      return signedInProfile;
+      if (!reasons.includes('guest_identity_mismatch')) {
+        reasons.push('guest_identity_mismatch');
+      }
+      return buildGuestAutoClaimResult(signedInProfile, {
+        status: 'skipped_blocked',
+        reasons,
+        guestSession,
+        guestProfile: guestSession.profile,
+      });
     }
 
-    if (
-      hasConflictingMeaningfulNames(guestSession.profile, signedInProfile, user)
-      || hasConflictingVerifiedIdentitySignals(guestSession.profile, signedInProfile)
-    ) {
-      return signedInProfile;
+    const hasNameConflict = hasConflictingMeaningfulNames(guestSession.profile, signedInProfile, user);
+    if (hasNameConflict) {
+      reasons.push('name_conflict');
     }
-    const [authProfileHasHistory, attendeeOverlap] = await Promise.all([
-      profileHasExistingAuthHistory(signedInProfile.id, user.id),
+
+    if (hasConflictingVerifiedIdentitySignals(guestSession.profile, signedInProfile)) {
+      reasons.push('verified_identity_conflict');
+      return buildGuestAutoClaimResult(signedInProfile, {
+        status: 'skipped_blocked',
+        reasons,
+        guestSession,
+        guestProfile: guestSession.profile,
+      });
+    }
+
+    const [guestHistory, targetHistory, attendeeOverlap] = await Promise.all([
+      getProfileHistorySummary(guestSession.profile.id),
+      getProfileHistorySummary(signedInProfile.id, { userId: user.id }),
       hasOverlappingAttendeeRows(guestSession.profile.id, signedInProfile.id, user.id),
     ]);
 
-    if (authProfileHasHistory || attendeeOverlap) {
-      return signedInProfile;
+    if (getProfileHistoryCount(targetHistory) > 0 && !reasons.includes('target_has_history')) {
+      reasons.push('target_has_history');
+    }
+
+    if (attendeeOverlap) {
+      reasons.push('attendee_overlap');
+      return buildGuestAutoClaimResult(signedInProfile, {
+        status: 'skipped_blocked',
+        reasons,
+        guestSession,
+        guestProfile: guestSession.profile,
+        guestHistory,
+        targetHistory,
+      });
+    }
+
+    if (reasons.includes('name_conflict') || reasons.includes('target_has_history')) {
+      return buildGuestAutoClaimResult(signedInProfile, {
+        status: 'skipped_conflict',
+        reasons,
+        canPromptForMerge: true,
+        guestSession,
+        guestProfile: guestSession.profile,
+        guestHistory,
+        targetHistory,
+      });
     }
 
     const { data: mergedProfile, error } = await supabase.rpc('merge_attendee_profiles', {
@@ -553,12 +686,56 @@ export const guestService = {
     });
 
     if (error) throw error;
-    return (mergedProfile as AttendeeProfile) || signedInProfile;
+    return buildGuestAutoClaimResult(signedInProfile, {
+      status: 'merged',
+      profile: (mergedProfile as AttendeeProfile) || signedInProfile,
+      guestSession,
+      guestProfile: guestSession.profile,
+      guestHistory,
+      targetHistory,
+    });
+  },
+
+  async syncStoredGuestSessionForUser(user: User, name?: string): Promise<GuestAutoClaimResult> {
+    const profile = await this.getOrCreateProfileForUser(user, name);
+    return this.claimStoredGuestSessionForUser(user, profile);
+  },
+
+  async mergeStoredGuestSessionIntoUser(
+    user: User,
+    options?: {
+      targetProfile?: AttendeeProfile;
+      preferredNameSource?: 'guest' | 'signed_in';
+    },
+  ): Promise<AttendeeProfile> {
+    const guestSession = await this.getStoredGuestSession();
+    const signedInProfile = options?.targetProfile || await this.getOrCreateProfileForUser(user);
+    if (!guestSession || guestSession.profile.id === signedInProfile.id) {
+      return signedInProfile;
+    }
+
+    const { data: mergedProfile, error } = await supabase.rpc('merge_attendee_profiles', {
+      p_source_profile_id: guestSession.profile.id,
+      p_target_profile_id: signedInProfile.id,
+      p_session_token: guestSession.token,
+    });
+    if (error) throw error;
+
+    let resolvedProfile = (mergedProfile as AttendeeProfile) || signedInProfile;
+    if (options?.preferredNameSource === 'guest') {
+      const guestName = getProfileDisplayName(guestSession.profile).trim();
+      if (guestName) {
+        const nameUpdate = await this.updateSignedInProfileName(user, guestName);
+        resolvedProfile = nameUpdate.profile;
+      }
+    }
+
+    return resolvedProfile;
   },
 
   async getOrCreateClaimedProfileForUser(user: User, name?: string): Promise<AttendeeProfile> {
-    const profile = await this.getOrCreateProfileForUser(user, name);
-    return this.claimStoredGuestSessionForUser(user, profile);
+    const result = await this.syncStoredGuestSessionForUser(user, name);
+    return result.profile;
   },
 
   async getOrCreateProfileForUser(user: User, name?: string): Promise<AttendeeProfile> {

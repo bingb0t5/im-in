@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { clearAllLaloStateForSignOut } from '../integrations/lalo/laloAuth';
 import { canAccessAnyAdminFrontend } from '../lib/admin';
+import { guestService } from '../services/guestService';
 
 type MainMenuButtonProps = {
   user: User | null;
@@ -14,6 +15,7 @@ export function MainMenuButton({ user }: MainMenuButtonProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [hasRememberedGuest, setHasRememberedGuest] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const canAccessAdminPanel = !!user && canAccessAnyAdminFrontend(user.email);
 
@@ -43,6 +45,28 @@ export function MainMenuButton({ user }: MainMenuButtonProps) {
       document.removeEventListener('keydown', onEscape);
     };
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (user) {
+      setHasRememberedGuest(false);
+      return;
+    }
+
+    let cancelled = false;
+    void guestService.getStoredGuestSession().then((session) => {
+      if (!cancelled) {
+        setHasRememberedGuest(!!session);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setHasRememberedGuest(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, location.pathname, location.search, menuOpen]);
 
   const handleMenuNavigate = (to: string) => {
     setMenuOpen(false);
@@ -86,6 +110,16 @@ export function MainMenuButton({ user }: MainMenuButtonProps) {
             >
               <LogIn className="h-4.5 w-4.5 shrink-0 text-brand-600" />
               Sign In
+            </button>
+          ) : null}
+          {!user && hasRememberedGuest ? (
+            <button
+              type="button"
+              onClick={() => handleMenuNavigate('/bookings')}
+              className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
+            >
+              <UserRoundCog className="h-4.5 w-4.5 shrink-0 text-brand-600" />
+              Guest Activities On This Device
             </button>
           ) : null}
           {!user ? <div className="my-1 h-px bg-slate-100" /> : null}
