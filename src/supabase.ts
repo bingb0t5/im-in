@@ -20,13 +20,17 @@ export const supabase = new Proxy({} as SupabaseClient, {
         throw error;
       }
       
+      const authStorage = createSupabaseDualSessionStorage();
+      const authUserStorage = createSupabaseDualSessionStorage();
+
       _supabase = createClient(url, key, {
         auth: {
           persistSession: true,
           autoRefreshToken: true,
           detectSessionInUrl: true,
           storageKey: buildSupabaseAuthStorageKey(url),
-          storage: createSupabaseDualSessionStorage(),
+          storage: authStorage,
+          userStorage: authUserStorage,
         },
       });
     }

@@ -94,7 +94,9 @@ export function createSupabaseDualSessionStorage(): SupabaseAuthStorageLike {
 
   // iOS Safari and iOS standalone app mode can diverge in web storage behavior.
   // Dual-write keeps Supabase auth in localStorage and a same-origin cookie so either
-  // context can recover session state from the other.
+  // context can recover session state from the other. When paired with Supabase's
+  // `userStorage` option, the session and user payloads are split across separate keys,
+  // which keeps each mirrored cookie much smaller than storing the full session blob alone.
   return {
     getItem(key: string) {
       if (typeof window === 'undefined') return null;
