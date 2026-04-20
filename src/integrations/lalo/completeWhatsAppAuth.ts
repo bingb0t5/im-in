@@ -39,7 +39,7 @@ export async function completeWhatsAppAuth(
 
   let profile = null;
   try {
-    profile = await guestService.getProfileForUser(user);
+    profile = await guestService.getOrCreateClaimedProfileForUser(user);
   } catch {
     profile = null;
   }

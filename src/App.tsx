@@ -48,9 +48,8 @@ export default function App() {
       let cancelled = false;
       void (async () => {
         try {
-          const profile = await guestService.getOrCreateProfileForUser(user);
+          await guestService.getOrCreateClaimedProfileForUser(user);
           if (cancelled) return;
-          await guestService.claimStoredGuestSessionForUser(user, profile);
         } catch (err) {
           console.error('Error syncing profile:', err);
         }
