@@ -4,7 +4,7 @@
  */
 
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 
 // Pages
@@ -32,7 +32,8 @@ import WhatsAppAuthVerify from './pages/WhatsAppAuthVerify';
 import WhatsAppAuthSuccess from './pages/WhatsAppAuthSuccess';
 import AccountMergeComplete from './pages/AccountMergeComplete';
 import EventShortLinkPage from './pages/EventShortLinkPage';
-import { guestService } from './services/guestService';
+import { GuestProfileMergePromptModal } from './components/GuestProfileMergePromptModal';
+import { guestService, type GuestAutoClaimResult } from './services/guestService';
 import { MainTabsLayout } from './layouts/MainTabsLayout';
 import { GlobalFeedbackWidget } from './components/GlobalFeedbackWidget';
 import { ModerationTransparencyModal } from './components/ModerationTransparencyModal';
@@ -40,26 +41,87 @@ import { ScrollToTop } from './components/ScrollToTop';
 import { InAppBrowserPrompt } from './components/system/InAppBrowserPrompt';
 import { useSupabaseSession } from './hooks/useSupabaseSession';
 
+const GUEST_MERGE_PROMPT_DISMISS_PREFIX = 'im_in_guest_merge_prompt_dismissed:';
+
+function buildGuestMergePromptDismissKey(result: GuestAutoClaimResult) {
+  const guestProfileId = result.guestProfile?.id || 'unknown-guest';
+  return `${GUEST_MERGE_PROMPT_DISMISS_PREFIX}${result.targetProfile.id}:${guestProfileId}`;
+}
+
 export default function App() {
   const { user, loading, configError } = useSupabaseSession();
+  const [pendingGuestMerge, setPendingGuestMerge] = useState<GuestAutoClaimResult | null>(null);
+  const [mergeLoading, setMergeLoading] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
+  const [preferredNameSource, setPreferredNameSource] = useState<'guest' | 'signed_in'>('signed_in');
+
+  const mergePromptDismissKey = useMemo(
+    () => (pendingGuestMerge ? buildGuestMergePromptDismissKey(pendingGuestMerge) : null),
+    [pendingGuestMerge],
+  );
 
   useEffect(() => {
-    if (user) {
-      let cancelled = false;
-      void (async () => {
-        try {
-          await guestService.getOrCreateClaimedProfileForUser(user);
-          if (cancelled) return;
-        } catch (err) {
-          console.error('Error syncing profile:', err);
-        }
-      })();
-
-      return () => {
-        cancelled = true;
-      };
+    if (!user) {
+      setPendingGuestMerge(null);
+      setMergeError(null);
+      return;
     }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await guestService.syncStoredGuestSessionForUser(user);
+        if (cancelled) return;
+
+        if (
+          result.status === 'skipped_conflict'
+          && result.canPromptForMerge
+          && !sessionStorage.getItem(buildGuestMergePromptDismissKey(result))
+        ) {
+          setPendingGuestMerge(result);
+          setPreferredNameSource(result.reasons.includes('name_conflict') ? 'signed_in' : 'signed_in');
+        } else {
+          setPendingGuestMerge(null);
+        }
+        setMergeError(null);
+      } catch (err) {
+        console.error('Error syncing profile:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
+
+  const handleKeepGuestProfilesSeparate = () => {
+    if (mergePromptDismissKey) {
+      sessionStorage.setItem(mergePromptDismissKey, new Date().toISOString());
+    }
+    setPendingGuestMerge(null);
+    setMergeError(null);
+  };
+
+  const handleMergeGuestProfiles = async () => {
+    if (!user || !pendingGuestMerge) return;
+
+    setMergeLoading(true);
+    setMergeError(null);
+    try {
+      await guestService.mergeStoredGuestSessionIntoUser(user, {
+        targetProfile: pendingGuestMerge.targetProfile,
+        preferredNameSource: pendingGuestMerge.reasons.includes('name_conflict') ? preferredNameSource : 'signed_in',
+      });
+      if (mergePromptDismissKey) {
+        sessionStorage.removeItem(mergePromptDismissKey);
+      }
+      setPendingGuestMerge(null);
+    } catch (error) {
+      setMergeError(error instanceof Error ? error.message : 'Could not merge those profiles right now.');
+    } finally {
+      setMergeLoading(false);
+    }
+  };
 
   if (configError) {
     return (
@@ -105,6 +167,16 @@ export default function App() {
         <InAppBrowserPrompt user={user} />
         <GlobalFeedbackWidget user={user} />
         <ModerationTransparencyModal />
+        <GuestProfileMergePromptModal
+          open={!!pendingGuestMerge}
+          result={pendingGuestMerge}
+          mergeLoading={mergeLoading}
+          mergeError={mergeError}
+          preferredNameSource={preferredNameSource}
+          onPreferredNameSourceChange={setPreferredNameSource}
+          onMerge={() => void handleMergeGuestProfiles()}
+          onKeepSeparate={handleKeepGuestProfilesSeparate}
+        />
         <Routes>
           <Route path="/auth/whatsapp/prep" element={<WhatsAppAuthPrep />} />
           <Route path="/auth/whatsapp/verify" element={<WhatsAppAuthVerify />} />

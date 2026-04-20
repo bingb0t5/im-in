@@ -7,10 +7,12 @@ import { supabase } from '../supabase';
 import { Card } from '../components/ui/Card';
 import { HomeCommunitySection } from '../components/HomeCommunitySection';
 import { mapJoinedBookingsToEvents, pickUpcomingActivities } from '../lib/activityRelations';
+import { groupBookingsByEvent, type GroupedBooking } from '../lib/bookings';
 import { fetchEventForView } from '../lib/eventLookup';
 import { buildEventPath } from '../lib/events';
+import { getProfileDisplayName, guestService, isSystemGuestEmail } from '../services/guestService';
 import { Event } from '../types';
-import { formatDate } from '../utils';
+import { formatDate, isOnOrAfterTodayInTimeZone } from '../utils';
 
 type JoinedRow = {
   status: string;
@@ -22,6 +24,13 @@ type UpcomingActivity = {
   event: Event;
   state: string | null;
 };
+
+function formatGuestUpcomingLabel(status: string) {
+  if (status === 'thinking') return 'Thinking about it';
+  if (status === 'pending_approval') return 'Pending approval';
+  if (status === 'waitlist') return 'Waitlist';
+  return 'Saved on this device';
+}
 
 function formatActivityStateLabel(state: string | null) {
   if (!state) return '';
@@ -46,6 +55,10 @@ export default function Home({ user }: { user: User | null }) {
   const [joinError, setJoinError] = useState<string | null>(null);
   const [upcomingActivities, setUpcomingActivities] = useState<UpcomingActivity[]>([]);
   const [loadingNext, setLoadingNext] = useState(!!user);
+  const [rememberedGuestName, setRememberedGuestName] = useState('');
+  const [rememberedGuestHasRecoveryEmail, setRememberedGuestHasRecoveryEmail] = useState(false);
+  const [rememberedGuestUpcoming, setRememberedGuestUpcoming] = useState<GroupedBooking[]>([]);
+  const [loadingRememberedGuest, setLoadingRememberedGuest] = useState(!user);
 
   useEffect(() => {
     if (!user) {
@@ -96,6 +109,66 @@ export default function Home({ user }: { user: User | null }) {
     };
 
     void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (user) {
+      setRememberedGuestName('');
+      setRememberedGuestHasRecoveryEmail(false);
+      setRememberedGuestUpcoming([]);
+      setLoadingRememberedGuest(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadRememberedGuest = async () => {
+      setLoadingRememberedGuest(true);
+      try {
+        const session = await guestService.getStoredGuestSession();
+        if (cancelled) return;
+
+        if (!session) {
+          setRememberedGuestName('');
+          setRememberedGuestHasRecoveryEmail(false);
+          setRememberedGuestUpcoming([]);
+          return;
+        }
+
+        setRememberedGuestName(getProfileDisplayName(session.profile).trim() || 'Guest account on this device');
+        setRememberedGuestHasRecoveryEmail(!!session.profile.email && !isSystemGuestEmail(session.profile.email));
+
+        const [bookingRows, interestRows] = await Promise.all([
+          guestService.getMyBookings(session.token),
+          guestService.getMyInterests(session.token),
+        ]);
+        if (cancelled) return;
+
+        const upcoming = groupBookingsByEvent([...(bookingRows || []), ...(interestRows || [])])
+          .filter((booking) => isOnOrAfterTodayInTimeZone(booking.events.starts_at, booking.events.timezone))
+          .sort((a, b) => new Date(a.events.starts_at).getTime() - new Date(b.events.starts_at).getTime())
+          .slice(0, 3);
+
+        setRememberedGuestUpcoming(upcoming);
+      } catch (error) {
+        console.error('Could not load remembered guest summary:', error);
+        if (!cancelled) {
+          setRememberedGuestName('');
+          setRememberedGuestHasRecoveryEmail(false);
+          setRememberedGuestUpcoming([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingRememberedGuest(false);
+        }
+      }
+    };
+
+    void loadRememberedGuest();
 
     return () => {
       cancelled = true;
@@ -173,6 +246,87 @@ export default function Home({ user }: { user: User | null }) {
                 </div>
               )}
             </Card>
+          ) : rememberedGuestName || loadingRememberedGuest ? (
+            <>
+              <Card className="space-y-4 pt-4">
+                <div className="space-y-1">
+                  <p className="ui-eyebrow">Guest account on this device</p>
+                  <h2 className="text-xl font-black tracking-tight text-slate-900">
+                    {loadingRememberedGuest ? 'Checking this device...' : rememberedGuestName}
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    You&apos;re using a remembered guest account on this device. It keeps your local activity history here, but signing in is the safer way to keep it across devices.
+                  </p>
+                </div>
+
+                {!loadingRememberedGuest ? (
+                  <div className="rounded-2xl border border-brand-100 bg-brand-50 p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-700">Account status</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">
+                      {rememberedGuestHasRecoveryEmail ? 'Saved with recovery email on this device' : 'Local guest account on this device'}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Sign in to keep this account available across browsers and devices.
+                    </p>
+                  </div>
+                ) : null}
+
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/bookings')}
+                    className="inline-flex h-12 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 transition-all hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 active:scale-[0.99]"
+                  >
+                    View guest activities
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/login?from=%2F')}
+                    className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-brand-600 px-3 text-sm font-black text-white transition-all hover:bg-brand-500 active:scale-[0.99]"
+                  >
+                    Sign in to keep this
+                  </button>
+                </div>
+              </Card>
+
+              <Card className="space-y-2 pt-3">
+                <h2 className="ui-section-title">Upcoming activities</h2>
+
+                {loadingRememberedGuest ? (
+                  <div className="ui-muted-panel text-sm text-slate-500">Loading activities saved on this device...</div>
+                ) : rememberedGuestUpcoming.length > 0 ? (
+                  <div className="divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-slate-50 px-3">
+                    {rememberedGuestUpcoming.map((booking, index) => (
+                      <Link
+                        key={booking.events.id}
+                        to={buildEventPath(booking.events as Event, { preferPrivateAccess: true })}
+                        className={`block rounded-xl py-1.5 transition-colors hover:bg-white ${index === 0 ? 'pt-1.5' : ''}`}
+                      >
+                        <h3 className="truncate text-base font-black text-slate-900">{booking.events.title}</h3>
+                        <div className="mt-0.5 flex items-center justify-between gap-2">
+                          <p className="truncate text-sm text-slate-500">{formatDate(booking.events.starts_at, booking.events.timezone)}</p>
+                          <ArrowRight className="h-4 w-4 shrink-0 text-slate-300" />
+                        </div>
+                        <p className="mt-0 text-[10px] font-bold uppercase tracking-[0.16em] text-brand-700">
+                          {formatGuestUpcomingLabel(booking.status)}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="ui-muted-panel space-y-2">
+                    <p className="text-sm text-slate-600">No upcoming guest activities are saved on this device right now.</p>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/bookings')}
+                      className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition-all hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700"
+                    >
+                      Open guest activities
+                    </button>
+                  </div>
+                )}
+              </Card>
+            </>
           ) : null}
 
           <Card className="space-y-3 pt-4">
