@@ -65,12 +65,24 @@ export interface GuestAutoClaimResult {
   status: GuestAutoClaimStatus;
   reasons: GuestAutoClaimReason[];
   canPromptForMerge: boolean;
+  blockedReason: string | null;
+  ownershipCheck: GuestOwnershipCheck | null;
   profile: AttendeeProfile;
   guestSession: GuestSession | null;
   guestProfile: AttendeeProfile | null;
   targetProfile: AttendeeProfile;
   guestHistory: ProfileHistorySummary | null;
   targetHistory: ProfileHistorySummary | null;
+}
+
+export interface GuestOwnershipCheck {
+  guestProfileId: string;
+  guestProfileUserId: string | null;
+  authUserId: string;
+  guestEmail: string;
+  authEmail: string;
+  ownershipAllowsAutoClaim: boolean;
+  identityMatchesAuth: boolean;
 }
 
 const GUEST_SESSION_KEY = 'im_in_guest_session';
@@ -378,10 +390,13 @@ function buildGuestAutoClaimResult(
   targetProfile: AttendeeProfile,
   options: Partial<Omit<GuestAutoClaimResult, 'targetProfile'>> & Pick<GuestAutoClaimResult, 'status'>,
 ): GuestAutoClaimResult {
+  const reasons = options.reasons || [];
   return {
     status: options.status,
-    reasons: options.reasons || [],
+    reasons,
     canPromptForMerge: options.canPromptForMerge || false,
+    blockedReason: options.blockedReason || null,
+    ownershipCheck: options.ownershipCheck || null,
     profile: options.profile || targetProfile,
     guestSession: options.guestSession || null,
     guestProfile: options.guestProfile || null,
@@ -395,6 +410,28 @@ export function classifyGuestAutoClaimReasons(reasons: GuestAutoClaimReason[]) {
   const hardBlocked = reasons.filter((reason) => HARD_BLOCK_GUEST_AUTO_CLAIM_REASONS.includes(reason));
   const promptable = reasons.filter((reason) => PROMPTABLE_GUEST_AUTO_CLAIM_REASONS.includes(reason));
   return { hardBlocked, promptable };
+}
+
+export function evaluateGuestOwnershipCheck(guestProfile: AttendeeProfile, user: User): GuestOwnershipCheck {
+  const guestEmail = normalizeEmail(guestProfile.email || '');
+  const authEmail = normalizeEmail(user.email || '');
+  const guestProfileUserId = (guestProfile.user_id || '').trim() || null;
+  const ownershipAllowsAutoClaim = !guestProfileUserId || guestProfileUserId === user.id;
+  const identityMatchesAuth = guestProfileUserId === user.id || (
+    !guestEmail
+    || isSystemGuestEmail(guestEmail)
+    || guestEmail === authEmail
+  );
+
+  return {
+    guestProfileId: guestProfile.id,
+    guestProfileUserId,
+    authUserId: user.id,
+    guestEmail,
+    authEmail,
+    ownershipAllowsAutoClaim,
+    identityMatchesAuth,
+  };
 }
 export const guestService = {
   getStoredSession(): string | null {
@@ -455,7 +492,13 @@ export const guestService = {
       existingProfile = data as AttendeeProfile | null;
     }
 
-    if (existingProfile) {
+    const canReuseExistingProfile = !!existingProfile && (
+      userId
+        ? !existingProfile.user_id || existingProfile.user_id === userId
+        : !existingProfile.user_id
+    );
+
+    if (existingProfile && canReuseExistingProfile) {
       profile = existingProfile;
       // Update name if it changed, and user_id if provided.
       const nextFirstName = firstName || profile.first_name;
@@ -469,7 +512,8 @@ export const guestService = {
         })
         .eq('id', profile.id);
     } else {
-      const fallbackEmail = hasRealEmail
+      const useProvidedEmailForNewProfile = hasRealEmail && (!existingProfile || canReuseExistingProfile);
+      const fallbackEmail = useProvidedEmailForNewProfile
         ? normalizedEmail
         : buildSystemGuestEmail(
             typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -620,31 +664,25 @@ export const guestService = {
     }
 
     const reasons: GuestAutoClaimReason[] = [];
+    const ownershipCheck = evaluateGuestOwnershipCheck(guestSession.profile, user);
 
-    if (guestSession.profile.user_id && guestSession.profile.user_id !== user.id) {
+    if (ownershipCheck.guestProfileUserId && ownershipCheck.guestProfileUserId !== user.id) {
       reasons.push('guest_owned_by_other_user');
     }
 
-    const guestEmail = normalizeEmail(guestSession.profile.email || '');
-    const authEmail = normalizeEmail(user.email || '');
-    const guestOwnershipAllowsAutoClaim = !guestSession.profile.user_id || guestSession.profile.user_id === user.id;
-    const guestIdentityMatchesAuth = guestSession.profile.user_id === user.id || (
-      !guestEmail
-      || isSystemGuestEmail(guestEmail)
-      || guestEmail === authEmail
-    );
-
-    if (!guestOwnershipAllowsAutoClaim) {
+    if (!ownershipCheck.ownershipAllowsAutoClaim) {
       if (!reasons.includes('guest_identity_mismatch')) reasons.push('guest_identity_mismatch');
       return buildGuestAutoClaimResult(signedInProfile, {
         status: 'skipped_blocked',
+        blockedReason: 'guest_owned_by_other_user',
         reasons,
+        ownershipCheck,
         guestSession,
         guestProfile: guestSession.profile,
       });
     }
 
-    if (!guestIdentityMatchesAuth) {
+    if (!ownershipCheck.identityMatchesAuth) {
       reasons.push('guest_identity_mismatch');
     }
 
@@ -657,7 +695,9 @@ export const guestService = {
       reasons.push('verified_identity_conflict');
       return buildGuestAutoClaimResult(signedInProfile, {
         status: 'skipped_blocked',
+        blockedReason: 'verified_identity_conflict',
         reasons,
+        ownershipCheck,
         guestSession,
         guestProfile: guestSession.profile,
       });
@@ -677,7 +717,9 @@ export const guestService = {
       reasons.push('attendee_overlap');
       return buildGuestAutoClaimResult(signedInProfile, {
         status: 'skipped_blocked',
+        blockedReason: 'attendee_overlap',
         reasons,
+        ownershipCheck,
         guestSession,
         guestProfile: guestSession.profile,
         guestHistory,
@@ -689,7 +731,9 @@ export const guestService = {
     if (hardBlocked.length > 0) {
       return buildGuestAutoClaimResult(signedInProfile, {
         status: 'skipped_blocked',
+        blockedReason: hardBlocked[0] || reasons[0] || null,
         reasons,
+        ownershipCheck,
         guestSession,
         guestProfile: guestSession.profile,
         guestHistory,
@@ -702,6 +746,7 @@ export const guestService = {
         status: 'skipped_conflict',
         reasons,
         canPromptForMerge: true,
+        ownershipCheck,
         guestSession,
         guestProfile: guestSession.profile,
         guestHistory,
@@ -718,6 +763,7 @@ export const guestService = {
     if (error) throw error;
     return buildGuestAutoClaimResult(signedInProfile, {
       status: 'merged',
+      ownershipCheck,
       profile: (mergedProfile as AttendeeProfile) || signedInProfile,
       guestSession,
       guestProfile: guestSession.profile,
@@ -735,9 +781,12 @@ export const guestService = {
       // so UI/debug state can still reflect what happened.
       console.warn('Claim sync failed, returning skipped_blocked fallback:', error);
       const guestSession = await this.getStoredGuestSession().catch(() => null);
+      const ownershipCheck = guestSession ? evaluateGuestOwnershipCheck(guestSession.profile, user) : null;
       return buildGuestAutoClaimResult(profile, {
         status: 'skipped_blocked',
         reasons: [],
+        blockedReason: 'sync_error_fallback',
+        ownershipCheck,
         guestSession,
         guestProfile: guestSession?.profile || null,
       });

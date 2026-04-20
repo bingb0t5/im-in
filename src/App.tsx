@@ -35,6 +35,7 @@ import EventShortLinkPage from './pages/EventShortLinkPage';
 import { GuestProfileMergePromptModal } from './components/GuestProfileMergePromptModal';
 import {
   classifyGuestAutoClaimReasons,
+  evaluateGuestOwnershipCheck,
   getProfileDisplayName,
   guestService,
   HARD_BLOCK_GUEST_AUTO_CLAIM_REASONS,
@@ -124,6 +125,19 @@ function IdentityDebugPanel({
   const guestProfileName = getProfileDisplayName(actualGuestSession?.profile).trim() || '-';
   const signedInProfileId = user?.id ? (actualSignedInProfile?.id || '-') : '-';
   const signedInProfileName = user?.id ? (getProfileDisplayName(actualSignedInProfile).trim() || '-') : '-';
+  const ownershipCheck = result?.ownershipCheck || (
+    user && actualGuestSession ? evaluateGuestOwnershipCheck(actualGuestSession.profile, user) : null
+  );
+  const blockedReason = result?.blockedReason || (status === 'skipped_blocked' ? 'unknown_blocked' : '-');
+  const guestProfileUserId = ownershipCheck?.guestProfileUserId || '-';
+  const ownershipAllowsAutoClaim = ownershipCheck ? (ownershipCheck.ownershipAllowsAutoClaim ? 'true' : 'false') : '-';
+  const identityMatchesAuth = ownershipCheck ? (ownershipCheck.identityMatchesAuth ? 'true' : 'false') : '-';
+  const guestEmail = ownershipCheck?.guestEmail || '-';
+  const authEmail = ownershipCheck?.authEmail || '-';
+  const guestLaloUserId = actualGuestSession?.profile?.lalo_user_id || '-';
+  const guestWhatsapp = actualGuestSession?.profile?.whatsapp_number || '-';
+  const signedInLaloUserId = actualSignedInProfile?.lalo_user_id || '-';
+  const signedInWhatsapp = actualSignedInProfile?.whatsapp_number || '-';
 
   return (
     <div className="fixed bottom-3 left-3 right-3 z-[200] max-w-xl rounded-2xl border border-slate-300 bg-white p-3 shadow-2xl sm:left-auto sm:right-3">
@@ -145,11 +159,21 @@ function IdentityDebugPanel({
         <p className="pt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">actual current state</p>
         <p><span className="font-bold">stored guest session:</span> {storedGuestSessionPresent ? 'yes' : 'no'}</p>
         <p><span className="font-bold">guest profile id:</span> {guestProfileId}</p>
+        <p><span className="font-bold">guest profile user_id:</span> {guestProfileUserId}</p>
         <p><span className="font-bold">guest profile name:</span> {guestProfileName}</p>
+        <p><span className="font-bold">guest email:</span> {guestEmail}</p>
+        <p><span className="font-bold">guest lalo_user_id:</span> {guestLaloUserId}</p>
+        <p><span className="font-bold">guest whatsapp_number:</span> {guestWhatsapp}</p>
         <p><span className="font-bold">signed-in profile id:</span> {signedInProfileId}</p>
         <p><span className="font-bold">signed-in profile name:</span> {signedInProfileName}</p>
+        <p><span className="font-bold">auth email:</span> {authEmail}</p>
+        <p><span className="font-bold">signed-in lalo_user_id:</span> {signedInLaloUserId}</p>
+        <p><span className="font-bold">signed-in whatsapp_number:</span> {signedInWhatsapp}</p>
+        <p><span className="font-bold">ownership allows auto-claim:</span> {ownershipAllowsAutoClaim}</p>
+        <p><span className="font-bold">identity matches auth:</span> {identityMatchesAuth}</p>
         <p className="pt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">latest merge result</p>
         <p><span className="font-bold">result status:</span> {status}</p>
+        <p><span className="font-bold">blocked reason:</span> {blockedReason}</p>
         <p><span className="font-bold">reasons:</span> {reasons.length > 0 ? reasons.join(', ') : '-'}</p>
         <p>
           <span className="font-bold">promptable reasons:</span>{' '}
