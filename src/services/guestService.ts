@@ -257,6 +257,46 @@ async function hasOverlappingAttendeeRows(sourceProfileId: string, targetProfile
   return (sourceResult.data || []).some((row) => targetEventIds.has(row.event_id));
 }
 
+function normalizeComparableName(value?: string | null) {
+  return normalizeLooseName(value || '');
+}
+
+function hasConflictingMeaningfulNames(
+  sourceProfile: Partial<AttendeeProfile> | null | undefined,
+  targetProfile: Partial<AttendeeProfile> | null | undefined,
+  user: User,
+) {
+  const sourceName = getProfileDisplayName(sourceProfile);
+  const targetName = resolvePreferredAccountName(targetProfile, user);
+  if (!hasRealAccountName(sourceName, sourceProfile?.email) || !hasRealAccountName(targetName, targetProfile?.email || user.email || '')) {
+    return false;
+  }
+
+  return normalizeComparableName(sourceName) !== normalizeComparableName(targetName);
+}
+
+function hasConflictingVerifiedIdentitySignals(
+  sourceProfile: Partial<AttendeeProfile> | null | undefined,
+  targetProfile: Partial<AttendeeProfile> | null | undefined,
+) {
+  if (!hasVerifiedWhatsAppIdentity(sourceProfile) || !hasVerifiedWhatsAppIdentity(targetProfile)) {
+    return false;
+  }
+
+  const sourceLaloUserId = (sourceProfile?.lalo_user_id || '').trim();
+  const targetLaloUserId = (targetProfile?.lalo_user_id || '').trim();
+  if (sourceLaloUserId && targetLaloUserId && sourceLaloUserId !== targetLaloUserId) {
+    return true;
+  }
+
+  const sourceWhatsapp = (sourceProfile?.whatsapp_number || '').trim();
+  const targetWhatsapp = (targetProfile?.whatsapp_number || '').trim();
+  if (sourceWhatsapp && targetWhatsapp && sourceWhatsapp !== targetWhatsapp) {
+    return true;
+  }
+
+  return false;
+}
 export const guestService = {
   getStoredSession(): string | null {
     return localStorage.getItem(GUEST_SESSION_KEY);
@@ -491,6 +531,12 @@ export const guestService = {
       return signedInProfile;
     }
 
+    if (
+      hasConflictingMeaningfulNames(guestSession.profile, signedInProfile, user)
+      || hasConflictingVerifiedIdentitySignals(guestSession.profile, signedInProfile)
+    ) {
+      return signedInProfile;
+    }
     const [authProfileHasHistory, attendeeOverlap] = await Promise.all([
       profileHasExistingAuthHistory(signedInProfile.id, user.id),
       hasOverlappingAttendeeRows(guestSession.profile.id, signedInProfile.id, user.id),
@@ -508,6 +554,11 @@ export const guestService = {
 
     if (error) throw error;
     return (mergedProfile as AttendeeProfile) || signedInProfile;
+  },
+
+  async getOrCreateClaimedProfileForUser(user: User, name?: string): Promise<AttendeeProfile> {
+    const profile = await this.getOrCreateProfileForUser(user, name);
+    return this.claimStoredGuestSessionForUser(user, profile);
   },
 
   async getOrCreateProfileForUser(user: User, name?: string): Promise<AttendeeProfile> {

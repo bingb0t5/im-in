@@ -107,6 +107,8 @@ The weakest / least finished areas are:
 - hosted auth redirects now require `VITE_APP_URL` outside local development so sign-in and recovery return to one canonical app origin
 - WhatsApp auth attempt/completion handoff state now uses expiring local storage instead of session-only storage, making mobile return flows less fragile
 - private and semi-public guest join flows no longer silently mint a fresh guest identity before the user explicitly chooses to sign in, recover, or continue as a new guest
+- stored guest sessions are now auto-claimed into the signed-in profile only when the guest profile is unclaimed or already owned by that user, the signed-in target profile is still low-history, and there is no overlapping attendee history
+- when the app detects an obvious identity conflict during post-auth sync, it now leaves the guest and signed-in identities separate with no merge UI yet
 
 ### Backend/data behavior
 

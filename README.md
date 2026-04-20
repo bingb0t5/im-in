@@ -188,6 +188,8 @@ Current identity model in practice:
 - WhatsApp verification/linking can enrich the canonical attendee profile with both `lalo_user_id` and a verified `whatsapp_number`
 - no-email guests can add email later to unlock account recovery and cross-activity identity continuity
 - guest-email upgrades now merge identities through a dedicated SQL RPC so attendee ownership, inviter attribution, sessions, interests, and join requests move together
+- when a user becomes authenticated on a device with a valid stored guest session, the app now auto-claims that guest identity only when the target signed-in profile is still shell-like and there is no overlapping attendee history
+- when those safety checks fail, the app leaves guest and signed-in identities separate for now instead of attempting a risky silent merge
 
 Current hardening notes:
 
