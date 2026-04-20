@@ -4,7 +4,7 @@
  */
 
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 
 // Pages
@@ -161,6 +161,7 @@ export default function App() {
   const [mergeLoading, setMergeLoading] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [preferredNameSource, setPreferredNameSource] = useState<'guest' | 'signed_in'>('signed_in');
+  const hasRunMergeRef = useRef<string | null>(null);
 
   const mergePromptDismissKey = useMemo(
     () => (pendingGuestMerge ? buildGuestMergePromptDismissKey(pendingGuestMerge) : null),
@@ -169,18 +170,76 @@ export default function App() {
 
   useEffect(() => {
     if (!user) {
-      console.info('[identity-debug] app-guest-sync:skip-no-user');
+      console.info('[identity-debug] app-guest-sync:exit-no-user');
+      hasRunMergeRef.current = null;
       setPendingGuestMerge(null);
       setLastGuestAutoClaimResult(null);
       setMergeError(null);
       return;
     }
 
-    console.info('[identity-debug] app-guest-sync:start', {
+    console.info('[identity-debug] app-guest-sync:user-changed-reset', {
       userId: user.id,
     });
+    hasRunMergeRef.current = null;
+    setPendingGuestMerge(null);
+    setLastGuestAutoClaimResult(null);
+    setMergeError(null);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user) return;
+
     let cancelled = false;
-    void (async () => {
+    let retryTimeoutId: number | null = null;
+    let attemptCount = 0;
+    const MAX_ATTEMPTS = 8;
+    const RETRY_MS = 700;
+
+    const clearRetry = () => {
+      if (retryTimeoutId !== null) {
+        window.clearTimeout(retryTimeoutId);
+        retryTimeoutId = null;
+      }
+    };
+
+    const runMergeSyncIfReady = async (trigger: string) => {
+      if (cancelled) return;
+      if (hasRunMergeRef.current === user.id) {
+        console.info('[identity-debug] app-guest-sync:exit-already-ran', {
+          userId: user.id,
+          trigger,
+        });
+        return;
+      }
+
+      const guestSession = await guestService.getStoredGuestSession().catch(() => null);
+      if (cancelled) return;
+
+      if (!guestSession) {
+        console.info('[identity-debug] app-guest-sync:exit-no-guest-session', {
+          userId: user.id,
+          trigger,
+          attemptCount,
+        });
+        if (attemptCount < MAX_ATTEMPTS) {
+          attemptCount += 1;
+          clearRetry();
+          retryTimeoutId = window.setTimeout(() => {
+            void runMergeSyncIfReady('retry');
+          }, RETRY_MS);
+        }
+        return;
+      }
+
+      hasRunMergeRef.current = user.id;
+      clearRetry();
+      console.info('[identity-debug] app-guest-sync:invoke-merge-sync', {
+        userId: user.id,
+        trigger,
+        guestProfileId: guestSession.profile.id,
+      });
+
       try {
         const result = await guestService.syncStoredGuestSessionForUser(user);
         if (cancelled) return;
@@ -211,14 +270,30 @@ export default function App() {
         }
         setMergeError(null);
       } catch (err) {
-        console.error('Error syncing profile:', err);
+        console.error('[identity-debug] app-guest-sync:error', err);
+        hasRunMergeRef.current = null;
       }
-    })();
+    };
+
+    void runMergeSyncIfReady('initial');
+    const onFocus = () => {
+      void runMergeSyncIfReady('focus');
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === 'im_in_guest_session') {
+        void runMergeSyncIfReady('storage');
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('storage', onStorage);
 
     return () => {
       cancelled = true;
+      clearRetry();
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('storage', onStorage);
     };
-  }, [user]);
+  }, [user?.id]);
 
   const handleKeepGuestProfilesSeparate = () => {
     console.info('[identity-debug] app-guest-sync:keep-separate');
