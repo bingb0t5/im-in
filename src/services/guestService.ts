@@ -297,7 +297,6 @@ function hasConflictingVerifiedIdentitySignals(
 
   return false;
 }
-
 export const guestService = {
   getStoredSession(): string | null {
     return localStorage.getItem(GUEST_SESSION_KEY);
@@ -538,7 +537,6 @@ export const guestService = {
     ) {
       return signedInProfile;
     }
-
     const [authProfileHasHistory, attendeeOverlap] = await Promise.all([
       profileHasExistingAuthHistory(signedInProfile.id, user.id),
       hasOverlappingAttendeeRows(guestSession.profile.id, signedInProfile.id, user.id),
