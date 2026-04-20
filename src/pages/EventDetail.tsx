@@ -1317,7 +1317,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       setGuestProfile(updated);
       setGuestInfo((prev) => ({ ...prev, email: normalized, name: updated.full_name || prev.name }));
       setEmailUpgradeValue('');
-      setEmailUpgradeMessage('Email saved. You can now recover this guest account with email, or link WhatsApp later.');
+      setEmailUpgradeMessage('Email saved as a backup for recovery. You can still link WhatsApp anytime.');
     } catch (error: any) {
       setEmailUpgradeMessage(error?.message || 'Could not save email right now.');
     } finally {
@@ -2359,10 +2359,9 @@ export default function EventDetail({ user }: { user: User | null }) {
 
               {shouldPromptEmailUpgrade && (
                 <form onSubmit={handleSaveEmailUpgrade} className="mb-6 rounded-2xl border border-brand-100 bg-brand-50 p-4 text-left space-y-3">
-                  <p className="text-sm font-bold text-brand-700">Save this guest account with WhatsApp or email</p>
+                  <p className="text-sm font-bold text-brand-700">Keep this guest account</p>
                   <p className="text-xs text-brand-700/90">
-                    Link WhatsApp for the easiest sign-in next time, or add an email if you prefer recovery links.
-                    Either option helps keep this guest account tied back to you.
+                    Continue with WhatsApp for the main sign-in path. Add email below if you want a backup recovery option.
                   </p>
                   <button
                     type="button"
@@ -2389,7 +2388,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                     disabled={emailUpgradeSaving}
                     className="w-full bg-white hover:bg-brand-100 text-brand-700 font-black py-3 rounded-xl transition-all active:scale-95"
                   >
-                    {emailUpgradeSaving ? 'Saving...' : 'Save my email instead'}
+                    {emailUpgradeSaving ? 'Saving...' : 'Add email as backup'}
                   </button>
                 </form>
               )}
