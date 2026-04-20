@@ -911,6 +911,10 @@ export default function EventDetail({ user }: { user: User | null }) {
   const handleRsvp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!event) return;
+    if ((event.participation_mode || 'rsvp') !== 'rsvp') {
+      alert('This activity is non-signup. Use "Thinking about it" to add it to My Activities.');
+      return;
+    }
     setRsvpLoading(true);
 
     const rawEmail = (user?.email || guestInfo.email || '').trim().toLowerCase();
@@ -1024,6 +1028,10 @@ export default function EventDetail({ user }: { user: User | null }) {
   const handleProxyRsvp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!event || !proxyName.trim()) return;
+    if ((event.participation_mode || 'rsvp') !== 'rsvp') {
+      setProxyError('Proxy RSVP is disabled for non-signup activities.');
+      return;
+    }
     setRsvpLoading(true);
     setProxyError(null);
 
@@ -1265,6 +1273,9 @@ export default function EventDetail({ user }: { user: User | null }) {
   }
 
   const eventVisibility = event.visibility || (event.is_public ? 'public' : 'private');
+  const participationMode = event.participation_mode || 'rsvp';
+  const isInterestOnly = participationMode === 'interest_only';
+  const interestVisibility = event.interest_visibility || 'count_only';
   const accessToken = searchParams.get('access');
   const moderationHistoryParams = new URLSearchParams(location.search);
   moderationHistoryParams.set('action', 'moderation');
@@ -1291,9 +1302,11 @@ export default function EventDetail({ user }: { user: User | null }) {
   });
   const thinkingCount = getThinkingCount(interests);
   const namedThinkingInterests = getNamedThinkingInterests(interests);
+  const visibleNamedThinkingInterests = interestVisibility === 'named' ? namedThinkingInterests : [];
+  const visibleThinkingCount = interestVisibility === 'hidden' ? 0 : thinkingCount;
   const hasSelfRsvp = mySelfRsvps.length > 0;
   const hasManagedRsvps = myManagedRsvps.length > 0;
-  const rsvpButtonDisabled = rsvpLoading || joinRequestPending || (!approvalRequired && isFull && !event.allow_waitlist);
+  const rsvpButtonDisabled = isInterestOnly || rsvpLoading || joinRequestPending || (!approvalRequired && isFull && !event.allow_waitlist);
   const rsvpButtonLabel = rsvpLoading
     ? 'Saving'
     : hasSelfRsvp
@@ -1480,11 +1493,20 @@ export default function EventDetail({ user }: { user: User | null }) {
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                <span className="flex shrink-0 items-center gap-1">
-                  <Users className="h-3.5 w-3.5 text-brand-600" />
-                  {confirmedCount}/{event.capacity} going
-                </span>
-                <span className="shrink-0">{thinkingCount} thinking about it</span>
+                {isInterestOnly ? (
+                  <span className="flex shrink-0 items-center gap-1">
+                    <Users className="h-3.5 w-3.5 text-brand-600" />
+                    {visibleThinkingCount} interested
+                  </span>
+                ) : (
+                  <>
+                    <span className="flex shrink-0 items-center gap-1">
+                      <Users className="h-3.5 w-3.5 text-brand-600" />
+                      {confirmedCount}/{event.capacity} going
+                    </span>
+                    <span className="shrink-0">{visibleThinkingCount} thinking about it</span>
+                  </>
+                )}
               </div>
             </div>
 
@@ -1696,13 +1718,22 @@ export default function EventDetail({ user }: { user: User | null }) {
               <div className="flex items-center gap-3">
                 <Users className="w-4 h-4 text-brand-600 shrink-0" />
                 <div>
-                  <p className="font-bold text-slate-800 text-sm">{confirmedCount} / {event.capacity} going</p>
-                  {isFull ? (
-                    <p className="text-xs text-amber-500">
-                      {event.allow_waitlist ? `${waitlistCount} on waitlist` : 'Full'}
-                    </p>
+                  {isInterestOnly ? (
+                    <>
+                      <p className="font-bold text-slate-800 text-sm">{visibleThinkingCount} interested</p>
+                      <p className="text-xs text-slate-400">Non-signup activity</p>
+                    </>
                   ) : (
-                    <p className="text-xs text-slate-400">{spotsRemaining} spots left</p>
+                    <>
+                      <p className="font-bold text-slate-800 text-sm">{confirmedCount} / {event.capacity} going</p>
+                      {isFull ? (
+                        <p className="text-xs text-amber-500">
+                          {event.allow_waitlist ? `${waitlistCount} on waitlist` : 'Full'}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-400">{spotsRemaining} spots left</p>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -1743,7 +1774,7 @@ export default function EventDetail({ user }: { user: User | null }) {
         </section>
 
         {/* Attendee Preview */}
-        {attendees.length > 0 && (
+        {!isInterestOnly && attendees.length > 0 && (
           <section className="bg-white rounded-2xl overflow-hidden">
             <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest px-5 pt-4 pb-3">Going</p>
             <div className="divide-y divide-slate-50">
@@ -1780,19 +1811,21 @@ export default function EventDetail({ user }: { user: User | null }) {
             <button
               onClick={() => setShowThinkingModal(true)}
               className="text-sm font-bold text-indigo-500 hover:text-indigo-400 transition-colors"
-              disabled={thinkingCount === 0 || (eventVisibility === 'public' && namedThinkingInterests.length === 0)}
+              disabled={interestVisibility !== 'named' || visibleThinkingCount === 0 || (eventVisibility === 'public' && visibleNamedThinkingInterests.length === 0)}
             >
-              {thinkingCount}
+              {visibleThinkingCount}
             </button>
           </div>
           <p className="text-xs text-slate-400 mt-2">
-            {eventVisibility === 'public'
-              ? `${thinkingCount} people are thinking about it`
-              : `${namedThinkingInterests.length} people visible by name`}
+            {interestVisibility === 'hidden'
+              ? 'Interest activity is hidden for this activity.'
+              : eventVisibility === 'public'
+                ? `${visibleThinkingCount} people are thinking about it`
+                : `${visibleNamedThinkingInterests.length} people visible by name`}
           </p>
         </section>
 
-        {attendees.length === 0 && (
+        {!isInterestOnly && attendees.length === 0 && (
           <p className="text-slate-400 text-sm px-1">Be the first to join!</p>
         )}
 
@@ -1819,7 +1852,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       {/* Fixed CTA */}
       <div className="fixed bottom-0 left-0 right-0 px-4 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+0.7rem)] bg-white/95 backdrop-blur-lg border-t border-slate-100 z-20">
         <div className="max-w-xl mx-auto space-y-2">
-          {approvalRequired && myRsvps.length === 0 ? (
+          {!isInterestOnly && approvalRequired && myRsvps.length === 0 ? (
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
               {myJoinRequestStatus === 'pending'
                 ? 'Join request pending host approval.'
@@ -1828,7 +1861,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                   : "This activity requires host approval before you're added."}
             </div>
           ) : null}
-          {myRsvps.length > 0 ? (
+          {!isInterestOnly && myRsvps.length > 0 ? (
             <>
               <div className="space-y-2 max-h-32 overflow-y-auto">
                 {myRsvps.map(rsvp => (
@@ -1862,7 +1895,30 @@ export default function EventDetail({ user }: { user: User | null }) {
             </>
           ) : null}
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className={`grid gap-2 ${isInterestOnly ? 'grid-cols-1' : 'grid-cols-3'}`}>
+            {isInterestOnly ? (
+              <button
+                type="button"
+                onClick={() => handleToggleThinking()}
+                disabled={thinkingLoading}
+                aria-pressed={thinkingButtonActive}
+                aria-label={thinkingButtonActive ? 'Remove from My Activities' : 'Add to My Activities'}
+                className={[
+                  'flex min-h-[3.45rem] w-full flex-col items-center justify-center gap-0.5 rounded-[1.15rem] border px-2 py-1.5 text-center backdrop-blur-md transition-all active:scale-[0.98]',
+                  thinkingLoading
+                    ? 'cursor-not-allowed border-white/70 bg-gradient-to-b from-slate-100/95 to-slate-50/90 text-slate-400 shadow-sm'
+                    : thinkingButtonActive
+                      ? 'border-white/70 bg-gradient-to-b from-brand-100/95 to-cyan-50/90 text-brand-600 shadow-[0_14px_30px_rgba(20,184,166,0.18)]'
+                      : 'border-white/45 bg-gradient-to-b from-brand-500 via-brand-600 to-cyan-600 text-white shadow-[0_18px_36px_rgba(13,148,136,0.3)] hover:from-brand-400 hover:via-brand-500 hover:to-cyan-500',
+                ].join(' ')}
+              >
+                <CircleHelp className="h-4.5 w-4.5" />
+                <span className="text-[10px] font-bold leading-tight sm:text-[11px]">
+                  {thinkingButtonActive ? 'In My Activities' : 'Add to My Activities'}
+                </span>
+              </button>
+            ) : (
+              <>
             <button
               type="button"
               onClick={() => {
@@ -1925,6 +1981,8 @@ export default function EventDetail({ user }: { user: User | null }) {
               <Plus className="h-4.5 w-4.5" />
               <span className="text-[10px] font-bold leading-tight sm:text-[11px]">My Kids in</span>
             </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -2093,13 +2151,15 @@ export default function EventDetail({ user }: { user: User | null }) {
                   <X className="w-5 h-5 text-slate-400" />
                 </button>
               </div>
-              {eventVisibility === 'public' ? (
+              {interestVisibility === 'hidden' ? (
+                <p className="text-sm text-slate-500">Interest visibility is hidden for this activity.</p>
+              ) : eventVisibility === 'public' ? (
                 <p className="text-sm text-slate-500">This public activity shows count only.</p>
-              ) : namedThinkingInterests.length === 0 ? (
+              ) : visibleNamedThinkingInterests.length === 0 ? (
                 <p className="text-sm text-slate-500">No one yet.</p>
               ) : (
                 <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
-                  {namedThinkingInterests.map((interest) => (
+                  {visibleNamedThinkingInterests.map((interest) => (
                     <div key={interest.id} className="py-2.5">
                       <p className="text-sm font-bold text-slate-800">{getDisplayName(interest)}</p>
                     </div>

@@ -16,6 +16,11 @@ type JoinedRow = BookingRow & {
   events: Event;
 };
 
+type InterestedRow = {
+  status: 'thinking' | string;
+  events: Event;
+};
+
 type PendingAccessRequestRow = {
   id: string;
   event_id: string;
@@ -106,6 +111,7 @@ function ActivityEventList({
           const visibilityMeta = getVisibilityMeta(event);
           const confirmedCount = event.confirmed_count || 0;
           const thinkingCount = event.thinking_count || 0;
+          const isInterestOnly = (event.participation_mode || 'rsvp') === 'interest_only';
 
           return (
             <Link
@@ -131,11 +137,20 @@ function ActivityEventList({
                         <span className="truncate">{previewLocation}</span>
                       </span>
                     ) : null}
-                    <span className="flex shrink-0 items-center gap-1">
-                      <Users className="h-3.5 w-3.5 text-brand-600" />
-                      {confirmedCount}/{event.capacity} going
-                    </span>
-                    <span className="shrink-0">{thinkingCount} thinking about it</span>
+                    {isInterestOnly ? (
+                      <span className="flex shrink-0 items-center gap-1">
+                        <Users className="h-3.5 w-3.5 text-brand-600" />
+                        {thinkingCount} interested
+                      </span>
+                    ) : (
+                      <>
+                        <span className="flex shrink-0 items-center gap-1">
+                          <Users className="h-3.5 w-3.5 text-brand-600" />
+                          {confirmedCount}/{event.capacity} going
+                        </span>
+                        <span className="shrink-0">{thinkingCount} thinking about it</span>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -309,9 +324,11 @@ export default function MyActivities({ user }: { user: User | null }) {
   const [showAttendingEvents, setShowAttendingEvents] = useState<boolean | null>(null);
   const [showRequestedEvents, setShowRequestedEvents] = useState<boolean | null>(null);
   const [showSharedEvents, setShowSharedEvents] = useState<boolean | null>(null);
+  const [showInterestedEvents, setShowInterestedEvents] = useState<boolean | null>(null);
   const [hosting, setHosting] = useState<Event[]>([]);
   const [attending, setAttending] = useState<Event[]>([]);
   const [requested, setRequested] = useState<Event[]>([]);
+  const [interested, setInterested] = useState<Event[]>([]);
   const [shared, setShared] = useState<Event[]>([]);
   const [pendingViewRequests, setPendingViewRequests] = useState<PendingAccessRequestRow[]>([]);
   const [pendingJoinRequests, setPendingJoinRequests] = useState<PendingJoinRequestRow[]>([]);
@@ -325,26 +342,32 @@ export default function MyActivities({ user }: { user: User | null }) {
     const load = async () => {
       setLoading(true);
       try {
-        const [hostedResult, joinedResult, sharedResult] = await Promise.all([
+        const [hostedResult, joinedResult, sharedResult, interestedResult] = await Promise.all([
           supabase.rpc('list_my_hosted_events'),
           supabase.rpc('list_my_joined_activities'),
           supabase.rpc('list_my_shared_activities'),
+          supabase.rpc('list_my_interested_activities'),
         ]);
 
         if (cancelled) return;
 
-        if (hostedResult.error || joinedResult.error || sharedResult.error) {
-          throw hostedResult.error || joinedResult.error || sharedResult.error;
+        if (hostedResult.error || joinedResult.error || sharedResult.error || interestedResult.error) {
+          throw hostedResult.error || joinedResult.error || sharedResult.error || interestedResult.error;
         }
 
         const hosted = (hostedResult.data || []) as Event[];
         const joinedRows = (joinedResult.data || []) as JoinedRow[];
         const sharedRows = (sharedResult.data || []) as Event[];
+        const interestedRows = (interestedResult.data || []) as InterestedRow[];
 
         const requestedRows = joinedRows.filter((row) => row.status === 'pending_approval');
         const attendingRows = joinedRows.filter((row) => row.status !== 'pending_approval');
         const requestedEvents = groupBookingsByEvent(requestedRows as BookingRow[]).map((row) => row.events as Event);
         const attendingEvents = groupBookingsByEvent(attendingRows as BookingRow[]).map((row) => row.events as Event);
+        const interestedEvents = interestedRows
+          .map((row) => row.events as Event)
+          .filter((event) => !attendingEvents.some((attendingEvent) => attendingEvent.id === event.id))
+          .filter((event) => !requestedEvents.some((requestedEvent) => requestedEvent.id === event.id));
 
         const hostedUpcoming = upcomingOnly(hosted);
         const hostedUpcomingIds = hostedUpcoming.map((event) => event.id);
@@ -374,11 +397,12 @@ export default function MyActivities({ user }: { user: User | null }) {
           console.warn('Could not load pending join requests:', pendingJoinResult.error);
         }
 
-        const [hostedWithCounts, requestedWithCounts, attendingWithCounts, sharedWithCounts] = await Promise.all([
+        const [hostedWithCounts, requestedWithCounts, attendingWithCounts, sharedWithCounts, interestedWithCounts] = await Promise.all([
           hydrateMissingEventCounts(hosted),
           hydrateMissingEventCounts(requestedEvents),
           hydrateMissingEventCounts(attendingEvents),
           hydrateMissingEventCounts(sharedRows),
+          hydrateMissingEventCounts(interestedEvents),
         ]);
 
         if (cancelled) return;
@@ -386,6 +410,7 @@ export default function MyActivities({ user }: { user: User | null }) {
         setHosting(hostedWithCounts);
         setRequested(requestedWithCounts);
         setAttending(attendingWithCounts);
+        setInterested(interestedWithCounts);
         setShared(sharedWithCounts);
         setPendingViewRequests((pendingAccessResult.data || []) as PendingAccessRequestRow[]);
         setPendingJoinRequests((pendingJoinResult.data || []) as PendingJoinRequestRow[]);
@@ -399,6 +424,7 @@ export default function MyActivities({ user }: { user: User | null }) {
         setHosting([]);
         setRequested([]);
         setAttending([]);
+        setInterested([]);
         setShared([]);
         setPendingViewRequests([]);
         setPendingJoinRequests([]);
@@ -420,14 +446,17 @@ export default function MyActivities({ user }: { user: User | null }) {
   const pastAttending = useMemo(() => pastOnly(attending), [attending]);
   const upcomingRequested = useMemo(() => upcomingOnly(requested), [requested]);
   const pastRequested = useMemo(() => pastOnly(requested), [requested]);
+  const upcomingInterested = useMemo(() => upcomingOnly(interested), [interested]);
+  const pastInterested = useMemo(() => pastOnly(interested), [interested]);
   const upcomingShared = useMemo(() => upcomingOnly(shared), [shared]);
   const pastShared = useMemo(() => pastOnly(shared), [shared]);
   const attendingExpanded = showAttendingEvents ?? (upcomingAttending.length > 0);
   const requestedExpanded = showRequestedEvents ?? (upcomingRequested.length > 0);
   const sharedExpanded = showSharedEvents ?? (upcomingShared.length > 0);
+  const interestedExpanded = showInterestedEvents ?? (upcomingInterested.length > 0);
   const pastCombinedAttending = useMemo(() => {
     const deduped = new Map<string, Event>();
-    [...pastAttending, ...pastRequested, ...pastShared].forEach((event) => {
+    [...pastAttending, ...pastRequested, ...pastShared, ...pastInterested].forEach((event) => {
       if (!deduped.has(event.id)) deduped.set(event.id, event);
     });
     return Array.from(deduped.values()).sort(
@@ -435,7 +464,7 @@ export default function MyActivities({ user }: { user: User | null }) {
     );
   }, [pastAttending, pastRequested, pastShared]);
 
-  const pastAttendingCount = pastAttending.length + pastRequested.length + pastShared.length;
+  const pastAttendingCount = pastAttending.length + pastRequested.length + pastShared.length + pastInterested.length;
   const showAuthPrompt = !user && searchParams.get('signin') === 'true';
 
   if (!user) {
@@ -598,6 +627,16 @@ export default function MyActivities({ user }: { user: User | null }) {
                     expanded={sharedExpanded}
                     onToggle={() =>
                       setShowSharedEvents((value) => !(value ?? (upcomingShared.length > 0)))
+                    }
+                  />
+                  <CollapsibleActivitySection
+                    title="Interested"
+                    description="Non-signup activities you added to My Activities."
+                    emptyLabel="No interested activities yet."
+                    events={upcomingInterested}
+                    expanded={interestedExpanded}
+                    onToggle={() =>
+                      setShowInterestedEvents((value) => !(value ?? (upcomingInterested.length > 0)))
                     }
                   />
                   {pastAttendingCount > 0 ? (

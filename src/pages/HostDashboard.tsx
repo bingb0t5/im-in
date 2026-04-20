@@ -19,6 +19,7 @@ import { LOCKED_PUBLIC_LOCATION } from '../lib/publicLocation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
 import { buildPrivateActivityUrl, buildPrivateWhatsappShareText } from '../lib/eventShare';
+import { buildEventPath } from '../lib/events';
 import { invokeAuthedFunction } from '../lib/functions';
 import { buildEventGalleryStoragePath, EVENT_GALLERY_BUCKET } from '../lib/eventGallery';
 import {
@@ -1474,6 +1475,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const waitlist = attendees.filter(a => a.status === 'waitlist');
   const pendingApprovalAttendees = attendees.filter(a => a.status === 'pending_approval');
   const visibility = event.visibility || (event.is_public ? 'public' : 'private');
+  const participationMode = event.participation_mode || 'rsvp';
+  const isInterestOnly = participationMode === 'interest_only';
   const namedInterests = interests.filter((interest) => interest.visibility_mode === 'named');
   const pendingRequests = accessRequests.filter((r) => r.status === 'pending');
   const approvedRequests = accessRequests.filter((r) => r.status === 'approved');
@@ -1498,7 +1501,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
         ? rejectedJoinRequests
         : pendingJoinRequests;
   const pendingReviewCount = pendingJoinRequests.length + pendingRequests.length;
-  const canReviewJoinRequests = event.require_host_approval_for_join;
+  const canReviewJoinRequests = !isInterestOnly && event.require_host_approval_for_join;
   const canReviewAccessRequests = visibility === 'semi_public';
   const customJoinFieldLabel = normalizeCustomJoinFieldConfig(event.custom_join_field_config)?.label || 'Custom answer';
   const customJoinFieldDraftValue = customJoinFieldDraft || {
@@ -1593,9 +1596,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
             className="rounded-2xl bg-white px-3 py-2.5 text-left transition-all hover:bg-slate-50 active:scale-[0.99]"
             aria-label="View people going to this activity"
           >
-            <p className="mb-1 text-[9px] font-medium uppercase tracking-widest text-slate-400">Going</p>
-            <p className="text-lg font-bold tracking-tight text-slate-900">{confirmed.length} <span className="text-base font-light text-slate-300">/</span> {event.capacity}</p>
-            {pendingApprovalAttendees.length > 0 ? (
+            <p className="mb-1 text-[9px] font-medium uppercase tracking-widest text-slate-400">{isInterestOnly ? 'Interested' : 'Going'}</p>
+            <p className="text-lg font-bold tracking-tight text-slate-900">
+              {isInterestOnly ? interests.length : <>{confirmed.length} <span className="text-base font-light text-slate-300">/</span> {event.capacity}</>}
+            </p>
+            {!isInterestOnly && pendingApprovalAttendees.length > 0 ? (
               <p className="mt-0.5 text-[10px] text-slate-400">{pendingApprovalAttendees.length} pending approval</p>
             ) : null}
           </button>
@@ -1605,8 +1610,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
             className="rounded-2xl bg-white px-3 py-2.5 text-left transition-all hover:bg-slate-50 active:scale-[0.99]"
             aria-label="View activity waitlist"
           >
-            <p className="mb-1 text-[9px] font-medium uppercase tracking-widest text-slate-400">Waitlist</p>
-            <p className="text-lg font-bold tracking-tight text-slate-900">{waitlist.length}</p>
+            <p className="mb-1 text-[9px] font-medium uppercase tracking-widest text-slate-400">{isInterestOnly ? 'Mode' : 'Waitlist'}</p>
+            <p className="text-lg font-bold tracking-tight text-slate-900">{isInterestOnly ? 'Interest' : waitlist.length}</p>
           </button>
         </section>
 
@@ -1615,7 +1620,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
             <p className="text-sm font-black tracking-tight text-brand-600">Quick Actions</p>
             <button
               type="button"
-              onClick={() => navigate(`/events/${event.public_slug || event.slug}`)}
+              onClick={() => navigate(buildEventPath(event, { preferPrivateAccess: true }))}
               className="text-xs font-bold text-slate-400 transition-all hover:text-brand-600 active:scale-95"
             >
               View Activity
@@ -2312,10 +2317,64 @@ export default function HostDashboard({ user }: { user: User | null }) {
         <div className="space-y-4 pb-12 pt-2">
           <section className="rounded-2xl bg-white p-5">
             <div className="space-y-1">
+              <p className="text-sm font-black tracking-tight text-brand-600">Participation mode</p>
+              <p className="text-xs text-slate-500">Switch between native RSVP and lightweight interest tracking.</p>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                disabled={settingsSavingKey === 'participation_mode'}
+                onClick={() => {
+                  void updateEventSettings(
+                    { participation_mode: 'rsvp' },
+                    'Participation mode set to RSVP.',
+                  );
+                }}
+                className={`rounded-2xl border px-4 py-3 text-left transition-all ${
+                  participationMode === 'rsvp'
+                    ? 'border-brand-300 bg-brand-50'
+                    : 'border-slate-200 bg-white hover:bg-slate-50'
+                }`}
+              >
+                <p className="text-sm font-bold text-slate-800">RSVP activity</p>
+                <p className="mt-1 text-xs text-slate-500">People can join, waitlist, and request approval.</p>
+              </button>
+              <button
+                type="button"
+                disabled={settingsSavingKey === 'participation_mode'}
+                onClick={() => {
+                  void updateEventSettings(
+                    {
+                      participation_mode: 'interest_only',
+                      allow_waitlist: false,
+                      require_host_approval_for_join: false,
+                      require_guest_email_for_join: false,
+                      custom_join_field_config: null,
+                    },
+                    'Participation mode set to non-signup.',
+                  );
+                }}
+                className={`rounded-2xl border px-4 py-3 text-left transition-all ${
+                  participationMode === 'interest_only'
+                    ? 'border-brand-300 bg-brand-50'
+                    : 'border-slate-200 bg-white hover:bg-slate-50'
+                }`}
+              >
+                <p className="text-sm font-bold text-slate-800">Non-signup activity</p>
+                <p className="mt-1 text-xs text-slate-500">People can track interest without RSVP.</p>
+              </button>
+            </div>
+          </section>
+
+          <section className="rounded-2xl bg-white p-5">
+            <div className="space-y-1">
               <p className="text-sm font-black tracking-tight text-brand-600">Joining Rules</p>
-              <p className="text-xs text-slate-500">Control how guests can get into this activity.</p>
+              <p className="text-xs text-slate-500">
+                {isInterestOnly ? 'RSVP controls are disabled while this activity is in non-signup mode.' : 'Control how guests can get into this activity.'}
+              </p>
             </div>
 
+            {!isInterestOnly ? (
             <div className="mt-4 space-y-3">
               <label className="flex cursor-pointer items-start gap-3 rounded-2xl bg-slate-50 px-4 py-4">
                 <input
@@ -2491,6 +2550,39 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 ) : null}
               </div>
             </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Interest visibility</p>
+                <p className="text-xs text-slate-500">Choose what interest data is shown for this activity.</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {[
+                    { value: 'count_only', label: 'Count only', message: 'Only count is visible.' },
+                    { value: 'named', label: 'Names', message: 'Names can be shown where allowed.' },
+                    { value: 'hidden', label: 'Hidden', message: 'No visible interest roster/count.' },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      disabled={settingsSavingKey === 'interest_visibility'}
+                      onClick={() => {
+                        void updateEventSettings(
+                          { interest_visibility: option.value as Event['interest_visibility'] },
+                          `Interest visibility set to ${option.label.toLowerCase()}.`,
+                        );
+                      }}
+                      className={`rounded-xl border px-3 py-2 text-left text-xs font-bold transition-all ${
+                        (event.interest_visibility || 'count_only') === option.value
+                          ? 'border-brand-300 bg-white text-brand-700'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <p>{option.label}</p>
+                      <p className="mt-0.5 text-[10px] font-medium text-slate-400">{option.message}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {settingsMessage ? (
               <p className="mt-4 text-xs font-bold text-slate-500">{settingsMessage}</p>

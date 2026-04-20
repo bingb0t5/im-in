@@ -25,6 +25,7 @@ import AdminModerationSettings from './pages/AdminModerationSettings';
 import AdminFeedback from './pages/AdminFeedback';
 import AdminGalleryReview from './pages/AdminGalleryReview';
 import AdminBetaFeatures from './pages/AdminBetaFeatures';
+import AdminImportedListings from './pages/AdminImportedListings';
 import ModerationTransparency from './pages/ModerationTransparency';
 import WhatsAppAuthPrep from './pages/WhatsAppAuthPrep';
 import WhatsAppAuthVerify from './pages/WhatsAppAuthVerify';
@@ -133,6 +134,7 @@ export default function App() {
           <Route path="/admin/moderation" element={user ? <AdminModeration user={user} /> : <Navigate to="/login" />} />
           <Route path="/admin/moderation/settings" element={user ? <AdminModerationSettings user={user} /> : <Navigate to="/login" />} />
           <Route path="/admin/gallery" element={user ? <AdminGalleryReview user={user} /> : <Navigate to="/login" />} />
+          <Route path="/admin/imported-listings" element={user ? <AdminImportedListings user={user} /> : <Navigate to="/login" />} />
           <Route path="/admin/feedback" element={user ? <AdminFeedback user={user} /> : <Navigate to="/login" />} />
           <Route path="/admin/beta-features" element={user ? <AdminBetaFeatures user={user} /> : <Navigate to="/login" />} />
           <Route path="*" element={<Navigate to="/" />} />

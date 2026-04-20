@@ -25,6 +25,19 @@ export interface Event {
   allow_waitlist: boolean;
   require_host_approval_for_join?: boolean;
   require_guest_email_for_join?: boolean;
+  participation_mode?: 'rsvp' | 'interest_only' | 'external_contact' | 'view_only';
+  interest_visibility?: 'count_only' | 'named' | 'hidden';
+  origin_type?: 'host_created' | 'imported_community_source' | 'imported_verified_partner' | 'curated_manual';
+  event_source_id?: string | null;
+  external_event_draft_id?: string | null;
+  source_attribution_label?: string | null;
+  source_url?: string | null;
+  source_last_checked_at?: string | null;
+  trust_badge?: 'hosted_in_im_in' | 'community_listing' | 'verified_partner' | 'curated' | null;
+  is_claimable?: boolean;
+  claimed_by_host_id?: string | null;
+  external_contact_mode?: 'none' | 'whatsapp' | 'website' | 'email' | 'manual' | null;
+  external_contact_value?: string | null;
   custom_join_field_config?: EventCustomJoinFieldConfig | null;
   is_public: boolean;
   gallery_visibility?: EventGalleryVisibility;
@@ -260,6 +273,115 @@ export interface EventInterest {
   visibility_mode: 'count_only' | 'named';
   created_at: string;
   updated_at: string;
+}
+
+export interface EventSource {
+  id: string;
+  name: string;
+  source_type: 'google_doc' | 'google_sheet' | 'pdf' | 'web_page' | 'manual_text';
+  source_url?: string | null;
+  community_name?: string | null;
+  description?: string | null;
+  default_location_area?: string | null;
+  default_community_tags?: string[];
+  default_age_tags?: string[];
+  owner_name?: string | null;
+  owner_contact?: string | null;
+  trust_level: 'community_source' | 'known_organiser' | 'verified_partner' | 'internal_curated';
+  is_active: boolean;
+  last_imported_at?: string | null;
+  last_fetch_status?: 'idle' | 'queued' | 'fetching' | 'extracting' | 'submitting' | 'succeeded' | 'failed' | 'retryable';
+  last_fetch_error?: string | null;
+  last_fetch_job_id?: string | null;
+  last_fetched_at?: string | null;
+  last_snapshot_id?: string | null;
+  last_reviewed_at?: string | null;
+  last_published_at?: string | null;
+  sync_mode: 'manual' | 'semi_manual' | 'automatic';
+  notes?: string | null;
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SourceSnapshot {
+  id: string;
+  event_source_id: string;
+  raw_content_text: string;
+  raw_content_hash: string;
+  raw_metadata_json?: Record<string, unknown>;
+  captured_at: string;
+  capture_method: 'manual_paste' | 'fetched' | 'uploaded_file';
+  ingestion_job_id?: string | null;
+  ingestion_status_message?: string | null;
+  created_by?: string | null;
+  created_at: string;
+}
+
+export interface ExternalEventDraft {
+  id: string;
+  event_source_id: string;
+  source_snapshot_id: string;
+  review_status: 'new' | 'needs_review' | 'approved' | 'rejected' | 'published' | 'superseded';
+  raw_title?: string | null;
+  raw_text_block?: string | null;
+  parsed_title?: string | null;
+  parsed_summary?: string | null;
+  parsed_description?: string | null;
+  parsed_location_name?: string | null;
+  parsed_location_area?: string | null;
+  parsed_google_maps_url?: string | null;
+  parsed_contact_name?: string | null;
+  parsed_contact_method?: string | null;
+  parsed_contact_value?: string | null;
+  parsed_activity_type?: string | null;
+  parsed_community_tags?: string[];
+  parsed_age_min?: number | null;
+  parsed_age_max?: number | null;
+  parsed_age_band_labels?: string[];
+  parsed_visibility?: 'public' | 'semi_public' | 'private';
+  parsed_is_recurring?: boolean;
+  parsed_recurrence_text?: string | null;
+  parsed_rrule?: string | null;
+  parsed_start_datetime?: string | null;
+  parsed_end_datetime?: string | null;
+  parsed_timezone?: string | null;
+  parsed_day_of_week?: string | null;
+  parsed_confidence_score?: number | null;
+  normalization_warnings?: string[];
+  duplicate_candidate_event_ids?: string[];
+  linked_published_event_id?: string | null;
+  import_notes?: string | null;
+  review_notes?: string | null;
+  status_reason?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ImportWorkerJob {
+  id: string;
+  source_id: string;
+  source_url: string;
+  source_type_hint?: string | null;
+  status: 'queued' | 'fetching' | 'extracting' | 'submitting' | 'succeeded' | 'failed' | 'retryable' | 'cancelled';
+  attempt_count: number;
+  max_attempts: number;
+  response_url?: string | null;
+  http_status?: number | null;
+  content_hash?: string | null;
+  requested_by?: string | null;
+  worker_label?: string | null;
+  retried_from_job_id?: string | null;
+  last_error_code?: string | null;
+  last_error_message?: string | null;
+  result_json?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  finished_at?: string | null;
+  fetched_at?: string | null;
 }
 
 export type NotificationType =
