@@ -52,6 +52,91 @@ export function buildSupabaseAuthStorageKey(url: string) {
   return `sb-${new URL(url).hostname.split('.')[0]}-auth-token`;
 }
 
+type SupabaseAuthStorageLike = {
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
+  removeItem: (key: string) => void;
+};
+
+function readCookie(name: string) {
+  if (typeof document === 'undefined') return null;
+  const encodedName = encodeURIComponent(name);
+  const parts = document.cookie ? document.cookie.split('; ') : [];
+  for (const part of parts) {
+    if (!part.startsWith(`${encodedName}=`)) continue;
+    const rawValue = part.slice(encodedName.length + 1);
+    try {
+      return decodeURIComponent(rawValue);
+    } catch {
+      return rawValue;
+    }
+  }
+  return null;
+}
+
+function writeCookie(name: string, value: string, maxAgeSeconds: number) {
+  if (typeof document === 'undefined') return;
+  const encodedName = encodeURIComponent(name);
+  const encodedValue = encodeURIComponent(value);
+  const secure = typeof location !== 'undefined' && location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `${encodedName}=${encodedValue}; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax${secure}`;
+}
+
+function deleteCookie(name: string) {
+  if (typeof document === 'undefined') return;
+  const encodedName = encodeURIComponent(name);
+  const secure = typeof location !== 'undefined' && location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `${encodedName}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+}
+
+export function createSupabaseDualSessionStorage(): SupabaseAuthStorageLike {
+  const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
+
+  // iOS Safari and iOS standalone app mode can diverge in web storage behavior.
+  // Dual-write keeps Supabase auth in localStorage and a same-origin cookie so either
+  // context can recover session state from the other.
+  return {
+    getItem(key: string) {
+      if (typeof window === 'undefined') return null;
+      try {
+        const fromLocalStorage = window.localStorage.getItem(key);
+        if (fromLocalStorage) return fromLocalStorage;
+      } catch {
+        // Continue to cookie fallback if localStorage is unavailable.
+      }
+
+      const fromCookie = readCookie(key);
+      if (!fromCookie) return null;
+
+      try {
+        window.localStorage.setItem(key, fromCookie);
+      } catch {
+        // Best-effort sync only.
+      }
+      return fromCookie;
+    },
+    setItem(key: string, value: string) {
+      if (typeof window === 'undefined') return;
+      try {
+        window.localStorage.setItem(key, value);
+      } catch {
+        // Best-effort write only.
+      }
+      writeCookie(key, value, COOKIE_MAX_AGE_SECONDS);
+    },
+    removeItem(key: string) {
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.removeItem(key);
+        } catch {
+          // Best-effort removal only.
+        }
+      }
+      deleteCookie(key);
+    },
+  };
+}
+
 export function isInvalidRefreshTokenErrorMessage(message?: string | null) {
   return INVALID_REFRESH_TOKEN_RE.test(message || '');
 }
