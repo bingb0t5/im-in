@@ -387,6 +387,13 @@ export default function AdminImportedListings({ user }: { user: User | null }) {
               New source
             </button>
           </div>
+          <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/70 p-3 text-xs text-slate-600">
+            <p className="font-semibold text-slate-800">How this works</p>
+            <p className="mt-1">
+              A source is the place you import from, usually a webpage, public Google Doc, or public Google Sheet. Create the source once,
+              then select it from the list below and use <span className="font-semibold">Import now</span> to fetch the latest content.
+            </p>
+          </div>
           <form onSubmit={handleSaveSource} className="mt-4 grid gap-3 sm:grid-cols-2">
             <input
               required
@@ -461,6 +468,11 @@ export default function AdminImportedListings({ user }: { user: User | null }) {
           </form>
 
           <div className="mt-5 space-y-2">
+            {sources.length > 0 ? (
+              <p className="text-xs text-slate-500">
+                Saved sources appear here. Click one to load its URL, import status, snapshots, and review queue.
+              </p>
+            ) : null}
             {sources.map((source) => (
               <button
                 type="button"
@@ -489,6 +501,10 @@ export default function AdminImportedListings({ user }: { user: User | null }) {
 
         <section className="rounded-2xl border border-slate-100 bg-white p-5">
           <p className="text-sm font-black text-brand-600">Import control</p>
+          <p className="mt-1 text-xs text-slate-500">
+            This panel runs the worker import for the selected source and shows the latest fetch status. A normal flow is:
+            save source, select source, click <span className="font-semibold">Import now</span>, then review the generated drafts below.
+          </p>
           {!selectedSource ? (
             <p className="mt-3 text-sm text-slate-500">Select a source to queue imports.</p>
           ) : (
@@ -498,6 +514,10 @@ export default function AdminImportedListings({ user }: { user: User | null }) {
                 <p className="text-slate-500">{selectedSource.source_url || 'No source URL set yet'}</p>
                 <p className="text-slate-500">
                   Last fetched: {formatTime(selectedSource.last_fetched_at)} · Last imported: {formatTime(selectedSource.last_imported_at)}
+                </p>
+                <p className="text-slate-500">
+                  Status meanings: queued = waiting for worker, fetching/extracting/submitting = in progress, succeeded = snapshot and drafts created,
+                  failed/retryable = check the error and retry.
                 </p>
                 {selectedSource.last_fetch_error ? (
                   <p className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-rose-700">{selectedSource.last_fetch_error}</p>
@@ -536,6 +556,9 @@ export default function AdminImportedListings({ user }: { user: User | null }) {
 
           <div className="mt-5">
             <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Latest jobs</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Each job is one fetch attempt for this source. If a job fails, use retry import to queue a fresh run.
+            </p>
             <div className="mt-2 space-y-2">
               {selectedJobs.map((job) => (
                 <div key={job.id} className="rounded-xl border border-slate-200 p-3 text-xs">
@@ -559,7 +582,10 @@ export default function AdminImportedListings({ user }: { user: User | null }) {
 
           <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Manual fallback (edge cases)</p>
-            <p className="mt-1 text-xs text-slate-500">Use this only when URL fetch is blocked or malformed. It still creates snapshots and drafts.</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Use this only when the source cannot be fetched automatically, for example a messy page or copied schedule text from elsewhere.
+              It still creates a snapshot and draft rows, but it skips the worker fetch step.
+            </p>
             <textarea
               rows={6}
               value={rawText}
@@ -585,6 +611,10 @@ export default function AdminImportedListings({ user }: { user: User | null }) {
             <p className="text-sm font-black text-brand-600">Snapshot feedback loop</p>
             <span className="text-xs text-slate-500">Fetched snapshot to draft statuses</span>
           </div>
+          <p className="mt-1 text-xs text-slate-500">
+            A snapshot is the raw content captured from one import run. Each snapshot can create zero or more drafts. If you see
+            &quot;fetched but no event blocks found&quot;, the worker got content but the parser could not split it into usable activities.
+          </p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {selectedSnapshots.map((snapshot) => {
               const summary = sourceSnapshotSummary[snapshot.id] || { newCount: 0, needsReviewCount: 0, publishedCount: 0, rejectedCount: 0 };
@@ -625,6 +655,10 @@ export default function AdminImportedListings({ user }: { user: User | null }) {
               <option value="published">Published</option>
             </select>
           </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Review generated drafts here before they become live events. Typical flow: check the summary and warnings, add internal review notes,
+            mark needs review or reject if parsing looks wrong, and publish when the draft is good enough to appear as an imported listing.
+          </p>
           {loading ? <p className="mt-3 text-sm text-slate-500">Loading drafts...</p> : null}
           <div className="mt-4 space-y-3">
             {visibleDrafts.map((draft) => (
@@ -650,7 +684,7 @@ export default function AdminImportedListings({ user }: { user: User | null }) {
                   rows={2}
                   value={draftNoteDrafts[draft.id] ?? draft.review_notes ?? ''}
                   onChange={(e) => setDraftNoteDrafts((prev) => ({ ...prev, [draft.id]: e.target.value }))}
-                  placeholder="Review notes"
+                  placeholder="Review notes (internal only)"
                   className="mt-3 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
                 />
                 <div className="mt-3 flex flex-wrap gap-2">
