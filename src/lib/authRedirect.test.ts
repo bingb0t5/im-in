@@ -22,6 +22,7 @@ describe('buildAuthRedirectUrl', () => {
       value: {
         location: {
           origin: 'https://local.im-in.test',
+          hostname: 'local.im-in.test',
         },
       },
     });
@@ -35,6 +36,7 @@ describe('buildAuthRedirectUrl', () => {
       value: {
         location: {
           origin: 'https://local.im-in.test',
+          hostname: 'local.im-in.test',
         },
       },
     });
@@ -42,5 +44,21 @@ describe('buildAuthRedirectUrl', () => {
     vi.stubEnv('VITE_APP_URL', 'https://im-in.pages.dev///');
 
     expect(buildAuthRedirectUrl('profile')).toBe('https://im-in.pages.dev/profile');
+  });
+
+  it('throws for hosted origins when VITE_APP_URL is missing', () => {
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        location: {
+          origin: 'https://joinimin.com',
+          hostname: 'joinimin.com',
+        },
+      },
+    });
+
+    expect(() => buildAuthRedirectUrl('/login')).toThrow(
+      'VITE_APP_URL is required for hosted auth redirects outside local development.',
+    );
   });
 });

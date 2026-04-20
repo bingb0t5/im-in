@@ -306,8 +306,8 @@ Required:
 Recommended:
 
 - `VITE_APP_URL`
-  - used as an auth redirect override for hosted/proxied environments
-  - important for reliable magic-link redirects outside localhost
+  - required for hosted/proxied auth redirects outside localhost
+  - keeps magic-link and account-merge returns pinned to the canonical app origin
 - `VITE_MODERATION_ADMIN_EMAILS`
   - comma-separated allowlist for the hidden moderation page at `/admin/moderation`
   - only affects whether the page is shown/usable in the frontend
@@ -543,11 +543,11 @@ Required build-time env vars:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-Recommended hosted env var:
+Required hosted env var:
 
 - `VITE_APP_URL`
 
-Because this is a SPA using `BrowserRouter`, configure rewrites/fallback to `index.html` so deep links continue to work.
+Hosted auth flows now fail closed without `VITE_APP_URL` so sign-in and recovery do not silently bounce to the wrong origin. Because this is a SPA using `BrowserRouter`, configure rewrites/fallback to `index.html` so deep links continue to work.
 
 Deep links that need rewrite support:
 

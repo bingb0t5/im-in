@@ -205,6 +205,7 @@ export interface EventAccessRequest {
   id: string;
   event_id: string;
   requester_user_id?: string | null;
+  requester_attendee_profile_id?: string | null;
   requester_name: string;
   requester_whatsapp: string;
   requester_note?: string | null;

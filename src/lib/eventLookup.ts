@@ -1,5 +1,6 @@
 import { Event } from '../types';
 import { supabase } from '../supabase';
+import { guestService } from '../services/guestService';
 
 export type EventForView = Event & {
   can_view_full_details?: boolean;
@@ -12,6 +13,7 @@ async function fetchEventForViewOnce(
   const { data, error } = await supabase.rpc('get_event_for_view', {
     p_slug: slug,
     p_access_code: accessCode || null,
+    p_session_token: guestService.getStoredSession(),
   });
 
   if (error) {

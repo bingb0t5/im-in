@@ -104,6 +104,9 @@ The weakest / least finished areas are:
 - linked profiles can now carry both a `lalo_user_id` and a verified `whatsapp_number` from the Lalo verification flow
 - auth bootstrap now uses a shared session hook that retries reads, refreshes on focus/visibility, and clears stale invalid refresh tokens locally instead of leaving the UI stuck on a dead session
 - WhatsApp auth completion now prefers server-minted Supabase session handoff (`setSession`) so returning users avoid unnecessary password rotation during verify/login completion
+- hosted auth redirects now require `VITE_APP_URL` outside local development so sign-in and recovery return to one canonical app origin
+- WhatsApp auth attempt/completion handoff state now uses expiring local storage instead of session-only storage, making mobile return flows less fragile
+- private and semi-public guest join flows no longer silently mint a fresh guest identity before the user explicitly chooses to sign in, recover, or continue as a new guest
 
 ### Backend/data behavior
 

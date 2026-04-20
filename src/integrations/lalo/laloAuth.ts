@@ -4,6 +4,7 @@ import { laloClient, type LaloCompleteResponse, type LaloStatusResponse } from '
 const LALO_ATTEMPT_STORAGE_KEY = 'im_in_lalo_auth_attempt';
 const LALO_COMPLETION_STORAGE_KEY = 'im_in_lalo_auth_completion';
 const LALO_VERIFY_UI_STORAGE_KEY_PREFIXES = ['im_in_lalo_verify_ui_', 'im_in_lalo_verify_create_event_', 'lalo_verify_'];
+const LALO_COMPLETION_STORAGE_TTL_MS = 30 * 60 * 1000;
 
 export const LALO_AUTH_POLL_INTERVAL_MS = 1500;
 
@@ -38,31 +39,83 @@ type FinalizedLaloAuthResult = {
   whatsappNumber?: string | null;
 };
 
+type ExpiringStoredValue<T> = {
+  value: T;
+  expiresAtMs: number;
+};
+
 function isBrowser() {
   return typeof window !== 'undefined';
+}
+
+function parseStoredValue<T>(raw: string | null) {
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as ExpiringStoredValue<T> | T;
+  } catch {
+    return null;
+  }
+}
+
+function resolveStorageTtlMs(key: string, value: unknown) {
+  if (key === LALO_ATTEMPT_STORAGE_KEY) {
+    const expiresAt = typeof (value as StoredLaloAuthAttempt | null | undefined)?.expiresAt === 'string'
+      ? new Date((value as StoredLaloAuthAttempt).expiresAt).getTime()
+      : Number.NaN;
+    if (Number.isFinite(expiresAt)) {
+      return Math.max(0, expiresAt - Date.now());
+    }
+  }
+
+  return LALO_COMPLETION_STORAGE_TTL_MS;
 }
 
 function readJson<T>(key: string): T | null {
   if (!isBrowser()) return null;
 
-  const raw = window.sessionStorage.getItem(key);
-  if (!raw) return null;
+  const localRaw = window.localStorage.getItem(key);
+  const localParsed = parseStoredValue<T>(localRaw);
+  if (localParsed && typeof localParsed === 'object' && 'value' in localParsed && 'expiresAtMs' in localParsed) {
+    if (localParsed.expiresAtMs > Date.now()) {
+      return localParsed.value;
+    }
+    window.localStorage.removeItem(key);
+  } else if (localParsed) {
+    return localParsed as T;
+  }
 
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
+  const sessionRaw = window.sessionStorage.getItem(key);
+  const sessionParsed = parseStoredValue<T>(sessionRaw);
+  if (!sessionParsed) {
     window.sessionStorage.removeItem(key);
     return null;
   }
+
+  const migratedValue =
+    typeof sessionParsed === 'object' && 'value' in sessionParsed && 'expiresAtMs' in sessionParsed
+      ? sessionParsed.value
+      : (sessionParsed as T);
+
+  writeJson(key, migratedValue);
+  window.sessionStorage.removeItem(key);
+  return migratedValue;
 }
 
 function writeJson(key: string, value: unknown) {
   if (!isBrowser()) return;
-  window.sessionStorage.setItem(key, JSON.stringify(value));
+
+  const ttlMs = resolveStorageTtlMs(key, value);
+  const payload: ExpiringStoredValue<unknown> = {
+    value,
+    expiresAtMs: Date.now() + ttlMs,
+  };
+  window.localStorage.setItem(key, JSON.stringify(payload));
 }
 
 function clearStorage(key: string) {
   if (!isBrowser()) return;
+  window.localStorage.removeItem(key);
   window.sessionStorage.removeItem(key);
 }
 

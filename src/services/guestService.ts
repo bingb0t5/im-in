@@ -200,6 +200,63 @@ function generateSessionToken() {
   return Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
 }
 
+async function profileHasExistingAuthHistory(profileId: string, userId: string) {
+  const [attendeesResult, interestsResult, joinRequestsResult, accessRequestsResult] = await Promise.all([
+    supabase
+      .from('event_attendees')
+      .select('id')
+      .or(`attendee_profile_id.eq.${profileId},user_id.eq.${userId}`)
+      .neq('status', 'cancelled')
+      .limit(1),
+    supabase
+      .from('event_interests')
+      .select('id')
+      .or(`attendee_profile_id.eq.${profileId},user_id.eq.${userId}`)
+      .limit(1),
+    supabase
+      .from('event_join_requests')
+      .select('id')
+      .or(`attendee_profile_id.eq.${profileId},user_id.eq.${userId}`)
+      .neq('status', 'cancelled')
+      .limit(1),
+    supabase
+      .from('event_access_requests')
+      .select('id')
+      .or(`requester_attendee_profile_id.eq.${profileId},requester_user_id.eq.${userId}`)
+      .limit(1),
+  ]);
+
+  const failedResult = [attendeesResult, interestsResult, joinRequestsResult, accessRequestsResult]
+    .find((result) => result.error);
+  if (failedResult?.error) {
+    throw failedResult.error;
+  }
+
+  return [attendeesResult, interestsResult, joinRequestsResult, accessRequestsResult]
+    .some((result) => (result.data || []).length > 0);
+}
+
+async function hasOverlappingAttendeeRows(sourceProfileId: string, targetProfileId: string, userId: string) {
+  const [sourceResult, targetResult] = await Promise.all([
+    supabase
+      .from('event_attendees')
+      .select('event_id')
+      .eq('attendee_profile_id', sourceProfileId)
+      .neq('status', 'cancelled'),
+    supabase
+      .from('event_attendees')
+      .select('event_id')
+      .or(`attendee_profile_id.eq.${targetProfileId},user_id.eq.${userId}`)
+      .neq('status', 'cancelled'),
+  ]);
+
+  if (sourceResult.error) throw sourceResult.error;
+  if (targetResult.error) throw targetResult.error;
+
+  const targetEventIds = new Set((targetResult.data || []).map((row) => row.event_id));
+  return (sourceResult.data || []).some((row) => targetEventIds.has(row.event_id));
+}
+
 export const guestService = {
   getStoredSession(): string | null {
     return localStorage.getItem(GUEST_SESSION_KEY);
@@ -423,13 +480,23 @@ export const guestService = {
 
     const guestEmail = normalizeEmail(guestSession.profile.email || '');
     const authEmail = normalizeEmail(user.email || '');
-    const canAutoClaim = !guestSession.profile.user_id && (
+    const guestOwnershipAllowsAutoClaim = !guestSession.profile.user_id || guestSession.profile.user_id === user.id;
+    const guestIdentityMatchesAuth = guestSession.profile.user_id === user.id || (
       !guestEmail
       || isSystemGuestEmail(guestEmail)
       || guestEmail === authEmail
     );
 
-    if (!canAutoClaim) {
+    if (!guestOwnershipAllowsAutoClaim || !guestIdentityMatchesAuth) {
+      return signedInProfile;
+    }
+
+    const [authProfileHasHistory, attendeeOverlap] = await Promise.all([
+      profileHasExistingAuthHistory(signedInProfile.id, user.id),
+      hasOverlappingAttendeeRows(guestSession.profile.id, signedInProfile.id, user.id),
+    ]);
+
+    if (authProfileHasHistory || attendeeOverlap) {
       return signedInProfile;
     }
 

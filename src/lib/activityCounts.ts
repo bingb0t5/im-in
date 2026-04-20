@@ -1,6 +1,7 @@
 import { supabase } from '../supabase';
 import { Event } from '../types';
 import { dedupeEventsById } from './activityRelations';
+import { guestService } from '../services/guestService';
 
 type EventAttendeeViewRow = {
   status?: string | null;
@@ -16,6 +17,10 @@ function needsCountBackfill(event: Event) {
 
 function buildAccessCodeForView(event: Event) {
   return event.access_code || event.private_slug || event.join_code || null;
+}
+
+function getGuestSessionToken() {
+  return guestService.getStoredSession();
 }
 
 async function fetchFallbackCountsForEvent(event: Event) {
@@ -43,10 +48,12 @@ async function fetchFallbackCountsForEvent(event: Event) {
     supabase.rpc('list_event_attendees_for_view', {
       p_event_id: event.id,
       p_access_code,
+      p_session_token: getGuestSessionToken(),
     }),
     supabase.rpc('list_event_interests_for_view', {
       p_event_id: event.id,
       p_access_code,
+      p_session_token: getGuestSessionToken(),
     }),
   ]);
 
