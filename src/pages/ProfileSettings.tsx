@@ -97,6 +97,14 @@ export default function ProfileSettings({ user }: { user: User | null }) {
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
+    if (searchParams.get('completeName') === '1' || searchParams.get('signin') === 'true') {
+      console.info('[identity-debug] profile:landed-with-auth-query', {
+        completeName: searchParams.get('completeName'),
+        signin: searchParams.get('signin'),
+        returnTo: searchParams.get('returnTo'),
+        userId: user.id,
+      });
+    }
 
     const load = async () => {
       try {

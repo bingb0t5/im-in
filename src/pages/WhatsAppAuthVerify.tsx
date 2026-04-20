@@ -70,8 +70,14 @@ export default function WhatsAppAuthVerify() {
     }
 
     const result = await completeWhatsAppAuth(attempt);
+    console.info('[identity-debug] whatsapp-auth-verify:completed-navigate', {
+      flowType,
+      returnTo,
+      attemptRedirectTo: attempt.redirectTo,
+      resultRedirectTo: result.redirectTo || returnTo,
+    });
     navigate(result.redirectTo || returnTo, { replace: true });
-  }, [navigate, returnTo]);
+  }, [flowType, navigate, returnTo]);
 
   const getAuthToken = useCallback(async () => {
     if (!isLinkMode) return null;

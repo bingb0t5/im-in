@@ -23,10 +23,24 @@ export async function completeWhatsAppAuth(
   attempt: StoredLaloAuthAttempt,
   options?: CompleteWhatsAppAuthOptions,
 ) {
+  console.info('[identity-debug] completeWhatsAppAuth:start', {
+    attemptId: attempt.attemptId,
+    mode: attempt.mode,
+    attemptRedirectTo: attempt.redirectTo,
+    suppressNameCaptureRedirect: !!options?.suppressNameCaptureRedirect,
+  });
   const result = await finalizeLaloWhatsAppAuth(attempt);
   requestPostVerifyInstallPrompt(options?.userId);
+  console.info('[identity-debug] completeWhatsAppAuth:finalized', {
+    mode: result.mode,
+    finalizedRedirectTo: result.redirectTo,
+  });
 
   if (options?.suppressNameCaptureRedirect || result.mode === 'link_account') {
+    console.info('[identity-debug] completeWhatsAppAuth:skip-name-capture', {
+      reason: options?.suppressNameCaptureRedirect ? 'suppressed' : 'link_account_mode',
+      redirectTo: result.redirectTo,
+    });
     return result;
   }
 
@@ -34,8 +48,14 @@ export async function completeWhatsAppAuth(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
+    console.warn('[identity-debug] completeWhatsAppAuth:no-auth-user', {
+      redirectTo: result.redirectTo,
+    });
     return result;
   }
+  console.info('[identity-debug] completeWhatsAppAuth:auth-user', {
+    userId: user.id,
+  });
 
   let profile = null;
   try {
@@ -45,13 +65,41 @@ export async function completeWhatsAppAuth(
   } catch {
     profile = null;
   }
+  console.info('[identity-debug] completeWhatsAppAuth:resolved-profile', {
+    profileId: profile?.id || null,
+    profileUserId: profile?.user_id || null,
+    profileName: profile?.full_name || null,
+  });
 
-  if (!profileNeedsRealName(profile, user)) {
+  const needsRealName = profileNeedsRealName(profile, user);
+  console.info('[identity-debug] completeWhatsAppAuth:name-check', {
+    needsRealName,
+  });
+
+  if (!needsRealName) {
+    console.info('[identity-debug] completeWhatsAppAuth:return-finalized-redirect', {
+      redirectTo: result.redirectTo,
+    });
     return result;
   }
 
+  const rememberedGuestSession = await guestService.getStoredGuestSession().catch(() => null);
+  if (rememberedGuestSession) {
+    // Let App bootstrap run guest->auth claim/merge-prompt flow first.
+    // For remembered-guest sign-ins, avoid forcing /profile before merge eligibility is evaluated.
+    console.info('[identity-debug] completeWhatsAppAuth:skip-name-capture-for-remembered-guest', {
+      guestProfileId: rememberedGuestSession.profile.id,
+      redirectTo: result.redirectTo,
+    });
+    return result;
+  }
+
+  const nextRedirect = buildNameCaptureRedirect(result.redirectTo || attempt.redirectTo || '/');
+  console.info('[identity-debug] completeWhatsAppAuth:force-name-capture', {
+    redirectTo: nextRedirect,
+  });
   return {
     ...result,
-    redirectTo: buildNameCaptureRedirect(result.redirectTo || attempt.redirectTo || '/'),
+    redirectTo: nextRedirect,
   };
 }
