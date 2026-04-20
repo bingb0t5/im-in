@@ -8,6 +8,7 @@ import { BookingRow, GroupedBooking, groupBookingsByEvent } from '../lib/booking
 import { AttendeeProfile } from '../services/guestService';
 import { buildEventPath } from '../lib/events';
 import { goBackOr } from '../lib/navigation';
+import { isLaloWhatsAppAuthEnabled } from '../integrations/lalo/laloAuth';
 
 export default function Bookings() {
   const navigate = useNavigate();
@@ -66,7 +67,7 @@ export default function Bookings() {
       setEmailUpgradeMessage(null);
       const updated = await guestService.addEmailToProfile(profile.id, emailUpgradeValue);
       setProfile(updated);
-      setEmailUpgradeMessage('Email saved. You now have full guest account recovery.');
+      setEmailUpgradeMessage('Email saved as your backup recovery option.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not save email right now.';
       setEmailUpgradeMessage(message);
@@ -114,7 +115,7 @@ export default function Bookings() {
         </div>
       </div>
 
-      <main className="max-w-xl mx-auto px-6 pt-8 space-y-8">
+      <main className="max-w-xl mx-auto px-6 pt-6 space-y-6">
         <header>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">Your Activities</h1>
           <p className="text-slate-500 font-medium text-sm mt-1">
@@ -258,12 +259,24 @@ export default function Bookings() {
         ) : null}
 
         {isGuestAccount ? (
-          <section className="bg-white rounded-2xl border border-brand-100 p-5">
-            <p className="text-sm font-black text-brand-700">Want access to all features of I&apos;m In?</p>
-            <p className="text-xs text-slate-500 mt-1">
-              Add your email for account recovery and easier access across activities. We only use it for account recovery.
-            </p>
-            <form onSubmit={handleSaveEmailUpgrade} className="mt-3 space-y-2.5">
+          <section className="bg-white rounded-2xl border border-brand-100 p-5 space-y-3">
+            <div className="space-y-1">
+              <p className="text-sm font-black text-brand-700">Keep this guest account</p>
+              <p className="text-xs text-slate-500">
+                {isLaloWhatsAppAuthEnabled()
+                  ? 'Continue with WhatsApp to keep this across devices. Add email below as a backup for recovery.'
+                  : 'Sign in to keep this across devices. Add email below as a backup for recovery.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/login?from=%2Fbookings')}
+              className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-sm py-3 rounded-xl transition-all active:scale-95"
+            >
+              {isLaloWhatsAppAuthEnabled() ? 'Continue with WhatsApp' : 'Sign in to keep this'}
+            </button>
+            <form onSubmit={handleSaveEmailUpgrade} className="space-y-2.5 rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Email backup</p>
               <input
                 type="email"
                 required
@@ -276,9 +289,9 @@ export default function Bookings() {
               <button
                 type="submit"
                 disabled={emailUpgradeSaving}
-                className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black text-sm py-3 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+                className="w-full bg-white hover:bg-slate-100 text-brand-700 font-black text-sm py-3 rounded-xl border border-slate-200 transition-all active:scale-95 disabled:opacity-50"
               >
-                {emailUpgradeSaving ? 'Saving...' : 'Add my email'}
+                {emailUpgradeSaving ? 'Saving...' : 'Add email as backup'}
               </button>
             </form>
           </section>

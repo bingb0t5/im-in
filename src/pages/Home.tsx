@@ -6,6 +6,7 @@ import { motion } from 'motion/react';
 import { supabase } from '../supabase';
 import { Card } from '../components/ui/Card';
 import { HomeCommunitySection } from '../components/HomeCommunitySection';
+import { isLaloWhatsAppAuthEnabled } from '../integrations/lalo/laloAuth';
 import { mapJoinedBookingsToEvents, pickUpcomingActivities } from '../lib/activityRelations';
 import { groupBookingsByEvent, type GroupedBooking } from '../lib/bookings';
 import { fetchEventForView } from '../lib/eventLookup';
@@ -49,7 +50,6 @@ function pathForHomeUpcomingRow(event: Event, state: string | null) {
 
 export default function Home({ user }: { user: User | null }) {
   const navigate = useNavigate();
-  const topSpacingClass = user ? 'pt-2.5' : 'pt-16';
   const [joinCode, setJoinCode] = useState('');
   const [joinLoading, setJoinLoading] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -59,6 +59,9 @@ export default function Home({ user }: { user: User | null }) {
   const [rememberedGuestHasRecoveryEmail, setRememberedGuestHasRecoveryEmail] = useState(false);
   const [rememberedGuestUpcoming, setRememberedGuestUpcoming] = useState<GroupedBooking[]>([]);
   const [loadingRememberedGuest, setLoadingRememberedGuest] = useState(!user);
+  const hasRememberedGuestState = !user && (loadingRememberedGuest || !!rememberedGuestName);
+  const topSpacingClass = user ? 'pt-2' : hasRememberedGuestState ? 'pt-4' : 'pt-8';
+  const guestPrimaryCtaLabel = isLaloWhatsAppAuthEnabled() ? 'Continue with WhatsApp' : 'Sign in to keep this';
 
   useEffect(() => {
     if (!user) {
@@ -205,7 +208,7 @@ export default function Home({ user }: { user: User | null }) {
   return (
     <div className="bg-slate-50">
       <main className={`mx-auto max-w-2xl px-6 pb-2 ${topSpacingClass}`}>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
           {user ? (
             <Card className="space-y-2 pt-3">
               <h2 className="ui-section-title">Upcoming activities</h2>
@@ -248,47 +251,6 @@ export default function Home({ user }: { user: User | null }) {
             </Card>
           ) : rememberedGuestName || loadingRememberedGuest ? (
             <>
-              <Card className="space-y-4 pt-4">
-                <div className="space-y-1">
-                  <p className="ui-eyebrow">Guest account on this device</p>
-                  <h2 className="text-xl font-black tracking-tight text-slate-900">
-                    {loadingRememberedGuest ? 'Checking this device...' : rememberedGuestName}
-                  </h2>
-                  <p className="text-sm text-slate-500">
-                    You&apos;re using a remembered guest account on this device. It keeps your local activity history here, but signing in is the safer way to keep it across devices.
-                  </p>
-                </div>
-
-                {!loadingRememberedGuest ? (
-                  <div className="rounded-2xl border border-brand-100 bg-brand-50 p-4">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-700">Account status</p>
-                    <p className="mt-1 text-sm font-bold text-slate-900">
-                      {rememberedGuestHasRecoveryEmail ? 'Saved with recovery email on this device' : 'Local guest account on this device'}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-600">
-                      Sign in to keep this account available across browsers and devices.
-                    </p>
-                  </div>
-                ) : null}
-
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => navigate('/bookings')}
-                    className="inline-flex h-12 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 transition-all hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 active:scale-[0.99]"
-                  >
-                    View guest activities
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/login?from=%2F')}
-                    className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-brand-600 px-3 text-sm font-black text-white transition-all hover:bg-brand-500 active:scale-[0.99]"
-                  >
-                    Sign in to keep this
-                  </button>
-                </div>
-              </Card>
-
               <Card className="space-y-2 pt-3">
                 <h2 className="ui-section-title">Upcoming activities</h2>
 
@@ -326,10 +288,52 @@ export default function Home({ user }: { user: User | null }) {
                   </div>
                 )}
               </Card>
+
+              <Card className="space-y-3 pt-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="ui-eyebrow">Guest account on this device</p>
+                    <h2 className="truncate text-lg font-black tracking-tight text-slate-900">
+                      {loadingRememberedGuest ? 'Checking this device...' : rememberedGuestName}
+                    </h2>
+                    <p className="mt-0.5 text-sm text-slate-500">
+                      Remembered on this device. Sign in to keep it across devices.
+                    </p>
+                  </div>
+                  {!loadingRememberedGuest ? (
+                    <span className="shrink-0 rounded-full border border-brand-100 bg-brand-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-brand-700">
+                      {rememberedGuestHasRecoveryEmail ? 'Email backup' : 'Local only'}
+                    </span>
+                  ) : null}
+                </div>
+
+                {!loadingRememberedGuest ? (
+                  <p className="text-xs text-slate-500">
+                    WhatsApp is the main sign-in path. Email stays available as a backup for recovery.
+                  </p>
+                ) : null}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/bookings')}
+                    className="inline-flex h-10 w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition-all hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 active:scale-[0.99]"
+                  >
+                    View guest activities
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/login?from=%2F')}
+                    className="inline-flex h-10 w-full items-center justify-center rounded-2xl bg-brand-600 px-3 text-xs font-black text-white transition-all hover:bg-brand-500 active:scale-[0.99]"
+                  >
+                    {guestPrimaryCtaLabel}
+                  </button>
+                </div>
+              </Card>
             </>
           ) : null}
 
-          <Card className="space-y-3 pt-4">
+          <Card className="space-y-2.5 pt-3.5">
             <div className="space-y-0.5">
               <h2 className="ui-section-title">Received a join code?</h2>
               <p className="text-xs text-slate-500">Enter your code below to view the activity.</p>
