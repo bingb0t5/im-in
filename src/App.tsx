@@ -33,7 +33,13 @@ import WhatsAppAuthSuccess from './pages/WhatsAppAuthSuccess';
 import AccountMergeComplete from './pages/AccountMergeComplete';
 import EventShortLinkPage from './pages/EventShortLinkPage';
 import { GuestProfileMergePromptModal } from './components/GuestProfileMergePromptModal';
-import { getProfileDisplayName, guestService, type GuestAutoClaimResult } from './services/guestService';
+import {
+  getProfileDisplayName,
+  guestService,
+  type AttendeeProfile,
+  type GuestAutoClaimResult,
+  type GuestSession,
+} from './services/guestService';
 import { MainTabsLayout } from './layouts/MainTabsLayout';
 import { GlobalFeedbackWidget } from './components/GlobalFeedbackWidget';
 import { ModerationTransparencyModal } from './components/ModerationTransparencyModal';
@@ -42,6 +48,7 @@ import { InAppBrowserPrompt } from './components/system/InAppBrowserPrompt';
 import { useSupabaseSession } from './hooks/useSupabaseSession';
 
 const GUEST_MERGE_PROMPT_DISMISS_PREFIX = 'im_in_guest_merge_prompt_dismissed:';
+const DEBUG_IDENTITY_STORAGE_KEY = 'im_in_debug_identity';
 
 function buildGuestMergePromptDismissKey(result: GuestAutoClaimResult) {
   const guestProfileId = result.guestProfile?.id || 'unknown-guest';
@@ -49,31 +56,70 @@ function buildGuestMergePromptDismissKey(result: GuestAutoClaimResult) {
 }
 
 function IdentityDebugPanel({
+  user,
   result,
   promptOpen,
 }: {
+  user: User | null;
   result: GuestAutoClaimResult | null;
   promptOpen: boolean;
 }) {
   const location = useLocation();
   const [dismissed, setDismissed] = useState(false);
+  const [actualGuestSession, setActualGuestSession] = useState<GuestSession | null>(null);
+  const [actualSignedInProfile, setActualSignedInProfile] = useState<AttendeeProfile | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
   const searchParams = new URLSearchParams(location.search);
-  const enabled = import.meta.env.DEV || searchParams.get('debugIdentity') === '1';
+  const queryEnabled = searchParams.get('debugIdentity') === '1';
+  const persistedEnabled = typeof window !== 'undefined' && localStorage.getItem(DEBUG_IDENTITY_STORAGE_KEY) === '1';
+  const enabled = import.meta.env.DEV || queryEnabled || persistedEnabled;
 
   useEffect(() => {
-    setDismissed(false);
-  }, [location.search]);
+    if (!queryEnabled) return;
+    localStorage.setItem(DEBUG_IDENTITY_STORAGE_KEY, '1');
+  }, [queryEnabled]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    void (async () => {
+      const nextGuestSession = await guestService.getStoredGuestSession().catch(() => null);
+      if (cancelled) return;
+      setActualGuestSession(nextGuestSession);
+
+      if (!user) {
+        setActualSignedInProfile(null);
+        return;
+      }
+
+      const nextProfile = await guestService.getProfileForUser(user).catch(() => null);
+      if (cancelled) return;
+      setActualSignedInProfile(nextProfile);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, user?.id, location.pathname, location.search, refreshTick, result?.status, promptOpen]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const intervalId = window.setInterval(() => {
+      setRefreshTick((prev) => prev + 1);
+    }, 1500);
+    return () => window.clearInterval(intervalId);
+  }, [enabled]);
 
   if (!enabled || dismissed) return null;
 
   const status = result?.status || 'not_run';
   const reasons = result?.reasons || [];
   const promptEligible = !!result?.canPromptForMerge;
-  const storedGuestSessionPresent = !!result?.guestSession;
-  const guestProfileId = result?.guestProfile?.id || '-';
-  const guestProfileName = getProfileDisplayName(result?.guestProfile).trim() || '-';
-  const signedInProfileId = result?.targetProfile?.id || '-';
-  const signedInProfileName = getProfileDisplayName(result?.targetProfile).trim() || '-';
+  const storedGuestSessionPresent = !!actualGuestSession;
+  const guestProfileId = actualGuestSession?.profile?.id || '-';
+  const guestProfileName = getProfileDisplayName(actualGuestSession?.profile).trim() || '-';
+  const signedInProfileId = user?.id ? (actualSignedInProfile?.id || '-') : '-';
+  const signedInProfileName = user?.id ? (getProfileDisplayName(actualSignedInProfile).trim() || '-') : '-';
 
   return (
     <div className="fixed bottom-3 left-3 right-3 z-[200] max-w-xl rounded-2xl border border-slate-300 bg-white p-3 shadow-2xl sm:left-auto sm:right-3">
@@ -91,11 +137,14 @@ function IdentityDebugPanel({
         </button>
       </div>
       <div className="max-h-56 space-y-1 overflow-auto rounded-xl bg-slate-50 p-2 text-[11px] text-slate-700">
+        <p><span className="font-bold">auth user:</span> {user ? `yes (${user.id})` : 'no'}</p>
+        <p className="pt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">actual current state</p>
         <p><span className="font-bold">stored guest session:</span> {storedGuestSessionPresent ? 'yes' : 'no'}</p>
         <p><span className="font-bold">guest profile id:</span> {guestProfileId}</p>
         <p><span className="font-bold">guest profile name:</span> {guestProfileName}</p>
         <p><span className="font-bold">signed-in profile id:</span> {signedInProfileId}</p>
         <p><span className="font-bold">signed-in profile name:</span> {signedInProfileName}</p>
+        <p className="pt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">latest merge result</p>
         <p><span className="font-bold">result status:</span> {status}</p>
         <p><span className="font-bold">reasons:</span> {reasons.length > 0 ? reasons.join(', ') : '-'}</p>
         <p><span className="font-bold">promptEligible:</span> {promptEligible ? 'true' : 'false'}</p>
@@ -249,6 +298,7 @@ export default function App() {
         <GlobalFeedbackWidget user={user} />
         <ModerationTransparencyModal />
         <IdentityDebugPanel
+          user={user}
           result={lastGuestAutoClaimResult}
           promptOpen={!!pendingGuestMerge}
         />
