@@ -260,6 +260,11 @@ export default function EventDetail({ user }: { user: User | null }) {
   };
 
   const promptForSensitiveGuestRecovery = (action: 'rsvp' | 'thinking' | 'proxy') => {
+    // Keep only one modal visible; otherwise proxy submit looks like a no-op
+    // when recovery prompt opens behind the proxy sheet.
+    if (action === 'proxy') {
+      setShowProxyModal(false);
+    }
     setPendingSensitiveGuestAction(action);
     setShowSensitiveGuestRecoveryModal(true);
   };

@@ -696,7 +696,20 @@ export const guestService = {
 
   async syncStoredGuestSessionForUser(user: User, name?: string): Promise<GuestAutoClaimResult> {
     const profile = await this.getOrCreateProfileForUser(user, name);
-    return this.claimStoredGuestSessionForUser(user, profile);
+    try {
+      return await this.claimStoredGuestSessionForUser(user, profile);
+    } catch (error) {
+      // Never let bootstrap merge sync fail hard; return a structured blocked result
+      // so UI/debug state can still reflect what happened.
+      console.warn('Claim sync failed, returning skipped_blocked fallback:', error);
+      const guestSession = await this.getStoredGuestSession().catch(() => null);
+      return buildGuestAutoClaimResult(profile, {
+        status: 'skipped_blocked',
+        reasons: [],
+        guestSession,
+        guestProfile: guestSession?.profile || null,
+      });
+    }
   },
 
   async mergeStoredGuestSessionIntoUser(
