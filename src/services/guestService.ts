@@ -66,6 +66,7 @@ export interface GuestAutoClaimResult {
   reasons: GuestAutoClaimReason[];
   canPromptForMerge: boolean;
   blockedReason: string | null;
+  debugError: string | null;
   ownershipCheck: GuestOwnershipCheck | null;
   profile: AttendeeProfile;
   guestSession: GuestSession | null;
@@ -83,6 +84,16 @@ export interface GuestOwnershipCheck {
   authEmail: string;
   ownershipAllowsAutoClaim: boolean;
   identityMatchesAuth: boolean;
+}
+
+interface GuestMergeEligibility {
+  guest_attendee_count: number;
+  guest_interest_count: number;
+  guest_join_request_count: number;
+  target_attendee_count: number;
+  target_interest_count: number;
+  target_join_request_count: number;
+  attendee_overlap: boolean;
 }
 
 const GUEST_SESSION_KEY = 'im_in_guest_session';
@@ -396,6 +407,7 @@ function buildGuestAutoClaimResult(
     reasons,
     canPromptForMerge: options.canPromptForMerge || false,
     blockedReason: options.blockedReason || null,
+    debugError: options.debugError || null,
     ownershipCheck: options.ownershipCheck || null,
     profile: options.profile || targetProfile,
     guestSession: options.guestSession || null,
@@ -431,6 +443,45 @@ export function evaluateGuestOwnershipCheck(guestProfile: AttendeeProfile, user:
     authEmail,
     ownershipAllowsAutoClaim,
     identityMatchesAuth,
+  };
+}
+
+function toErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function toCount(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+async function getGuestMergeEligibility(
+  guestProfileId: string,
+  targetProfileId: string,
+  userId: string,
+): Promise<GuestMergeEligibility> {
+  const { data, error } = await supabase.rpc('get_guest_merge_eligibility', {
+    p_guest_profile_id: guestProfileId,
+    p_target_profile_id: targetProfileId,
+    p_user_id: userId,
+  });
+  if (error) throw error;
+
+  const payload = typeof data === 'string' ? JSON.parse(data) : (data || {});
+  return {
+    guest_attendee_count: toCount(payload.guest_attendee_count),
+    guest_interest_count: toCount(payload.guest_interest_count),
+    guest_join_request_count: toCount(payload.guest_join_request_count),
+    target_attendee_count: toCount(payload.target_attendee_count),
+    target_interest_count: toCount(payload.target_interest_count),
+    target_join_request_count: toCount(payload.target_join_request_count),
+    attendee_overlap: !!payload.attendee_overlap,
   };
 }
 export const guestService = {
@@ -703,11 +754,40 @@ export const guestService = {
       });
     }
 
-    const [guestHistory, targetHistory, attendeeOverlap] = await Promise.all([
-      getProfileHistorySummary(guestSession.profile.id),
-      getProfileHistorySummary(signedInProfile.id, { userId: user.id }),
-      hasOverlappingAttendeeRows(guestSession.profile.id, signedInProfile.id, user.id),
-    ]);
+    let guestHistory: ProfileHistorySummary;
+    let targetHistory: ProfileHistorySummary;
+    let attendeeOverlap = false;
+
+    try {
+      const eligibility = await getGuestMergeEligibility(
+        guestSession.profile.id,
+        signedInProfile.id,
+        user.id,
+      );
+      guestHistory = {
+        attendeeCount: eligibility.guest_attendee_count,
+        interestCount: eligibility.guest_interest_count,
+        joinRequestCount: eligibility.guest_join_request_count,
+        accessRequestCount: 0,
+      };
+      targetHistory = {
+        attendeeCount: eligibility.target_attendee_count,
+        interestCount: eligibility.target_interest_count,
+        joinRequestCount: eligibility.target_join_request_count,
+        accessRequestCount: 0,
+      };
+      attendeeOverlap = eligibility.attendee_overlap;
+    } catch (error) {
+      return buildGuestAutoClaimResult(signedInProfile, {
+        status: 'skipped_blocked',
+        blockedReason: 'eligibility_check_failed',
+        debugError: toErrorMessage(error),
+        reasons: [],
+        ownershipCheck,
+        guestSession,
+        guestProfile: guestSession.profile,
+      });
+    }
 
     if (getProfileHistoryCount(targetHistory) > 0 && !reasons.includes('target_has_history')) {
       reasons.push('target_has_history');
@@ -786,6 +866,7 @@ export const guestService = {
         status: 'skipped_blocked',
         reasons: [],
         blockedReason: 'sync_error_fallback',
+        debugError: toErrorMessage(error),
         ownershipCheck,
         guestSession,
         guestProfile: guestSession?.profile || null,

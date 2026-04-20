@@ -129,6 +129,7 @@ function IdentityDebugPanel({
     user && actualGuestSession ? evaluateGuestOwnershipCheck(actualGuestSession.profile, user) : null
   );
   const blockedReason = result?.blockedReason || (status === 'skipped_blocked' ? 'unknown_blocked' : '-');
+  const debugError = result?.debugError || '-';
   const guestProfileUserId = ownershipCheck?.guestProfileUserId || '-';
   const ownershipAllowsAutoClaim = ownershipCheck ? (ownershipCheck.ownershipAllowsAutoClaim ? 'true' : 'false') : '-';
   const identityMatchesAuth = ownershipCheck ? (ownershipCheck.identityMatchesAuth ? 'true' : 'false') : '-';
@@ -174,6 +175,7 @@ function IdentityDebugPanel({
         <p className="pt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">latest merge result</p>
         <p><span className="font-bold">result status:</span> {status}</p>
         <p><span className="font-bold">blocked reason:</span> {blockedReason}</p>
+        <p><span className="font-bold">debug error:</span> {debugError}</p>
         <p><span className="font-bold">reasons:</span> {reasons.length > 0 ? reasons.join(', ') : '-'}</p>
         <p>
           <span className="font-bold">promptable reasons:</span>{' '}
