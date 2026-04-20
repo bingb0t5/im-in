@@ -4,6 +4,7 @@ import { Calendar, ExternalLink, MapPin, Shield, X } from 'lucide-react';
 import { supabase } from '../supabase';
 import { PublicModerationLogEntry } from '../types';
 import { formatDate } from '../utils';
+import { guestService } from '../services/guestService';
 
 type ActionFilter = 'all' | PublicModerationLogEntry['action'];
 
@@ -180,6 +181,7 @@ export function ModerationTransparencyModal() {
     const { data, error: previewRpcError } = await supabase.rpc('get_event_for_view', {
       p_slug: entry.public_slug_snapshot,
       p_access_code: null,
+      p_session_token: guestService.getStoredSession(),
     });
 
     if (previewRpcError || !Array.isArray(data) || data.length === 0) {

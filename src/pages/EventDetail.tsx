@@ -110,6 +110,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [interests, setInterests] = useState<EventInterest[]>([]);
   const [thinkingLoading, setThinkingLoading] = useState(false);
   const [showThinkingModal, setShowThinkingModal] = useState(false);
+  const [showSensitiveGuestRecoveryModal, setShowSensitiveGuestRecoveryModal] = useState(false);
   const [isEventHostViewer, setIsEventHostViewer] = useState(false);
   const [adderNamesByProfileId, setAdderNamesByProfileId] = useState<Record<string, string>>({});
   const [adderHasEmailByProfileId, setAdderHasEmailByProfileId] = useState<Record<string, boolean>>({});
@@ -138,6 +139,8 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryReportMessage, setGalleryReportMessage] = useState<string | null>(null);
   const [galleryReportLoadingId, setGalleryReportLoadingId] = useState<string | null>(null);
+  const [pendingSensitiveGuestAction, setPendingSensitiveGuestAction] = useState<'rsvp' | 'thinking' | 'proxy' | null>(null);
+  const allowSensitiveGuestCreationRef = useRef(false);
 
   useBodyScrollLock(
     showRequestModal
@@ -146,6 +149,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     || showCancelModal
     || showProxyModal
     || showThinkingModal
+    || showSensitiveGuestRecoveryModal
     || showShareChoiceModal
     || showManualShareModal,
   );
@@ -244,6 +248,29 @@ export default function EventDetail({ user }: { user: User | null }) {
     return user ? signedInProfileId || guestProfile?.id || null : guestProfile?.id || signedInProfileId || null;
   };
 
+  const getGuestSessionToken = () => guestService.getStoredSession();
+
+  const currentReturnTo = `${location.pathname}${location.search}`;
+  const effectiveEventVisibility = event?.visibility || (event?.is_public ? 'public' : 'private');
+
+  const closeSensitiveGuestRecoveryModal = () => {
+    allowSensitiveGuestCreationRef.current = false;
+    setPendingSensitiveGuestAction(null);
+    setShowSensitiveGuestRecoveryModal(false);
+  };
+
+  const promptForSensitiveGuestRecovery = (action: 'rsvp' | 'thinking' | 'proxy') => {
+    setPendingSensitiveGuestAction(action);
+    setShowSensitiveGuestRecoveryModal(true);
+  };
+
+  const shouldBlockSilentGuestCreation = (currentProfileId: string | null) => (
+    !user
+    && !currentProfileId
+    && effectiveEventVisibility !== 'public'
+    && !allowSensitiveGuestCreationRef.current
+  );
+
   const getAddedByLabel = (attendee: Attendee) => {
     if (!attendee.added_by_type || attendee.added_by_type === 'self') return null;
     if (attendee.added_by_type === 'host') return 'added by host';
@@ -329,6 +356,12 @@ export default function EventDetail({ user }: { user: User | null }) {
     };
     checkGuestSession();
   }, []);
+
+  useEffect(() => {
+    allowSensitiveGuestCreationRef.current = false;
+    setPendingSensitiveGuestAction(null);
+    setShowSensitiveGuestRecoveryModal(false);
+  }, [slug, user?.id]);
 
   useEffect(() => {
     if (!user) return;
@@ -648,6 +681,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     const { data, error } = await supabase.rpc('get_event_for_view', {
       p_slug: slug,
       p_access_code: searchParams.get('access'),
+      p_session_token: getGuestSessionToken(),
     });
 
     if (error || !Array.isArray(data) || data.length === 0) {
@@ -780,6 +814,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     const { data } = await supabase.rpc('list_event_attendees_for_view', {
       p_event_id: id,
       p_access_code: searchParams.get('access') || slug || null,
+      p_session_token: getGuestSessionToken(),
     });
 
     if (data) {
@@ -798,6 +833,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     const { data } = await supabase.rpc('list_event_interests_for_view', {
       p_event_id: id,
       p_access_code: searchParams.get('access') || slug || null,
+      p_session_token: getGuestSessionToken(),
     });
 
     if (data) {
@@ -869,11 +905,17 @@ export default function EventDetail({ user }: { user: User | null }) {
         setSignedInProfileId(profile.id);
       }
 
+      if (shouldBlockSilentGuestCreation(currentProfileId)) {
+        promptForSensitiveGuestRecovery('thinking');
+        return;
+      }
+
       if (!user && !currentProfileId) {
         const names = name.split(' ');
         const firstName = names[0];
         const lastName = names.slice(1).join(' ') || '';
         const { profile } = await guestService.createGuestSession(firstName, lastName, { email: rawEmail || null });
+        allowSensitiveGuestCreationRef.current = false;
         currentProfileId = profile.id;
         setGuestProfile(profile);
         setGuestInfo((prev) => ({
@@ -962,11 +1004,17 @@ export default function EventDetail({ user }: { user: User | null }) {
       }
 
       // 1. For guests, create a profile/session if missing.
+      if (shouldBlockSilentGuestCreation(currentProfileId)) {
+        promptForSensitiveGuestRecovery('rsvp');
+        return;
+      }
+
       if (!user && !currentProfileId) {
         const names = name.split(' ');
         const firstName = names[0];
         const lastName = names.slice(1).join(' ') || '';
         const { profile } = await guestService.createGuestSession(firstName, lastName, { email: rawEmail || null });
+        allowSensitiveGuestCreationRef.current = false;
         currentProfileId = profile.id;
         setGuestProfile(profile);
         setGuestInfo((prev) => ({
@@ -1025,8 +1073,8 @@ export default function EventDetail({ user }: { user: User | null }) {
     }
   };
 
-  const handleProxyRsvp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleProxyRsvp = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!event || !proxyName.trim()) return;
     if ((event.participation_mode || 'rsvp') !== 'rsvp') {
       setProxyError('Proxy RSVP is disabled for non-signup activities.');
@@ -1063,6 +1111,11 @@ export default function EventDetail({ user }: { user: User | null }) {
         setSignedInProfileId(profile.id);
       }
 
+      if (shouldBlockSilentGuestCreation(currentProfileId)) {
+        promptForSensitiveGuestRecovery('proxy');
+        return;
+      }
+
       if (!user && !currentProfileId) {
         const ownerName = pickFirstNonEmpty(proxyOwnerName, guestInfo.name, fallbackNameFromEmail(rawEmail));
         if (!ownerName) {
@@ -1074,6 +1127,7 @@ export default function EventDetail({ user }: { user: User | null }) {
         const firstName = names[0];
         const lastName = names.slice(1).join(' ') || '';
         const { profile } = await guestService.createGuestSession(firstName, lastName, { email: rawEmail || null });
+        allowSensitiveGuestCreationRef.current = false;
         currentProfileId = profile.id;
         setGuestProfile(profile);
         setGuestInfo({ name: profile.full_name, email: getDisplayEmail(profile.email) });
@@ -1128,6 +1182,23 @@ export default function EventDetail({ user }: { user: User | null }) {
     }
   };
 
+  const handleContinueAsNewSensitiveGuest = () => {
+    const action = pendingSensitiveGuestAction;
+    allowSensitiveGuestCreationRef.current = true;
+    setPendingSensitiveGuestAction(null);
+    setShowSensitiveGuestRecoveryModal(false);
+
+    if (action === 'thinking') {
+      void handleToggleThinking();
+      return;
+    }
+    if (action === 'proxy') {
+      void handleProxyRsvp();
+      return;
+    }
+    void handleRsvp();
+  };
+
   const handleCancel = async () => {
     if (!rsvpToCancel) return;
 
@@ -1172,6 +1243,28 @@ export default function EventDetail({ user }: { user: User | null }) {
     try {
       setRequestLoading(true);
       setRequestError(null);
+      let currentProfileId = getCurrentProfileId();
+
+      if (user && !currentProfileId) {
+        const profile = await guestService.getOrCreateProfileForUser(user);
+        currentProfileId = profile.id;
+        setSignedInProfile(profile);
+        setSignedInProfileId(profile.id);
+      }
+
+      if (!user && !currentProfileId) {
+        const names = name.split(' ');
+        const firstName = names[0] || '';
+        const lastName = names.slice(1).join(' ');
+        const { profile } = await guestService.createGuestSession(firstName, lastName);
+        currentProfileId = profile.id;
+        setGuestProfile(profile);
+        setGuestInfo((prev) => ({
+          name: profile.full_name || prev.name || name,
+          email: getDisplayEmail(profile.email || prev.email),
+        }));
+      }
+
       const { data: existingPending } = await supabase
         .from('event_access_requests')
         .select('id')
@@ -1190,6 +1283,7 @@ export default function EventDetail({ user }: { user: User | null }) {
         {
           event_id: event.id,
           requester_user_id: user?.id || null,
+          requester_attendee_profile_id: currentProfileId || null,
           requester_name: name,
           requester_whatsapp: whatsapp,
           requester_note: requestNote.trim() || null,
@@ -2166,6 +2260,63 @@ export default function EventDetail({ user }: { user: User | null }) {
                   ))}
                 </div>
               )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showSensitiveGuestRecoveryModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={closeSensitiveGuestRecoveryModal}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              className="relative w-full max-w-md bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
+            >
+              <div className="flex items-start justify-between gap-4 mb-5">
+                <div>
+                  <h2 className="text-2xl font-black text-slate-900 tracking-tight">Keep your activity access</h2>
+                  <p className="mt-2 text-sm text-slate-500 font-medium leading-relaxed">
+                    This is a {effectiveEventVisibility === 'semi_public' ? 'semi-public' : 'private'} activity.
+                    Before creating a brand new guest identity, sign in or recover your previous access if this might already be you.
+                  </p>
+                </div>
+                <button onClick={closeSensitiveGuestRecoveryModal} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
+                  <X className="w-6 h-6 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => navigate(`/login?from=${encodeURIComponent(currentReturnTo)}`)}
+                  className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
+                >
+                  Sign in or recover access
+                </button>
+                <button
+                  type="button"
+                  onClick={handleContinueAsNewSensitiveGuest}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95"
+                >
+                  Continue as a new guest
+                </button>
+                <button
+                  type="button"
+                  onClick={closeSensitiveGuestRecoveryModal}
+                  className="w-full text-xs font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 py-2 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

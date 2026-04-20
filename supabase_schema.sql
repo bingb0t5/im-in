@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS public.event_waitlist_positions (
 CREATE TABLE IF NOT EXISTS public.event_access_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    requester_attendee_profile_id UUID REFERENCES public.attendee_profiles(id) ON DELETE SET NULL,
     requester_name TEXT NOT NULL,
     requester_whatsapp TEXT NOT NULL,
     requester_note TEXT,
@@ -83,6 +84,9 @@ CREATE TABLE IF NOT EXISTS public.event_access_requests (
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS event_access_requests_requester_attendee_profile_id_idx
+    ON public.event_access_requests (requester_attendee_profile_id);
 
 CREATE TABLE IF NOT EXISTS public.event_join_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -674,7 +678,8 @@ $$ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.get_event_for_view(
     p_slug TEXT,
-    p_access_code TEXT DEFAULT NULL
+    p_access_code TEXT DEFAULT NULL,
+    p_session_token TEXT DEFAULT NULL
 ) RETURNS TABLE (
     id UUID,
     slug TEXT,
@@ -752,15 +757,15 @@ BEGIN
     v_has_access_code := nullif(trim(coalesce(p_access_code, '')), '') IS NOT NULL
         AND p_access_code = v_event.access_code;
     v_is_shared := auth.uid() IS NOT NULL AND public.is_event_shared_with_user_active(v_event.id, auth.uid());
-    v_is_attendee := auth.uid() IS NOT NULL AND EXISTS (
+    v_is_attendee := EXISTS (
         SELECT 1
         FROM public.event_attendees ea
         LEFT JOIN public.attendee_profiles ap ON ap.id = ea.attendee_profile_id
         WHERE ea.event_id = v_event.id
           AND ea.status IN ('confirmed', 'waitlist', 'pending_approval')
           AND (
-              ea.user_id = auth.uid()
-              OR ap.user_id = auth.uid()
+              (auth.uid() IS NOT NULL AND (ea.user_id = auth.uid() OR ap.user_id = auth.uid()))
+              OR (v_guest_profile_id IS NOT NULL AND ea.attendee_profile_id = v_guest_profile_id)
           )
     );
 
@@ -942,15 +947,15 @@ BEGIN
 
     v_is_shared := auth.uid() IS NOT NULL AND public.is_event_shared_with_user_active(p_event_id, auth.uid());
 
-    v_is_attendee := auth.uid() IS NOT NULL AND EXISTS (
+    v_is_attendee := EXISTS (
         SELECT 1
         FROM public.event_attendees ea
         LEFT JOIN public.attendee_profiles ap ON ap.id = ea.attendee_profile_id
         WHERE ea.event_id = p_event_id
           AND ea.status IN ('confirmed', 'waitlist', 'pending_approval')
           AND (
-              ea.user_id = auth.uid()
-              OR ap.user_id = auth.uid()
+              (auth.uid() IS NOT NULL AND (ea.user_id = auth.uid() OR ap.user_id = auth.uid()))
+              OR (v_guest_profile_id IS NOT NULL AND ea.attendee_profile_id = v_guest_profile_id)
           )
     );
 
@@ -1018,15 +1023,15 @@ BEGIN
 
     v_is_shared := auth.uid() IS NOT NULL AND public.is_event_shared_with_user_active(p_event_id, auth.uid());
 
-    v_is_attendee := auth.uid() IS NOT NULL AND EXISTS (
+    v_is_attendee := EXISTS (
         SELECT 1
         FROM public.event_attendees ea
         LEFT JOIN public.attendee_profiles ap ON ap.id = ea.attendee_profile_id
         WHERE ea.event_id = p_event_id
           AND ea.status IN ('confirmed', 'waitlist', 'pending_approval')
           AND (
-              ea.user_id = auth.uid()
-              OR ap.user_id = auth.uid()
+              (auth.uid() IS NOT NULL AND (ea.user_id = auth.uid() OR ap.user_id = auth.uid()))
+              OR (v_guest_profile_id IS NOT NULL AND ea.attendee_profile_id = v_guest_profile_id)
           )
     );
 
@@ -1467,6 +1472,8 @@ DECLARE
     v_visibility TEXT;
     v_is_host BOOLEAN := false;
     v_has_access_code BOOLEAN := false;
+    v_guest_profile_id UUID := NULL;
+    v_has_profile_approved_access BOOLEAN := false;
     v_can_view_full BOOLEAN := false;
 BEGIN
     SELECT *
@@ -1479,13 +1486,30 @@ BEGIN
         RETURN;
     END IF;
 
+    IF nullif(trim(coalesce(p_session_token, '')), '') IS NOT NULL THEN
+        SELECT s.attendee_profile_id
+        INTO v_guest_profile_id
+        FROM public.attendee_sessions s
+        WHERE s.token = trim(p_session_token)
+          AND s.expires_at > now()
+        LIMIT 1;
+    END IF;
+
     v_visibility := COALESCE(v_event.visibility, CASE WHEN v_event.is_public THEN 'public' ELSE 'private' END);
     v_is_host := auth.uid() IS NOT NULL AND public.is_event_host(v_event.id, auth.uid());
     v_has_access_code := nullif(trim(coalesce(p_access_code, '')), '') IS NOT NULL
         AND p_access_code = v_event.access_code;
+    v_has_profile_approved_access := v_guest_profile_id IS NOT NULL AND EXISTS (
+        SELECT 1
+        FROM public.event_access_requests ear
+        WHERE ear.event_id = v_event.id
+          AND ear.status = 'approved'
+          AND ear.requester_attendee_profile_id = v_guest_profile_id
+    );
 
     v_can_view_full := v_visibility = 'public'
         OR v_visibility = 'private'
+        OR v_has_profile_approved_access
         OR (v_visibility = 'semi_public' AND (v_is_host OR v_has_access_code));
 
     RETURN QUERY
@@ -1548,7 +1572,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
 
-GRANT EXECUTE ON FUNCTION public.get_event_for_view(TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_event_for_view(TEXT, TEXT, TEXT) TO anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.list_public_calendar_events(
     p_now TIMESTAMPTZ DEFAULT now()
@@ -1631,11 +1655,14 @@ GRANT EXECUTE ON FUNCTION public.count_hidden_upcoming_activities(TIMESTAMPTZ, T
 
 CREATE OR REPLACE FUNCTION public.list_event_attendees_for_view(
     p_event_id UUID,
-    p_access_code TEXT DEFAULT NULL
+    p_access_code TEXT DEFAULT NULL,
+    p_session_token TEXT DEFAULT NULL
 ) RETURNS SETOF public.event_attendees AS $$
 DECLARE
     v_visibility TEXT;
     v_event_access_code TEXT;
+    v_guest_profile_id UUID := NULL;
+    v_has_profile_approved_access BOOLEAN := false;
     v_can_view BOOLEAN := false;
 BEGIN
     SELECT
@@ -1651,8 +1678,26 @@ BEGIN
         RETURN;
     END IF;
 
+    IF nullif(trim(coalesce(p_session_token, '')), '') IS NOT NULL THEN
+        SELECT s.attendee_profile_id
+        INTO v_guest_profile_id
+        FROM public.attendee_sessions s
+        WHERE s.token = trim(p_session_token)
+          AND s.expires_at > now()
+        LIMIT 1;
+    END IF;
+
+    v_has_profile_approved_access := v_guest_profile_id IS NOT NULL AND EXISTS (
+        SELECT 1
+        FROM public.event_access_requests ear
+        WHERE ear.event_id = p_event_id
+          AND ear.status = 'approved'
+          AND ear.requester_attendee_profile_id = v_guest_profile_id
+    );
+
     v_can_view := v_visibility = 'public'
         OR v_visibility = 'private'
+        OR v_has_profile_approved_access
         OR (
             v_visibility = 'semi_public'
             AND (
@@ -1677,15 +1722,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
 
-GRANT EXECUTE ON FUNCTION public.list_event_attendees_for_view(UUID, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.list_event_attendees_for_view(UUID, TEXT, TEXT) TO anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.list_event_interests_for_view(
     p_event_id UUID,
-    p_access_code TEXT DEFAULT NULL
+    p_access_code TEXT DEFAULT NULL,
+    p_session_token TEXT DEFAULT NULL
 ) RETURNS SETOF public.event_interests AS $$
 DECLARE
     v_visibility TEXT;
     v_event_access_code TEXT;
+    v_guest_profile_id UUID := NULL;
+    v_has_profile_approved_access BOOLEAN := false;
     v_can_view_named BOOLEAN := false;
 BEGIN
     SELECT
@@ -1711,7 +1759,25 @@ BEGIN
         RETURN;
     END IF;
 
+    IF nullif(trim(coalesce(p_session_token, '')), '') IS NOT NULL THEN
+        SELECT s.attendee_profile_id
+        INTO v_guest_profile_id
+        FROM public.attendee_sessions s
+        WHERE s.token = trim(p_session_token)
+          AND s.expires_at > now()
+        LIMIT 1;
+    END IF;
+
+    v_has_profile_approved_access := v_guest_profile_id IS NOT NULL AND EXISTS (
+        SELECT 1
+        FROM public.event_access_requests ear
+        WHERE ear.event_id = p_event_id
+          AND ear.status = 'approved'
+          AND ear.requester_attendee_profile_id = v_guest_profile_id
+    );
+
     v_can_view_named := v_visibility = 'private'
+        OR v_has_profile_approved_access
         OR (
             v_visibility = 'semi_public'
             AND (
@@ -1735,7 +1801,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public;
 
-GRANT EXECUTE ON FUNCTION public.list_event_interests_for_view(UUID, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.list_event_interests_for_view(UUID, TEXT, TEXT) TO anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.get_guest_bookings(
     p_session_token TEXT
@@ -2619,6 +2685,10 @@ BEGIN
     UPDATE public.event_join_requests
     SET attendee_profile_id = p_target_profile_id
     WHERE attendee_profile_id = p_source_profile_id;
+
+    UPDATE public.event_access_requests
+    SET requester_attendee_profile_id = p_target_profile_id
+    WHERE requester_attendee_profile_id = p_source_profile_id;
 
     UPDATE public.attendee_sessions
     SET attendee_profile_id = p_target_profile_id
