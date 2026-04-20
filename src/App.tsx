@@ -34,8 +34,11 @@ import AccountMergeComplete from './pages/AccountMergeComplete';
 import EventShortLinkPage from './pages/EventShortLinkPage';
 import { GuestProfileMergePromptModal } from './components/GuestProfileMergePromptModal';
 import {
+  classifyGuestAutoClaimReasons,
   getProfileDisplayName,
   guestService,
+  HARD_BLOCK_GUEST_AUTO_CLAIM_REASONS,
+  PROMPTABLE_GUEST_AUTO_CLAIM_REASONS,
   type AttendeeProfile,
   type GuestAutoClaimResult,
   type GuestSession,
@@ -114,6 +117,7 @@ function IdentityDebugPanel({
 
   const status = result?.status || 'not_run';
   const reasons = result?.reasons || [];
+  const { hardBlocked: hardBlockedReasons, promptable: promptableReasons } = classifyGuestAutoClaimReasons(reasons);
   const promptEligible = !!result?.canPromptForMerge;
   const storedGuestSessionPresent = !!actualGuestSession;
   const guestProfileId = actualGuestSession?.profile?.id || '-';
@@ -147,8 +151,19 @@ function IdentityDebugPanel({
         <p className="pt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">latest merge result</p>
         <p><span className="font-bold">result status:</span> {status}</p>
         <p><span className="font-bold">reasons:</span> {reasons.length > 0 ? reasons.join(', ') : '-'}</p>
+        <p>
+          <span className="font-bold">promptable reasons:</span>{' '}
+          {promptableReasons.length > 0 ? promptableReasons.join(', ') : '-'}
+        </p>
+        <p>
+          <span className="font-bold">hard-block reasons:</span>{' '}
+          {hardBlockedReasons.length > 0 ? hardBlockedReasons.join(', ') : '-'}
+        </p>
         <p><span className="font-bold">promptEligible:</span> {promptEligible ? 'true' : 'false'}</p>
         <p><span className="font-bold">promptOpen:</span> {promptOpen ? 'true' : 'false'}</p>
+        <p className="pt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">policy classification</p>
+        <p><span className="font-bold">promptable policy:</span> {PROMPTABLE_GUEST_AUTO_CLAIM_REASONS.join(', ')}</p>
+        <p><span className="font-bold">hard-block policy:</span> {HARD_BLOCK_GUEST_AUTO_CLAIM_REASONS.join(', ')}</p>
       </div>
     </div>
   );

@@ -42,6 +42,18 @@ export type GuestAutoClaimReason =
   | 'target_has_history'
   | 'name_conflict';
 
+export const HARD_BLOCK_GUEST_AUTO_CLAIM_REASONS: GuestAutoClaimReason[] = [
+  'guest_owned_by_other_user',
+  'verified_identity_conflict',
+  'attendee_overlap',
+];
+
+export const PROMPTABLE_GUEST_AUTO_CLAIM_REASONS: GuestAutoClaimReason[] = [
+  'guest_identity_mismatch',
+  'target_has_history',
+  'name_conflict',
+];
+
 export type GuestAutoClaimStatus =
   | 'merged'
   | 'already_unified'
@@ -378,6 +390,12 @@ function buildGuestAutoClaimResult(
     targetHistory: options.targetHistory || null,
   };
 }
+
+export function classifyGuestAutoClaimReasons(reasons: GuestAutoClaimReason[]) {
+  const hardBlocked = reasons.filter((reason) => HARD_BLOCK_GUEST_AUTO_CLAIM_REASONS.includes(reason));
+  const promptable = reasons.filter((reason) => PROMPTABLE_GUEST_AUTO_CLAIM_REASONS.includes(reason));
+  return { hardBlocked, promptable };
+}
 export const guestService = {
   getStoredSession(): string | null {
     return localStorage.getItem(GUEST_SESSION_KEY);
@@ -616,16 +634,18 @@ export const guestService = {
       || guestEmail === authEmail
     );
 
-    if (!guestOwnershipAllowsAutoClaim || !guestIdentityMatchesAuth) {
-      if (!reasons.includes('guest_identity_mismatch')) {
-        reasons.push('guest_identity_mismatch');
-      }
+    if (!guestOwnershipAllowsAutoClaim) {
+      if (!reasons.includes('guest_identity_mismatch')) reasons.push('guest_identity_mismatch');
       return buildGuestAutoClaimResult(signedInProfile, {
         status: 'skipped_blocked',
         reasons,
         guestSession,
         guestProfile: guestSession.profile,
       });
+    }
+
+    if (!guestIdentityMatchesAuth) {
+      reasons.push('guest_identity_mismatch');
     }
 
     const hasNameConflict = hasConflictingMeaningfulNames(guestSession.profile, signedInProfile, user);
@@ -665,7 +685,19 @@ export const guestService = {
       });
     }
 
-    if (reasons.includes('name_conflict') || reasons.includes('target_has_history')) {
+    const { hardBlocked, promptable } = classifyGuestAutoClaimReasons(reasons);
+    if (hardBlocked.length > 0) {
+      return buildGuestAutoClaimResult(signedInProfile, {
+        status: 'skipped_blocked',
+        reasons,
+        guestSession,
+        guestProfile: guestSession.profile,
+        guestHistory,
+        targetHistory,
+      });
+    }
+
+    if (promptable.length > 0) {
       return buildGuestAutoClaimResult(signedInProfile, {
         status: 'skipped_conflict',
         reasons,
