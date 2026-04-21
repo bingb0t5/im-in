@@ -177,12 +177,14 @@ Deno.serve(async (req) => {
     }
 
     const accessCode = normalizeText(typeof body?.accessCode === 'string' ? body.accessCode : '') || null;
+    const sessionToken = normalizeText(typeof body?.sessionToken === 'string' ? body.sessionToken : '') || null;
     const userClient = createClient(supabaseUrl, supabaseAnonKey, {
       global: authorizationHeader ? { headers: { Authorization: authorizationHeader } } : undefined,
     });
     const { data: rows, error: rpcError } = await userClient.rpc('list_event_gallery_for_view', {
       p_slug: eventSlug,
       p_access_code: accessCode,
+      p_session_token: sessionToken,
     });
     if (rpcError) {
       throw new Error(rpcError.message || 'Could not load gallery.');
