@@ -209,6 +209,7 @@ export interface EventAccessRequest {
   requester_name: string;
   requester_whatsapp: string;
   requester_note?: string | null;
+  grant_source?: 'request' | 'copy_inheritance' | string | null;
   status: 'pending' | 'approved' | 'declined' | 'contacted';
   created_at: string;
   updated_at: string;
