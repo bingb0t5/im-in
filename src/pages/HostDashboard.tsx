@@ -30,7 +30,11 @@ import {
 } from '../lib/customJoinField';
 
 type InAppShareCandidate = {
-  user_id: string;
+  recipient_key: string;
+  recipient_type: 'user' | 'guest_profile' | string;
+  user_id: string | null;
+  attendee_profile_id: string | null;
+  suggestion_group: 'previous_activity' | 'other_people' | string;
   display_name: string;
   whatsapp_number: string | null;
   attended_previous: boolean;
@@ -122,7 +126,8 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [showManualShareModal, setShowManualShareModal] = useState(false);
   const [manualShareUrl, setManualShareUrl] = useState('');
   const [inAppShareCandidates, setInAppShareCandidates] = useState<InAppShareCandidate[]>([]);
-  const [selectedShareUserIds, setSelectedShareUserIds] = useState<string[]>([]);
+  const [selectedShareCandidateKeys, setSelectedShareCandidateKeys] = useState<string[]>([]);
+  const [shareSuggestionGroup, setShareSuggestionGroup] = useState<'previous_activity' | 'other_people'>('previous_activity');
   const [inAppShareLoading, setInAppShareLoading] = useState(false);
   const [inAppShareSaving, setInAppShareSaving] = useState(false);
   const [inAppShareMessage, setInAppShareMessage] = useState<string | null>(null);
@@ -214,7 +219,13 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
   const getEngagementTagLabel = (candidate: InAppShareCandidate) => {
     if (candidate.attended_previous || candidate.engagement_tag === 'attended' || candidate.engagement_tag === 'both') {
-      return 'Has attended';
+      return 'Joined last session';
+    }
+    if (candidate.engagement_tag === 'approved_access') {
+      return 'Had access';
+    }
+    if (candidate.engagement_tag === 'shared_before') {
+      return 'Had access';
     }
     return 'Viewed link only';
   };
@@ -317,15 +328,15 @@ export default function HostDashboard({ user }: { user: User | null }) {
       if (error) throw error;
       const candidates = (data || []) as InAppShareCandidate[];
       setInAppShareCandidates(candidates);
-      setSelectedShareUserIds(
+      setSelectedShareCandidateKeys(
         candidates
           .filter((candidate) => candidate.selected_by_default)
-          .map((candidate) => candidate.user_id),
+          .map((candidate) => candidate.recipient_key),
       );
     } catch (error) {
       console.warn('Could not load in-app share candidates:', error);
       setInAppShareCandidates([]);
-      setSelectedShareUserIds([]);
+      setSelectedShareCandidateKeys([]);
     } finally {
       setInAppShareLoading(false);
     }
@@ -375,6 +386,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
   const openInAppShareModal = () => {
     if (!event) return;
+    setShareSuggestionGroup('previous_activity');
     void fetchInAppShareCandidates(event.id);
     setShowInAppShareModal(true);
   };
@@ -434,8 +446,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
     }
   };
 
-  const shareToSelectedUsers = async (userIds: string[]) => {
-    if (!event || userIds.length === 0) return;
+  const shareToSelectedRecipients = async (
+    userIds: string[],
+    attendeeProfileIds: string[] = [],
+  ) => {
+    if (!event || (userIds.length === 0 && attendeeProfileIds.length === 0)) return;
     try {
       setInAppShareSaving(true);
       setInAppShareMessage(null);
@@ -443,14 +458,16 @@ export default function HostDashboard({ user }: { user: User | null }) {
         p_event_id: event.id,
         p_user_ids: userIds,
         p_source: 'link',
+        p_attendee_profile_ids: attendeeProfileIds,
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error as string);
 
       const sharedCount = Number(data?.shared_count || 0);
-      const submittedCount = Number(data?.submitted_count || userIds.length);
+      const fallbackSubmittedCount = userIds.length + attendeeProfileIds.length;
+      const submittedCount = Number(data?.submitted_count || fallbackSubmittedCount);
       if (sharedCount > 0) {
-        setInAppShareMessage(`Shared with ${sharedCount} account${sharedCount === 1 ? '' : 's'}.`);
+        setInAppShareMessage(`Shared with ${sharedCount} ${sharedCount === 1 ? 'person' : 'people'}.`);
       } else {
         setInAppShareMessage(
           submittedCount > 0
@@ -465,6 +482,27 @@ export default function HostDashboard({ user }: { user: User | null }) {
     } finally {
       setInAppShareSaving(false);
     }
+  };
+
+  const buildRecipientPayloadFromKeys = (
+    keys: string[],
+  ): { userIds: string[]; attendeeProfileIds: string[]; selectedCount: number } => {
+    const selected = inAppShareCandidates.filter((candidate) => keys.includes(candidate.recipient_key));
+    const userIds: string[] = Array.from(new Set<string>(
+      selected
+        .map((candidate) => candidate.user_id)
+        .filter((value): value is string => !!value),
+    ));
+    const attendeeProfileIds: string[] = Array.from(new Set<string>(
+      selected
+        .map((candidate) => candidate.attendee_profile_id)
+        .filter((value): value is string => !!value),
+    ));
+    return {
+      userIds,
+      attendeeProfileIds,
+      selectedCount: selected.length,
+    };
   };
 
   const lookupByWhatsapp = async () => {
@@ -488,7 +526,24 @@ export default function HostDashboard({ user }: { user: User | null }) {
       });
       if (error) throw error;
 
-      const rows = (data || []) as InAppShareCandidate[];
+      const rows = ((data || []) as Array<{
+        user_id: string;
+        display_name: string;
+        whatsapp_number: string | null;
+      }>).map((row) => ({
+        recipient_key: `user:${row.user_id}`,
+        recipient_type: 'user',
+        user_id: row.user_id,
+        attendee_profile_id: null,
+        suggestion_group: 'other_people',
+        display_name: row.display_name,
+        whatsapp_number: row.whatsapp_number,
+        attended_previous: false,
+        viewed_previous: false,
+        engagement_tag: 'viewed_private',
+        already_shared: false,
+        selected_by_default: false,
+      }));
       if (rows.length === 0) {
         setLookupNotFound(true);
         return;
@@ -622,6 +677,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
       setActiveTab('share');
       setShowInAppSharePrompt(true);
       setShowInAppShareModal(true);
+      setShareSuggestionGroup('previous_activity');
     }
     if (routeState?.moderationAutoRunFailed) {
       setAutoModerationWarning(
@@ -631,6 +687,15 @@ export default function HostDashboard({ user }: { user: User | null }) {
       setActiveTab('settings');
     }
   }, [location.state]);
+
+  useEffect(() => {
+    const copiedEvent = !!event?.copied_from_event_id;
+    if (!copiedEvent) {
+      if (shareSuggestionGroup !== 'other_people') {
+        setShareSuggestionGroup('other_people');
+      }
+    }
+  }, [event?.copied_from_event_id, shareSuggestionGroup]);
 
   const clearCreateSuccessState = () => {
     sessionStorage.removeItem(CREATE_EVENT_SUCCESS_KEY);
@@ -1501,6 +1566,22 @@ export default function HostDashboard({ user }: { user: User | null }) {
         ? rejectedJoinRequests
         : pendingJoinRequests;
   const pendingReviewCount = pendingJoinRequests.length + pendingRequests.length;
+  const isCopiedEvent = !!event.copied_from_event_id;
+  const previousActivityCandidates = inAppShareCandidates.filter((candidate) => candidate.suggestion_group === 'previous_activity');
+  const otherPeopleCandidates = inAppShareCandidates.filter((candidate) => candidate.suggestion_group === 'other_people');
+  const sortedPreviousActivityCandidates = [...previousActivityCandidates].sort((a, b) => {
+    const rank = (candidate: InAppShareCandidate) => {
+      if (candidate.recipient_type === 'guest_profile') return 2;
+      if (candidate.attended_previous || candidate.engagement_tag === 'attended' || candidate.engagement_tag === 'both') return 0;
+      return 1;
+    };
+    const rankDiff = rank(a) - rank(b);
+    if (rankDiff !== 0) return rankDiff;
+    return a.display_name.localeCompare(b.display_name);
+  });
+  const visibleShareCandidates = isCopiedEvent
+    ? (shareSuggestionGroup === 'previous_activity' ? sortedPreviousActivityCandidates : otherPeopleCandidates)
+    : inAppShareCandidates;
   const canReviewJoinRequests = !isInterestOnly && event.require_host_approval_for_join;
   const canReviewAccessRequests = visibility === 'semi_public';
   const customJoinFieldLabel = normalizeCustomJoinFieldConfig(event.custom_join_field_config)?.label || 'Custom answer';
@@ -2045,6 +2126,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
                         {request.status}
                       </span>
                     </div>
+                    {request.grant_source === 'copy_inheritance' ? (
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                        Copied forward
+                      </p>
+                    ) : null}
                     {request.status === 'pending' ? (
                       <div className="flex gap-2">
                         <button
@@ -2851,7 +2937,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 <div>
                   <h2 className="text-xl font-black tracking-tight text-slate-900">Share In App</h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    Suggestions include people who attended or viewed private links for your activities.
+                    {isCopiedEvent
+                      ? 'Use Last session for safe carry-forward, or From your activities for optional extras.'
+                      : 'Suggestions include people who attended or viewed private links for your activities.'}
                   </p>
                 </div>
                 <button
@@ -2868,7 +2956,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 <div className="mb-4 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3">
                   <p className="text-xs font-black uppercase tracking-[0.14em] text-brand-700">Share in app</p>
                   <p className="mt-1 text-sm text-brand-700">
-                    Pick from people who have engaged with your activities before. "Has attended" is prioritized over "Viewed link only".
+                    {event?.copied_from_event_id
+                      ? 'Carry forward access for people from the last session, including eligible guest accounts.'
+                      : 'Pick from people who have engaged with your activities before. "Has attended" is prioritized over "Viewed link only".'}
                   </p>
                   <button
                     type="button"
@@ -2881,7 +2971,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
               ) : null}
 
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-black tracking-tight text-brand-600">Suggested accounts</p>
+                <p className="text-sm font-black tracking-tight text-brand-600">Suggested people</p>
                 <button
                   type="button"
                   onClick={() => {
@@ -2895,28 +2985,69 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 </button>
               </div>
 
+              {isCopiedEvent ? (
+                <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setShareSuggestionGroup('previous_activity')}
+                    className={`rounded-lg px-3 py-2 text-xs font-bold transition-all ${
+                      shareSuggestionGroup === 'previous_activity'
+                        ? 'bg-white text-brand-700 shadow-sm'
+                        : 'text-slate-600 hover:text-slate-800'
+                    }`}
+                  >
+                    Last session ({previousActivityCandidates.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShareSuggestionGroup('other_people')}
+                    className={`rounded-lg px-3 py-2 text-xs font-bold transition-all ${
+                      shareSuggestionGroup === 'other_people'
+                        ? 'bg-white text-brand-700 shadow-sm'
+                        : 'text-slate-600 hover:text-slate-800'
+                    }`}
+                  >
+                    From your activities ({otherPeopleCandidates.length})
+                  </button>
+                </div>
+              ) : null}
+
+              {isCopiedEvent ? (
+                <p className="mt-2 text-xs text-slate-500">
+                  {shareSuggestionGroup === 'previous_activity'
+                    ? 'People who had access to last session'
+                    : 'People from your recent activities (not added by default)'}
+                </p>
+              ) : null}
+
               {inAppShareLoading ? (
                 <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
                   Loading recipients...
                 </div>
-              ) : inAppShareCandidates.length > 0 ? (
+              ) : visibleShareCandidates.length > 0 ? (
                 <div className="mt-3 space-y-3">
+                  {isCopiedEvent && shareSuggestionGroup === 'previous_activity' ? (
+                    <p className="text-xs font-semibold text-brand-700">✓ These people will be carried forward</p>
+                  ) : null}
+                  {isCopiedEvent && shareSuggestionGroup === 'other_people' ? (
+                    <p className="text-xs text-slate-500">Not added automatically — select people to include</p>
+                  ) : null}
                   <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
-                    {inAppShareCandidates.map((candidate) => {
-                      const checked = selectedShareUserIds.includes(candidate.user_id);
+                    {visibleShareCandidates.map((candidate) => {
+                      const checked = selectedShareCandidateKeys.includes(candidate.recipient_key);
                       const engagementLabel = getEngagementTagLabel(candidate);
                       return (
-                        <label key={candidate.user_id} className="flex cursor-pointer items-start gap-3 border-b border-slate-200 px-3 py-3 last:border-b-0">
+                        <label key={candidate.recipient_key} className="flex cursor-pointer items-start gap-3 border-b border-slate-200 px-3 py-3 last:border-b-0">
                           <input
                             type="checkbox"
                             checked={checked}
                             onChange={(evt) => {
-                              setSelectedShareUserIds((prev) => {
+                              setSelectedShareCandidateKeys((prev) => {
                                 if (evt.target.checked) {
-                                  if (prev.includes(candidate.user_id)) return prev;
-                                  return [...prev, candidate.user_id];
+                                  if (prev.includes(candidate.recipient_key)) return prev;
+                                  return [...prev, candidate.recipient_key];
                                 }
-                                return prev.filter((id) => id !== candidate.user_id);
+                                return prev.filter((key) => key !== candidate.recipient_key);
                               });
                             }}
                             className="mt-0.5 h-4 w-4 rounded border-slate-300"
@@ -2928,6 +3059,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                             </p>
                             <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
                               {engagementLabel}
+                              {candidate.recipient_type === 'guest_profile' ? ' · Guest' : ''}
                               {candidate.already_shared ? ' · already shared' : ''}
                             </p>
                           </div>
@@ -2940,14 +3072,14 @@ export default function HostDashboard({ user }: { user: User | null }) {
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => setSelectedShareUserIds(inAppShareCandidates.map((candidate) => candidate.user_id))}
+                        onClick={() => setSelectedShareCandidateKeys(visibleShareCandidates.map((candidate) => candidate.recipient_key))}
                         className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
                       >
                         Select all
                       </button>
                       <button
                         type="button"
-                        onClick={() => setSelectedShareUserIds([])}
+                        onClick={() => setSelectedShareCandidateKeys([])}
                         className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200"
                       >
                         Clear
@@ -2955,17 +3087,26 @@ export default function HostDashboard({ user }: { user: User | null }) {
                     </div>
                     <button
                       type="button"
-                      onClick={() => void shareToSelectedUsers(selectedShareUserIds)}
-                      disabled={inAppShareSaving || selectedShareUserIds.length === 0}
+                      onClick={() => {
+                        const payload = buildRecipientPayloadFromKeys(selectedShareCandidateKeys);
+                        void shareToSelectedRecipients(payload.userIds, payload.attendeeProfileIds);
+                      }}
+                      disabled={inAppShareSaving || selectedShareCandidateKeys.length === 0}
                       className="rounded-xl bg-brand-600 px-3 py-2 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
                     >
-                      {inAppShareSaving ? 'Sharing...' : `Share selected (${selectedShareUserIds.length})`}
+                      {inAppShareSaving
+                        ? 'Sharing...'
+                        : `Give access to selected (${selectedShareCandidateKeys.length})`}
                     </button>
                   </div>
                 </div>
               ) : (
                 <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
-                  No share suggestions yet from your activity history.
+                  {isCopiedEvent && shareSuggestionGroup === 'previous_activity'
+                    ? 'No one from the last session. Try "From your activities"'
+                    : isCopiedEvent
+                      ? 'No recent people to suggest'
+                      : 'No suggestions in this group yet.'}
                 </div>
               )}
 
@@ -2999,8 +3140,11 @@ export default function HostDashboard({ user }: { user: User | null }) {
                     <p className="text-xs text-slate-500">{getDisplayWhatsapp(lookupCandidate.whatsapp_number)}</p>
                     <button
                       type="button"
-                      onClick={() => void shareToSelectedUsers([lookupCandidate.user_id])}
-                      disabled={inAppShareSaving}
+                      onClick={() => {
+                        if (!lookupCandidate.user_id) return;
+                        void shareToSelectedRecipients([lookupCandidate.user_id]);
+                      }}
+                      disabled={inAppShareSaving || !lookupCandidate.user_id}
                       className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-500 disabled:opacity-50"
                     >
                       {inAppShareSaving ? 'Sharing...' : 'Share with this account'}
