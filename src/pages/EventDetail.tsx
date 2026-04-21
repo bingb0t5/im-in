@@ -773,6 +773,7 @@ export default function EventDetail({ user }: { user: User | null }) {
       const response = await invoke<{ images: EventGalleryImage[] }>('event-gallery', {
         eventSlug: slug,
         accessCode: searchParams.get('access') || null,
+        sessionToken: getGuestSessionToken(),
       });
       setGalleryImages(response.images || []);
     } catch (error) {
