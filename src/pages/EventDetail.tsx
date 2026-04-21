@@ -701,9 +701,11 @@ export default function EventDetail({ user }: { user: User | null }) {
     }
 
     let nextEvent = data[0] as Event & { can_view_full_details?: boolean };
+    // Keep custom field visibility in lockstep with the event access check, including guest-session access.
     const { data: customFieldConfig } = await supabase.rpc('get_event_custom_join_field_config_for_view', {
       p_slug: slug,
       p_access_code: searchParams.get('access'),
+      p_session_token: getGuestSessionToken(),
     });
     nextEvent = {
       ...nextEvent,
