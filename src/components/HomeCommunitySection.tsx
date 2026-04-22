@@ -330,7 +330,11 @@ export function HomeCommunitySection({ user }: { user: User | null }) {
                     <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">How it works</h3>
                     <div className="space-y-1.5">
                       <p className="font-semibold text-slate-900">It&apos;s open</p>
-                      <p>The code is public. People can see how it works and suggest improvements.</p>
+                      <p>
+                        The source code is open to view and inspect so people can see how it works and understand
+                        what&apos;s happening under the hood.
+                      </p>
+                      <p>It&apos;s there for transparency and learning - not for reuse or running separate versions.</p>
                     </div>
                     <div className="space-y-1.5">
                       <p className="font-semibold text-slate-900">It&apos;s shaped by the community</p>

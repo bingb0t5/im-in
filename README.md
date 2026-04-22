@@ -6,11 +6,14 @@ It is built to work alongside the chat groups people already use. The app does n
 
 ## License And Branding
 
-The software code is available under AGPL-3.0 (see `LICENSE` and `LICENSING.md`).
+The source code is open to view and inspect for transparency and learning.
 
-The "I'm In" name, logo, marks, and visual identity are not licensed under AGPL.
-If you fork or deploy this project, you must use your own name and branding and
-must not imply affiliation with the official I'm In or Lalo-operated services.
+It is not open source in the traditional sense and is not available for reuse or running your own version.
+
+See `LICENSE` and `LICENSING.md` for full details.
+
+The "I'm In" name, logo, marks, and visual identity are not included in any license to use this code.
+You may not use them without permission.
 
 ## Current Status
 
@@ -599,7 +602,34 @@ See TERMS.md
 
 ## Licensing
 
-See LICENSING.md
+The source code is open to view and inspect for transparency and learning.
+
+It is not open source in the traditional sense and is not available for reuse or running your own version.
+
+See the LICENSE file for full details.
+
+## Why the source code is open
+
+The source code is open to view and inspect so anyone can understand how the platform works.
+
+The goal is transparency, not distribution.
+
+This allows anyone to:
+
+- see what data is collected and how it's used
+- verify there are no hidden restrictions or gatekeeping
+- understand how moderation and access rules are implemented
+- hold the platform accountable
+
+At the same time, this project is intended to be a shared community tool, not something that is forked into multiple competing versions.
+
+Restricting reuse helps to:
+
+- avoid fragmentation across communities
+- keep everything working in one place
+- maintain trust and consistency for users
+
+If you're interested in using or building on this in a larger way, just reach out.
 
 ## Community / Open Build
 
