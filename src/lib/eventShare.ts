@@ -116,10 +116,14 @@ export function buildIcsDownloadForActivity(
   };
 }
 
-export function buildPrivateWhatsappShareText(origin: string, event: ShareableEvent) {
+export function buildPrivateWhatsappShareText(
+  origin: string,
+  event: ShareableEvent,
+  activityUrlOverride?: string,
+) {
   const mapsUrl = event.google_maps_url?.trim();
   const exactLocation = event.location_text?.trim();
-  const signUpUrl = buildPrivateActivityUrl(origin, event);
+  const signUpUrl = activityUrlOverride || buildPrivateActivityUrl(origin, event);
   const mapsShortcutUrl = buildEventShortcutUrl(origin, 'loc', event);
   const gcalShortcutUrl = buildEventShortcutUrl(origin, 'gcal', event);
   const icalShortcutUrl = buildEventShortcutUrl(origin, 'ical', event);

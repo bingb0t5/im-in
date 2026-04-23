@@ -22,6 +22,8 @@ import {
   buildPrivateActivityUrl,
   buildPrivateWhatsappShareText,
 } from '../lib/eventShare';
+import { captureProductEvent } from '../lib/productAnalytics';
+import { buildShareLinkUrl, createShareLink, type ShareLinkAccessType, type ShareLinkChannel } from '../lib/shareLinks';
 
 const URL_PATTERN = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
 const TRAILING_PUNCTUATION_PATTERN = /[),.!?:;]+$/;
@@ -94,7 +96,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [showProxyModal, setShowProxyModal] = useState(false);
   const [showShareChoiceModal, setShowShareChoiceModal] = useState(false);
   const [showManualShareModal, setShowManualShareModal] = useState(false);
-  const [manualShareUrl, setManualShareUrl] = useState('');
+  const [manualShareAccessType, setManualShareAccessType] = useState<ShareLinkAccessType>('public');
   const [proxyName, setProxyName] = useState('');
   const [proxyError, setProxyError] = useState<string | null>(null);
   const [proxyOwnerName, setProxyOwnerName] = useState('');
@@ -138,6 +140,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const [galleryImages, setGalleryImages] = useState<EventGalleryImage[]>([]);
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryReportMessage, setGalleryReportMessage] = useState<string | null>(null);
+  const viewedEventIdsRef = useRef<Set<string>>(new Set());
   const [galleryReportLoadingId, setGalleryReportLoadingId] = useState<string | null>(null);
   const [pendingSensitiveGuestAction, setPendingSensitiveGuestAction] = useState<'rsvp' | 'thinking' | 'proxy' | null>(null);
   const allowSensitiveGuestCreationRef = useRef(false);
@@ -1068,6 +1071,12 @@ export default function EventDetail({ user }: { user: User | null }) {
       setShowRsvpModal(false);
       setCustomJoinAnswer('');
       setSelfPendingApproval(false);
+      captureProductEvent('joined_event', {
+        activity_id: event.id,
+        source: 'event_detail',
+        visibility_type: eventVisibility,
+        page: '/events/:slug',
+      });
       setSuccessType('self');
       setShowSuccessModal(true);
       await clearMyInterest(event.id, currentProfileId || null, rpcEmail);
@@ -1443,9 +1452,9 @@ export default function EventDetail({ user }: { user: User | null }) {
   const customJoinFieldLabel = customJoinFieldConfig?.label || 'Additional info';
   const customJoinFieldOptions = customJoinFieldConfig?.options || [];
 
-  const buildInviteText = (url: string) => (
-    url === privateEventUrl
-      ? buildPrivateWhatsappShareText(window.location.origin, event)
+  const buildInviteText = (url: string, accessType: ShareLinkAccessType) => (
+    accessType === 'private'
+      ? buildPrivateWhatsappShareText(window.location.origin, event, url)
       : `${event.title} – ${formatDate(event.starts_at, event.timezone)}\n${spotsRemaining} spots left. Join here:\n${url}`
   );
 
@@ -1485,44 +1494,123 @@ export default function EventDetail({ user }: { user: User | null }) {
     window.prompt('Copy this invite', text);
   };
 
-  const openManualShareModal = (url: string) => {
-    setManualShareUrl(url);
+  const openManualShareModal = (accessType: ShareLinkAccessType) => {
+    setManualShareAccessType(accessType);
     setShowManualShareModal(true);
   };
 
-  const shareInvite = (url: string) => {
-    const nativeText = buildInviteText(url);
+  const createTrackedShareLink = async (
+    accessType: ShareLinkAccessType,
+    shareChannel: ShareLinkChannel,
+  ) => {
+    const targetSlug = accessType === 'private'
+      ? event.private_slug || event.join_code || event.slug
+      : publicEventSlug;
+
+    const link = await createShareLink({
+      eventId: event.id,
+      targetSlug,
+      accessType,
+      source: 'event_detail',
+      shareChannel,
+    });
+
+    return {
+      accessType: link.access_type,
+      linkId: link.link_id,
+      url: buildShareLinkUrl(window.location.origin, link.token),
+    };
+  };
+
+  const trackSharedEvent = (
+    shareChannel: ShareLinkChannel,
+    linkId: string,
+    accessType: ShareLinkAccessType,
+  ) => {
+    captureProductEvent('event_shared', {
+      activity_id: event.id,
+      link_id: linkId,
+      source: 'event_detail',
+      share_channel: shareChannel,
+      visibility_type: accessType,
+      page: '/events/:slug',
+    });
+  };
+
+  const shareInvite = async (accessType: ShareLinkAccessType) => {
     const isAppleMobile = /iPhone|iPad|iPod/i.test(window.navigator.userAgent);
-    const isPrivateShare = url === privateEventUrl;
-
-    if (navigator.share) {
-      const sharePromise = isPrivateShare
-        ? navigator.share({ title: event.title, text: nativeText })
-        : isAppleMobile
-          ? navigator.share({ url })
-          : navigator.share({ title: event.title, text: nativeText, url });
-
-      sharePromise.catch((error) => {
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          return;
-        }
-        openManualShareModal(url);
-      });
+    if (!navigator.share) {
+      openManualShareModal(accessType);
       return;
     }
 
-    openManualShareModal(url);
+    try {
+      const preparedLink = await createTrackedShareLink(accessType, 'native');
+      const nativeText = buildInviteText(preparedLink.url, preparedLink.accessType);
+      const sharePromise = preparedLink.accessType === 'private'
+        ? navigator.share({ title: event.title, text: nativeText })
+        : isAppleMobile
+          ? navigator.share({ url: preparedLink.url })
+          : navigator.share({ title: event.title, text: nativeText, url: preparedLink.url });
+
+      await sharePromise;
+      trackSharedEvent('native', preparedLink.linkId, preparedLink.accessType);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+
+      openManualShareModal(accessType);
+    }
+  };
+
+  const handleManualShare = async (shareChannel: ShareLinkChannel) => {
+    try {
+      const preparedLink = await createTrackedShareLink(manualShareAccessType, shareChannel);
+      const inviteText = buildInviteText(preparedLink.url, preparedLink.accessType);
+      trackSharedEvent(shareChannel, preparedLink.linkId, preparedLink.accessType);
+
+      if (shareChannel === 'copy') {
+        await copyInviteFallback(inviteText);
+      } else if (shareChannel === 'whatsapp') {
+        window.location.href = `https://wa.me/?text=${encodeURIComponent(inviteText)}`;
+      } else if (shareChannel === 'sms') {
+        window.location.href = `sms:&body=${encodeURIComponent(inviteText)}`;
+      } else if (shareChannel === 'email') {
+        window.location.href = `mailto:?subject=${encodeURIComponent(event.title)}&body=${encodeURIComponent(inviteText)}`;
+      }
+
+      setShowManualShareModal(false);
+    } catch (error: any) {
+      alert(error?.message || 'Could not prepare share');
+    }
   };
 
   const openDirections = () => {
     const url = (event.google_maps_url || '').trim();
     if (!url) return;
+
+    captureProductEvent('map_opened', {
+      activity_id: event.id,
+      source: 'event_detail',
+      visibility_type: eventVisibility,
+      page: '/events/:slug',
+    });
+
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const openGoogleCalendar = () => {
     const activityUrl = eventVisibility === 'semi_public' ? privateEventUrl : window.location.href;
     const calendarUrl = buildGoogleCalendarUrlForActivity(event, activityUrl);
+
+    captureProductEvent('calendar_added', {
+      activity_id: event.id,
+      source: 'event_detail',
+      visibility_type: eventVisibility,
+      calendar_type: 'google',
+      page: '/events/:slug',
+    });
 
     window.open(calendarUrl, '_blank', 'noopener,noreferrer');
   };
@@ -1539,7 +1627,29 @@ export default function EventDetail({ user }: { user: User | null }) {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(objectUrl);
+
+    captureProductEvent('calendar_added', {
+      activity_id: event.id,
+      source: 'event_detail',
+      visibility_type: eventVisibility,
+      calendar_type: 'ics',
+      page: '/events/:slug',
+    });
   };
+
+  useEffect(() => {
+    if (!event?.id || viewedEventIdsRef.current.has(event.id)) {
+      return;
+    }
+
+    viewedEventIdsRef.current.add(event.id);
+    captureProductEvent('event_viewed', {
+      activity_id: event.id,
+      source: hasFullEventAccess ? 'event_detail' : 'event_preview',
+      visibility_type: eventVisibility,
+      page: '/events/:slug',
+    });
+  }, [event?.id, eventVisibility, hasFullEventAccess]);
 
   if (!hasFullEventAccess) {
     const dayOnly = formatDay(event.starts_at, event.timezone);
@@ -1555,7 +1665,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               <ArrowLeft className="w-5 h-5 text-slate-600" />
             </button>
             <span className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">Activity Preview</span>
-            {renderHeaderActions(() => shareInvite(publicEventUrl))}
+            {renderHeaderActions(() => void shareInvite('public'))}
           </div>
         </div>
 
@@ -1746,7 +1856,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               setShowShareChoiceModal(true);
               return;
             }
-            shareInvite(privateEventUrl);
+            void shareInvite('private');
           })}
         </div>
       </div>
@@ -2510,7 +2620,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                 <button
                   onClick={() => {
                     setShowShareChoiceModal(false);
-                    shareInvite(publicEventUrl);
+                    void shareInvite('public');
                   }}
                   className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
                 >
@@ -2519,7 +2629,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                 <button
                   onClick={() => {
                     setShowShareChoiceModal(false);
-                    shareInvite(privateEventUrl);
+                    void shareInvite('private');
                   }}
                   className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95"
                 >
@@ -2560,8 +2670,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               <div className="space-y-3">
                 <button
                   onClick={() => {
-                    window.location.href = `https://wa.me/?text=${encodeURIComponent(buildInviteText(manualShareUrl))}`;
-                    setShowManualShareModal(false);
+                    void handleManualShare('whatsapp');
                   }}
                   className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
@@ -2570,8 +2679,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                 </button>
                 <button
                   onClick={() => {
-                    window.location.href = `sms:&body=${encodeURIComponent(buildInviteText(manualShareUrl))}`;
-                    setShowManualShareModal(false);
+                    void handleManualShare('sms');
                   }}
                   className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
@@ -2580,8 +2688,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                 </button>
                 <button
                   onClick={() => {
-                    window.location.href = `mailto:?subject=${encodeURIComponent(event.title)}&body=${encodeURIComponent(buildInviteText(manualShareUrl))}`;
-                    setShowManualShareModal(false);
+                    void handleManualShare('email');
                   }}
                   className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
@@ -2590,8 +2697,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                 </button>
                 <button
                   onClick={() => {
-                    void copyInviteFallback(buildInviteText(manualShareUrl));
-                    setShowManualShareModal(false);
+                    void handleManualShare('copy');
                   }}
                   className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
                 >

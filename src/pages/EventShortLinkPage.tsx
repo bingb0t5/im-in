@@ -7,6 +7,7 @@ import {
   type EventShortcutKind,
 } from '../lib/eventShare';
 import { fetchEventForView } from '../lib/eventLookup';
+import { captureProductEvent } from '../lib/productAnalytics';
 
 type ShortcutState = {
   title: string;
@@ -72,6 +73,12 @@ export default function EventShortLinkPage({ kind }: { kind: EventShortcutKind }
         if (kind === 'loc') {
           const mapsUrl = event.google_maps_url?.trim();
           if (mapsUrl) {
+            captureProductEvent('map_opened', {
+              activity_id: event.id,
+              source: 'shortcut_link',
+              visibility_type: event.visibility,
+              page: '/loc/:code',
+            });
             window.location.replace(mapsUrl);
             return;
           }
@@ -88,9 +95,24 @@ export default function EventShortLinkPage({ kind }: { kind: EventShortcutKind }
         }
 
         if (kind === 'gcal') {
+          captureProductEvent('calendar_added', {
+            activity_id: event.id,
+            source: 'shortcut_link',
+            visibility_type: event.visibility,
+            calendar_type: 'google',
+            page: '/gcal/:code',
+          });
           window.location.replace(buildGoogleCalendarShortcutTarget(window.location.origin, event));
           return;
         }
+
+        captureProductEvent('calendar_added', {
+          activity_id: event.id,
+          source: 'shortcut_link',
+          visibility_type: event.visibility,
+          calendar_type: 'ics',
+          page: '/ical/:code',
+        });
 
         const { content, filename } = buildIcsDownload(window.location.origin, event);
         nextDownloadUrl = URL.createObjectURL(new Blob([content], { type: 'text/calendar;charset=utf-8' }));

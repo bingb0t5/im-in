@@ -32,6 +32,7 @@ import WhatsAppAuthVerify from './pages/WhatsAppAuthVerify';
 import WhatsAppAuthSuccess from './pages/WhatsAppAuthSuccess';
 import AccountMergeComplete from './pages/AccountMergeComplete';
 import EventShortLinkPage from './pages/EventShortLinkPage';
+import ShareLinkRedirect from './pages/ShareLinkRedirect';
 import { GuestProfileMergePromptModal } from './components/GuestProfileMergePromptModal';
 import {
   classifyGuestAutoClaimReasons,
@@ -49,6 +50,7 @@ import { GlobalFeedbackWidget } from './components/GlobalFeedbackWidget';
 import { ModerationTransparencyModal } from './components/ModerationTransparencyModal';
 import { ScrollToTop } from './components/ScrollToTop';
 import { InAppBrowserPrompt } from './components/system/InAppBrowserPrompt';
+import TrafficPageTracker from './components/system/TrafficPageTracker';
 import { useSupabaseSession } from './hooks/useSupabaseSession';
 
 const GUEST_MERGE_PROMPT_DISMISS_PREFIX = 'im_in_guest_merge_prompt_dismissed:';
@@ -408,6 +410,7 @@ export default function App() {
 
   return (
     <Router>
+      <TrafficPageTracker />
       <ScrollToTop />
       <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-brand-100">
         <InAppBrowserPrompt user={user} />
@@ -443,6 +446,7 @@ export default function App() {
             <Route path="/profile" element={<ProfileSettings user={user} />} />
           </Route>
           <Route path="/auth/account-merge/complete" element={<AccountMergeComplete user={user} />} />
+          <Route path="/s/:token" element={<ShareLinkRedirect />} />
           <Route path="/loc/:code" element={<EventShortLinkPage kind="loc" />} />
           <Route path="/gcal/:code" element={<EventShortLinkPage kind="gcal" />} />
           <Route path="/ical/:code" element={<EventShortLinkPage kind="ical" />} />

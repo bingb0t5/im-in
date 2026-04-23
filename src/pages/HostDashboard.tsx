@@ -22,6 +22,8 @@ import { buildPrivateActivityUrl, buildPrivateWhatsappShareText } from '../lib/e
 import { buildEventPath } from '../lib/events';
 import { invokeAuthedFunction } from '../lib/functions';
 import { buildEventGalleryStoragePath, EVENT_GALLERY_BUCKET } from '../lib/eventGallery';
+import { captureProductEvent } from '../lib/productAnalytics';
+import { buildShareLinkUrl, createShareLink, type ShareLinkAccessType, type ShareLinkChannel } from '../lib/shareLinks';
 import {
   buildCustomJoinFieldConfigForSave,
   normalizeCustomJoinFieldConfig,
@@ -124,7 +126,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [showHostsPanel, setShowHostsPanel] = useState(false);
   const [showCreateSuccessModal, setShowCreateSuccessModal] = useState(false);
   const [showManualShareModal, setShowManualShareModal] = useState(false);
-  const [manualShareUrl, setManualShareUrl] = useState('');
+  const [manualShareAccessType, setManualShareAccessType] = useState<ShareLinkAccessType>('private');
   const [inAppShareCandidates, setInAppShareCandidates] = useState<InAppShareCandidate[]>([]);
   const [selectedShareCandidateKeys, setSelectedShareCandidateKeys] = useState<string[]>([]);
   const [shareSuggestionGroup, setShareSuggestionGroup] = useState<'previous_activity' | 'other_people'>('previous_activity');
@@ -255,9 +257,13 @@ export default function HostDashboard({ user }: { user: User | null }) {
     return buildPrivateActivityUrl(window.location.origin, event);
   };
 
-  const buildInviteText = (fallbackUrl = '') => {
+  const buildInviteText = (accessType: ShareLinkAccessType, fallbackUrl = '') => {
     if (!event) return fallbackUrl;
-    return buildPrivateWhatsappShareText(window.location.origin, event);
+    if (accessType === 'private') {
+      return buildPrivateWhatsappShareText(window.location.origin, event, fallbackUrl || getPrivateShareUrl());
+    }
+
+    return `${event.title} – ${formatDate(event.starts_at, event.timezone)}\nJoin here:\n${fallbackUrl || getPublicPreviewUrl()}`;
   };
 
   const copyInviteFallback = async (text: string) => {
@@ -296,14 +302,58 @@ export default function HostDashboard({ user }: { user: User | null }) {
     window.prompt('Copy this invite', text);
   };
 
-  const openManualShareModal = (url: string) => {
-    setManualShareUrl(url);
+  const openManualShareModal = (accessType: ShareLinkAccessType) => {
+    setManualShareAccessType(accessType);
     setShowManualShareModal(true);
   };
 
   const ensurePrivateAccessUrl = async () => {
     if (!event) return '';
     return getPrivateShareUrl();
+  };
+
+  const createTrackedShareLink = async (
+    accessType: ShareLinkAccessType,
+    shareChannel: ShareLinkChannel,
+  ) => {
+    if (!event) {
+      throw new Error('Activity not loaded.');
+    }
+
+    const targetSlug = accessType === 'private'
+      ? event.private_slug || event.join_code || event.slug
+      : event.public_slug || event.slug;
+
+    const link = await createShareLink({
+      eventId: event.id,
+      targetSlug,
+      accessType,
+      source: 'host_dashboard',
+      shareChannel,
+    });
+
+    return {
+      accessType: link.access_type,
+      linkId: link.link_id,
+      url: buildShareLinkUrl(window.location.origin, link.token),
+    };
+  };
+
+  const trackSharedEvent = (
+    shareChannel: ShareLinkChannel,
+    linkId: string,
+    accessType: ShareLinkAccessType,
+  ) => {
+    if (!event) return;
+
+    captureProductEvent('event_shared', {
+      activity_id: event.id,
+      link_id: linkId,
+      source: 'host_dashboard',
+      share_channel: shareChannel,
+      visibility_type: accessType,
+      page: '/host/events/:id',
+    });
   };
 
   const openWhatsAppToNumber = async (rawNumber: string) => {
@@ -313,9 +363,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
       alert('Please enter a valid WhatsApp number.');
       return;
     }
-    const url = await ensurePrivateAccessUrl();
-    if (!url) return;
-    const inviteText = buildInviteText(url);
+    const preparedLink = await createTrackedShareLink('private', 'whatsapp');
+    const inviteText = buildInviteText('private', preparedLink.url);
+    trackSharedEvent('whatsapp', preparedLink.linkId, preparedLink.accessType);
     window.location.href = `https://wa.me/${number}?text=${encodeURIComponent(inviteText)}`;
   };
 
@@ -1394,32 +1444,61 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
   const copyLink = async () => {
     try {
-      const url = await ensurePrivateAccessUrl();
-      if (!url) return;
-      await copyInviteFallback(url);
+      const preparedLink = await createTrackedShareLink('private', 'copy');
+      await copyInviteFallback(preparedLink.url);
+      trackSharedEvent('copy', preparedLink.linkId, preparedLink.accessType);
     } catch (error: any) {
       alert(error.message || 'Could not prepare private link');
     }
   };
 
   const copyPublicPreviewLink = async () => {
-    const url = getPublicPreviewUrl();
-    await copyInviteFallback(url);
+    try {
+      const preparedLink = await createTrackedShareLink('public', 'copy');
+      await copyInviteFallback(preparedLink.url);
+      trackSharedEvent('copy', preparedLink.linkId, preparedLink.accessType);
+    } catch (error: any) {
+      alert(error.message || 'Could not prepare public link');
+    }
   };
 
   const shareWhatsApp = async () => {
     try {
-      const url = await ensurePrivateAccessUrl();
-      if (!url || !event) {
+      if (!event) {
         return;
       }
-      const inviteText = buildInviteText(url);
+      const preparedLink = await createTrackedShareLink('private', 'whatsapp');
+      const inviteText = buildInviteText('private', preparedLink.url);
+      trackSharedEvent('whatsapp', preparedLink.linkId, preparedLink.accessType);
       const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(inviteText)}`;
       // Use same-tab navigation so returning from WhatsApp lands back on this activity page.
       window.location.href = whatsappUrl;
     } catch (error: any) {
-      openManualShareModal(getPrivateShareUrl());
+      openManualShareModal('private');
       alert(error.message || 'Could not prepare share');
+    }
+  };
+
+  const handleManualShare = async (shareChannel: ShareLinkChannel) => {
+    try {
+      const preparedLink = await createTrackedShareLink(manualShareAccessType, shareChannel);
+      const inviteText = buildInviteText(manualShareAccessType, preparedLink.url);
+      trackSharedEvent(shareChannel, preparedLink.linkId, preparedLink.accessType);
+
+      if (shareChannel === 'copy') {
+        await copyInviteFallback(inviteText);
+      } else if (shareChannel === 'whatsapp') {
+        window.location.href = `https://wa.me/?text=${encodeURIComponent(inviteText)}`;
+      } else if (shareChannel === 'sms') {
+        window.location.href = `sms:&body=${encodeURIComponent(inviteText)}`;
+      } else if (shareChannel === 'email') {
+        const eventTitle = event?.title || 'Activity';
+        window.location.href = `mailto:?subject=${encodeURIComponent(eventTitle)}&body=${encodeURIComponent(inviteText)}`;
+      }
+
+      setShowManualShareModal(false);
+    } catch (error: any) {
+      alert(error?.message || 'Could not prepare share');
     }
   };
 
@@ -1439,7 +1518,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
     let text = '';
     if (mode === 'approve') {
       status = 'approved';
-      text = `Hi ${request.requester_name}, thanks for requesting access to ${event.title}. Here are the activity details:\n\n${buildInviteText(eventLink)}`;
+      text = `Hi ${request.requester_name}, thanks for requesting access to ${event.title}. Here are the activity details:\n\n${buildInviteText('private', eventLink)}`;
     } else if (mode === 'decline') {
       status = 'declined';
       text = `Hi ${request.requester_name}, thanks for your request for ${event.title}. Sorry, we can't share this activity right now.`;
@@ -3384,8 +3463,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
               <div className="space-y-3">
                 <button
                   onClick={() => {
-                    window.location.href = `https://wa.me/?text=${encodeURIComponent(buildInviteText(manualShareUrl))}`;
-                    setShowManualShareModal(false);
+                    void handleManualShare('whatsapp');
                   }}
                   className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
@@ -3394,8 +3472,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 </button>
                 <button
                   onClick={() => {
-                    window.location.href = `sms:&body=${encodeURIComponent(buildInviteText(manualShareUrl))}`;
-                    setShowManualShareModal(false);
+                    void handleManualShare('sms');
                   }}
                   className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
@@ -3404,9 +3481,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 </button>
                 <button
                   onClick={() => {
-                    const eventTitle = event?.title || 'Activity invite';
-                    window.location.href = `mailto:?subject=${encodeURIComponent(eventTitle)}&body=${encodeURIComponent(buildInviteText(manualShareUrl))}`;
-                    setShowManualShareModal(false);
+                    void handleManualShare('email');
                   }}
                   className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
@@ -3415,8 +3490,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                 </button>
                 <button
                   onClick={() => {
-                    void copyInviteFallback(buildInviteText(manualShareUrl));
-                    setShowManualShareModal(false);
+                    void handleManualShare('copy');
                   }}
                   className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 flex items-center justify-center gap-2"
                 >

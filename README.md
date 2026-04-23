@@ -550,6 +550,14 @@ Required build-time env vars:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
+Optional analytics env vars:
+
+- `VITE_POSTHOG_KEY`
+- `VITE_POSTHOG_HOST`
+- `VITE_UMAMI_WEBSITE_ID`
+- `VITE_UMAMI_SCRIPT_URL`
+- `VITE_UMAMI_HOST_URL`
+
 Required hosted env var:
 
 - `VITE_APP_URL`
@@ -558,6 +566,7 @@ Hosted auth flows now fail closed without `VITE_APP_URL` so sign-in and recovery
 
 Deep links that need rewrite support:
 
+- `/s/:token`
 - `/events/:slug`
 - `/host/events/:id`
 - `/host/events/:id/edit`
@@ -595,6 +604,10 @@ See GOVERNANCE.md
 ## Privacy
 
 See PRIVACY.md
+
+## Analytics
+
+See `ANALYTICS.md`
 
 ## Terms of Use
 
@@ -646,6 +659,7 @@ The product is positioned as an open, community-built project. The landing page 
 - `CURRENT_STATE.md`: truth-on-the-ground implementation and gaps
 - `CONTRIBUTING.md`: contributor guidance and safety notes
 - `SCHEMA_OR_DATA_MODEL.md`: data model and identity/schema assumptions
+- `ANALYTICS.md`: app-local analytics boundaries, event catalog, and share-link rules
 - `AI_MODERATION.md`: moderation triggers, stored fields, prompt, and cost-control strategy
 - `AI_MODERATION.md`: public-facing moderation boundaries, transparency log, prompt, and privacy rules
 - `FEEDBACK_PIPELINE.md`: feedback intake, abuse filtering, Trello sync, and Trello-triggered Codex prompt generation
