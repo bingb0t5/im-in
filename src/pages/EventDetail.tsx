@@ -19,7 +19,7 @@ import { normalizeCustomJoinFieldConfig, validateCustomJoinAnswer } from '../lib
 import {
   buildGoogleCalendarUrlForActivity,
   buildIcsDownloadForActivity,
-  buildPrivateActivityUrl,
+  buildPrivateShareUrl,
   buildPrivateWhatsappShareText,
   getPublicShareBaseUrl,
 } from '../lib/eventShare';
@@ -1393,7 +1393,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const hasFullEventAccess = canViewFullDetails || hasAccessToken || isHostViewer;
   const publicEventSlug = event.public_slug || event.slug;
   const publicEventUrl = `${shareBaseUrl}/events/${publicEventSlug}`;
-  const privateEventUrl = buildPrivateActivityUrl(shareBaseUrl, event);
+  const privateEventUrl = buildPrivateShareUrl(shareBaseUrl, event);
   const { confirmedCount, waitlistCount, isFull, spotsRemaining } = getAttendanceSummary(attendees, event.capacity);
   const approvalRequired = !!event.require_host_approval_for_join;
   const joinRequestPending = approvalRequired && myJoinRequestStatus === 'pending' && myRsvps.length === 0;

@@ -18,7 +18,7 @@ import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/modera
 import { LOCKED_PUBLIC_LOCATION } from '../lib/publicLocation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
-import { buildPrivateActivityUrl, buildPrivateWhatsappShareText, getPublicShareBaseUrl } from '../lib/eventShare';
+import { buildPrivateShareUrl, buildPrivateWhatsappShareText, getPublicShareBaseUrl } from '../lib/eventShare';
 import { buildEventPath } from '../lib/events';
 import { invokeAuthedFunction } from '../lib/functions';
 import { buildEventGalleryStoragePath, EVENT_GALLERY_BUCKET } from '../lib/eventGallery';
@@ -253,7 +253,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
 
   const getPrivateShareUrl = () => {
     if (!event) return '';
-    return buildPrivateActivityUrl(shareBaseUrl, event);
+    return buildPrivateShareUrl(shareBaseUrl, event);
   };
 
   const buildInviteText = (fallbackUrl = '') => {

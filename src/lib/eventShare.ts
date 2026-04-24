@@ -53,6 +53,10 @@ export function buildPrivateActivityUrl(origin: string, event: ShareableEvent) {
   return buildAbsoluteUrl(origin, `/events/${getPrivateEventSlug(event)}`);
 }
 
+export function buildPrivateShareUrl(origin: string, event: ShareableEvent) {
+  return buildAbsoluteUrl(origin, `/e/${getPrivateEventSlug(event)}`);
+}
+
 export function buildEventShortcutUrl(origin: string, kind: EventShortcutKind, event: ShareableEvent) {
   return buildAbsoluteUrl(origin, `/${kind}/${getPrivateEventSlug(event)}`);
 }
@@ -132,7 +136,7 @@ export function buildIcsDownloadForActivity(
 export function buildPrivateWhatsappShareText(origin: string, event: ShareableEvent) {
   const mapsUrl = event.google_maps_url?.trim();
   const exactLocation = event.location_text?.trim();
-  const signUpUrl = buildPrivateActivityUrl(origin, event);
+  const signUpUrl = buildPrivateShareUrl(origin, event);
   const mapsShortcutUrl = buildEventShortcutUrl(origin, 'loc', event);
   const gcalShortcutUrl = buildEventShortcutUrl(origin, 'gcal', event);
   const icalShortcutUrl = buildEventShortcutUrl(origin, 'ical', event);
