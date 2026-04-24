@@ -30,6 +30,19 @@ function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '');
 }
 
+export function getPublicShareBaseUrl() {
+  const configuredBase = (import.meta.env.VITE_PUBLIC_SHARE_BASE_URL as string | undefined)?.trim();
+  if (configuredBase) {
+    return trimTrailingSlash(configuredBase);
+  }
+
+  if (typeof window !== 'undefined') {
+    return trimTrailingSlash(window.location.origin);
+  }
+
+  return '';
+}
+
 export function buildAbsoluteUrl(origin: string, path: string) {
   const normalizedOrigin = trimTrailingSlash(origin);
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;

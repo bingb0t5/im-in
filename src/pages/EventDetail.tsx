@@ -21,6 +21,7 @@ import {
   buildIcsDownloadForActivity,
   buildPrivateActivityUrl,
   buildPrivateWhatsappShareText,
+  getPublicShareBaseUrl,
 } from '../lib/eventShare';
 
 const URL_PATTERN = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
@@ -1386,12 +1387,13 @@ export default function EventDetail({ user }: { user: User | null }) {
     pathname: location.pathname,
     search: `?${moderationHistoryParams.toString()}`,
   };
+  const shareBaseUrl = getPublicShareBaseUrl();
   const hasAccessToken = !!(accessToken && event.access_code && accessToken === event.access_code);
   const isHostViewer = isEventHostViewer;
   const hasFullEventAccess = canViewFullDetails || hasAccessToken || isHostViewer;
   const publicEventSlug = event.public_slug || event.slug;
-  const publicEventUrl = `${window.location.origin}/events/${publicEventSlug}`;
-  const privateEventUrl = buildPrivateActivityUrl(window.location.origin, event);
+  const publicEventUrl = `${shareBaseUrl}/events/${publicEventSlug}`;
+  const privateEventUrl = buildPrivateActivityUrl(shareBaseUrl, event);
   const { confirmedCount, waitlistCount, isFull, spotsRemaining } = getAttendanceSummary(attendees, event.capacity);
   const approvalRequired = !!event.require_host_approval_for_join;
   const joinRequestPending = approvalRequired && myJoinRequestStatus === 'pending' && myRsvps.length === 0;
@@ -1445,7 +1447,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
   const buildInviteText = (url: string) => (
     url === privateEventUrl
-      ? buildPrivateWhatsappShareText(window.location.origin, event)
+      ? buildPrivateWhatsappShareText(shareBaseUrl, event)
       : `${event.title} – ${formatDate(event.starts_at, event.timezone)}\n${spotsRemaining} spots left. Join here:\n${url}`
   );
 

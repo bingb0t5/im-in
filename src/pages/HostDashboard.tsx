@@ -18,7 +18,7 @@ import { getModerationBannerCopy, getModerationStatusBadge } from '../lib/modera
 import { LOCKED_PUBLIC_LOCATION } from '../lib/publicLocation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { guestService, getAccountNameFromUser } from '../services/guestService';
-import { buildPrivateActivityUrl, buildPrivateWhatsappShareText } from '../lib/eventShare';
+import { buildPrivateActivityUrl, buildPrivateWhatsappShareText, getPublicShareBaseUrl } from '../lib/eventShare';
 import { buildEventPath } from '../lib/events';
 import { invokeAuthedFunction } from '../lib/functions';
 import { buildEventGalleryStoragePath, EVENT_GALLERY_BUCKET } from '../lib/eventGallery';
@@ -243,21 +243,22 @@ export default function HostDashboard({ user }: { user: User | null }) {
     if (source === 'code') return 'Unlocked via join code';
     return 'Opened private link';
   };
+  const shareBaseUrl = getPublicShareBaseUrl();
 
   const getPublicPreviewUrl = () => {
     if (!event) return '';
     const publicSlug = event.public_slug || event.slug;
-    return `${window.location.origin}/events/${publicSlug}`;
+    return `${shareBaseUrl}/events/${publicSlug}`;
   };
 
   const getPrivateShareUrl = () => {
     if (!event) return '';
-    return buildPrivateActivityUrl(window.location.origin, event);
+    return buildPrivateActivityUrl(shareBaseUrl, event);
   };
 
   const buildInviteText = (fallbackUrl = '') => {
     if (!event) return fallbackUrl;
-    return buildPrivateWhatsappShareText(window.location.origin, event);
+    return buildPrivateWhatsappShareText(shareBaseUrl, event);
   };
 
   const copyInviteFallback = async (text: string) => {
