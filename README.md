@@ -554,7 +554,13 @@ Required hosted env var:
 
 - `VITE_APP_URL`
 
+Optional hosted share-link env var:
+
+- `VITE_PUBLIC_SHARE_BASE_URL`
+
 Hosted auth flows now fail closed without `VITE_APP_URL` so sign-in and recovery do not silently bounce to the wrong origin. Because this is a SPA using `BrowserRouter`, configure rewrites/fallback to `index.html` so deep links continue to work.
+
+If you want the app to generate share links on a separate public domain such as `im-in.link` while keeping the main app on `joinimin.com`, set `VITE_PUBLIC_SHARE_BASE_URL` to that share domain. This affects generated activity share/copy links only, not auth redirect behavior.
 
 Deep links that need rewrite support:
 
