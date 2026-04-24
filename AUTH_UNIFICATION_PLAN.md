@@ -397,7 +397,7 @@ Move UI/session flows gradually.
 
 ### Why gradual
 
-This app has no automated test suite, so a big-bang auth rewrite is risky.
+This app now has a small focused automated test suite, but not enough auth/end-to-end coverage to make a big-bang auth rewrite low-risk.
 
 ## Phase 6: Recovery And Bookings UX
 

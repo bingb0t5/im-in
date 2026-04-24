@@ -231,6 +231,7 @@ Rules:
 
 - Maintain compatibility with `BrowserRouter`.
 - Preserve deep-link behavior for:
+  - `/explore`
   - `/events/:slug`
   - `/host/events/:id`
   - `/host/events/:id/edit`
@@ -275,7 +276,7 @@ Rules:
 
 ## Testing Expectations
 
-There is no automated test suite right now, so manual verification matters.
+There is a small focused automated test suite now, but manual verification still matters because broad end-to-end coverage is not in place.
 
 After meaningful changes, verify the relevant flows manually when possible:
 

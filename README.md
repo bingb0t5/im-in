@@ -71,12 +71,13 @@ Although the codebase still uses many `event` names internally, the live product
 Main product areas:
 
 - a public home page for everyone, with browse, create, transparency, and community/about messaging
-- public activity browsing through `/calendar`
+- public activity browsing through `/explore` (`/calendar` now redirects there)
 - a signed-in dashboard through `/my-activities`
 - activity detail pages with RSVP, proxy RSVP, cancellation, sharing, and host contact actions
 - a create/edit flow with delayed authentication
-- a 3-step create/edit flow with visibility first
+- a 4-step create/edit flow with visibility first
 - a host dashboard for attendee, host, and access-request management
+- a hidden admin surface for moderation, moderation settings, gallery review, imported listings, feedback review, and beta-feature controls
 - a guest bookings/recovery flow for users operating without a full signed-in account experience
 - shared modal UX patterns that keep long sheets usable on mobile without scrolling the page behind them
 
@@ -124,12 +125,13 @@ Main product areas:
 - add co-hosts
 - see neutral discovery-status messaging when broader public visibility is limited
 - allowlisted admins can use a hidden moderation page to review, archive, spam-mark, or manually override discovery decisions for public-facing activity listings
+- allowlisted admins also have hidden tooling for moderation settings, gallery review, imported-listing operations, feedback triage, and beta rollout controls
 
 ## Core User Flows
 
 ### Attendee flow
 
-- browse public activities on `/calendar`
+- browse public activities on `/explore`
 - open `/events/:slug`
 - RSVP directly as a signed-in user or guest
 - when guest email is optional for an activity, guests can join with just a name and add email later
@@ -152,7 +154,8 @@ Main product areas:
 
 - Step 1: choose visibility
 - Step 2: add activity details
-- Step 3: set joining rules and host info
+- Step 3: add activity photos
+- Step 4: set joining rules and host info
 - field-level `Public` / `Private` badges explain what is shown publicly and what stays behind the private link or after joining
 - in-flow back navigation keeps draft state while moving between steps
 
@@ -161,7 +164,7 @@ Main product areas:
 - signed-out users can fill the create form before authenticating
 - draft state is stored locally
 - on save, the app prompts for email and sends a magic link
-- after sign-in, the user returns to Step 3 and only sees `One Last Step` name capture when profile details are still missing
+- after sign-in, the user returns to Step 4 and only sees `One Last Step` name capture when profile details are still missing
 
 ### Guest bookings flow
 
@@ -200,7 +203,7 @@ Current hardening notes:
 
 - signed-in profile hydration prefers the canonical `attendee_profiles` row over stale auth-email display during pending email-change confirmation
 - signed-in RSVP now ensures a profile exists before submit, matching the safer signed-in `thinking about it` flow
-- `/login` now redirects authenticated users to `/my-activities`
+- `/login` currently redirects authenticated users to `/`
 
 This means the app currently has a **dual identity model**, not a fully unified one.
 
@@ -412,7 +415,7 @@ Default local URL:
 Notes:
 
 - `npm run lint` is currently a TypeScript no-emit check, not ESLint
-- there is no automated test suite in the repo today
+- the repo now has a small focused Vitest suite (`npm test`), but not broad end-to-end or regression coverage
 - meaningful changes should be smoke-tested manually
 - changelog layman summaries are generated once per prebuild/predev run, not per page view
 
@@ -423,26 +426,41 @@ Important app routes:
 - `/`
 - `/my-activities`
 - `/login`
+- `/explore`
+- `/calendar` (legacy redirect to `/explore`)
+- `/changelog`
 - `/create-event`
 - `/host/events/:id/edit`
 - `/events/:slug`
 - `/host/events/:id`
-- `/calendar`
 - `/moderation`
 - `/admin`
 - `/admin/moderation`
+- `/admin/moderation/settings`
+- `/admin/gallery`
+- `/admin/imported-listings`
 - `/admin/feedback`
+- `/admin/beta-features`
 - `/bookings`
 - `/recover`
+- `/auth/whatsapp/prep`
+- `/auth/whatsapp/verify`
+- `/auth/whatsapp/success`
+- `/loc/:code`
+- `/gcal/:code`
+- `/ical/:code`
 
 Important route behavior:
 
 - `/` is the public home page for both signed-out and signed-in users
 - `/my-activities` is the signed-in dashboard for hosting and attending
+- `/explore` is the canonical public browse/search route
+- `/calendar` is kept as a compatibility redirect to `/explore`
 - `/host/events/:id` and `/host/events/:id/edit` require a signed-in user
 - `/moderation` is public-facing and only shows moderation history for public content
 - `/admin` is the hidden landing page for admin tools
 - `/admin/moderation` is a hidden allowlist-gated admin page layered on top of normal auth
+- `/admin/moderation/settings`, `/admin/gallery`, `/admin/imported-listings`, and `/admin/beta-features` are additional hidden allowlist-gated admin routes
 - `/admin/feedback` is a hidden allowlist-gated admin page for internal feedback review
 - `/bookings` is guest-session driven, not the main authenticated dashboard
 - unknown routes redirect to `/`
@@ -562,8 +580,17 @@ Hosted auth flows now fail closed without `VITE_APP_URL` so sign-in and recovery
 
 If you want the app to generate share links on a separate public domain such as `im-in.link` while keeping the main app on `joinimin.com`, set `VITE_PUBLIC_SHARE_BASE_URL` to that share domain. This affects generated activity share/copy links only, not auth redirect behavior.
 
+Current share-link behavior:
+
+- public preview/detail links still use `/events/:slug`
+- generated private invite/share links use a short `/e/:slug` path
+- map/calendar shortcuts use `/loc/:code`, `/gcal/:code`, and `/ical/:code`
+- if you use a separate share domain, that domain needs to handle those short paths outside this repo or route them into the correct experience
+
 Deep links that need rewrite support:
 
+- `/explore`
+- `/changelog`
 - `/events/:slug`
 - `/host/events/:id`
 - `/host/events/:id/edit`
@@ -588,7 +615,7 @@ Configure a Trello webhook callback URL that exactly matches your deployed endpo
 - `/bookings` is guest-session-centric, while signed-in users mainly use Home
 - waitlist behavior depends on a mix of client helpers, SQL triggers, and RPCs
 - some identity/name resolution logic remains more complex than it should be
-- no automated tests currently protect the high-risk flows
+- high-risk flows still do not have broad automated protection; the current test coverage is focused and partial
 
 ## Contributing
 
@@ -652,7 +679,6 @@ The product is positioned as an open, community-built project. The landing page 
 - `CURRENT_STATE.md`: truth-on-the-ground implementation and gaps
 - `CONTRIBUTING.md`: contributor guidance and safety notes
 - `SCHEMA_OR_DATA_MODEL.md`: data model and identity/schema assumptions
-- `AI_MODERATION.md`: moderation triggers, stored fields, prompt, and cost-control strategy
 - `AI_MODERATION.md`: public-facing moderation boundaries, transparency log, prompt, and privacy rules
 - `FEEDBACK_PIPELINE.md`: feedback intake, abuse filtering, Trello sync, and Trello-triggered Codex prompt generation
 - `CHANGELOG.md`: human-readable summary of notable product and technical changes

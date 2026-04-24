@@ -91,16 +91,22 @@ Implemented in:
 
 - `src/pages/AdminHome.tsx`
 - `src/pages/AdminModeration.tsx`
+- `src/pages/AdminModerationSettings.tsx`
 - `src/pages/AdminGalleryReview.tsx`
+- `src/pages/AdminImportedListings.tsx`
 - `src/pages/AdminFeedback.tsx`
+- `src/pages/AdminBetaFeatures.tsx`
 
 Features:
 
 - hidden `/admin` landing page for internal tooling
 - allowlisted signed-in admins can reach `/admin` directly from the top-bar account menu via an `Admin Panel` entry
 - moderation review page
+- moderation policy/settings page for strictness, rule toggles, and trust thresholds
 - gallery review page for image preview moderation/report handling
+- imported-listings operations page for source setup, snapshot ingestion, draft review, and publishing
 - feedback review page for review, passed, blocked, failed, archived, and all items
+- beta-feature page for per-user rollout controls such as Host WhatsApp connect testing overrides
 - retry sending eligible feedback to the Trello board
 - archive / restore internal feedback items
 - permanent delete for feedback items with typed `DELETE` confirmation
@@ -113,7 +119,7 @@ Features:
 
 - hosting view
 - attending view
-- public search field that routes into `/calendar?q=...`
+- public search field that routes into `/explore?q=...`
 - list of hosted activities
 - list of joined activities
 - list of "thinking about it" activities merged into attending
@@ -125,6 +131,7 @@ Implemented in `src/pages/Calendar.tsx`.
 
 Features:
 
+- canonical route is `/explore`, with `/calendar` retained as a redirect
 - shows future activities where `is_public = true`
 - only lists activities where `public_discovery_enabled = true`
 - search by query string
@@ -183,8 +190,9 @@ Features:
 
 - create activity
 - edit activity
+- 4-step flow: visibility, details, photos, joining settings
 - delayed-auth save flow
-- post-magic-link return resumes on Step 3
+- post-magic-link return resumes on Step 4
 - `One Last Step` profile capture is only shown when the account still lacks trusted profile details
 - host name hydration for signed-in hosts
 - visibility controls
@@ -328,9 +336,10 @@ Lets a host create a new activity with scheduling, visibility, capacity, and hos
 
 - route: `/create-event`
 - page: `CreateEvent.tsx`
-- uses a 3-step flow:
+- uses a 4-step flow:
   - visibility
   - activity details
+  - activity photos
   - joining settings
 - signed-out users can complete the form before auth
 - on save, unsigned users are prompted for email and sent a magic link
@@ -393,7 +402,8 @@ Allows a signed-out visitor to start creating an activity without being forced t
 - form is accessible without auth
 - draft is stored in local storage
 - save triggers magic-link email prompt
-- after sign-in, the user returns and can finish saving the same activity
+- after sign-in, the user returns on Step 4 and can finish saving the same activity
+- `One Last Step` is only shown when the account still lacks trusted profile details
 
 ### Why it matters
 
@@ -407,7 +417,8 @@ Lets users discover upcoming public-facing activities.
 
 ### How it works
 
-- route: `/calendar`
+- route: `/explore`
+- compatibility redirect: `/calendar`
 - page: `Calendar.tsx`
 - fetches only:
   - scheduled activities

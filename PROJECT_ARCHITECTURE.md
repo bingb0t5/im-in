@@ -90,31 +90,44 @@ The route table lives in `src/App.tsx`.
 | `/my-activities` | `src/pages/MyActivities.tsx` | Signed-in hosting/attending dashboard |
 | `/login` | `src/pages/Login.tsx` | Magic-link sign-in; also hosts the "Find my bookings" recovery entry UI |
 | `/profile` | `src/pages/ProfileSettings.tsx` | Signed-in profile management page |
+| `/explore` | `src/pages/Calendar.tsx` | Canonical public browse/search page |
+| `/calendar` | redirect | Legacy redirect to `/explore` |
+| `/changelog` | `src/pages/Changelog.tsx` | Product-friendly and technical changelog views |
 | `/create-event` | `src/pages/CreateEvent.tsx` | Create flow; signed-out users can still fill the form before auth |
 | `/host/events/:id/edit` | `src/pages/CreateEvent.tsx` | Edit mode; requires signed-in user |
 | `/events/:slug` | `src/pages/EventDetail.tsx` | Attendee-facing activity detail page |
 | `/host/events/:id` | `src/pages/HostDashboard.tsx` | Host/co-host management page |
-| `/calendar` | `src/pages/Calendar.tsx` | Public browse/search page |
 | `/moderation` | `src/pages/ModerationTransparency.tsx` | Public-facing moderation transparency log for public activity moderation and semi-public preview moderation |
 | `/admin` | `src/pages/AdminHome.tsx` | Hidden landing page for admin tools |
 | `/admin/moderation` | `src/pages/AdminModeration.tsx` | Hidden allowlist-gated moderation queue and override tooling |
+| `/admin/moderation/settings` | `src/pages/AdminModerationSettings.tsx` | Hidden allowlist-gated moderation policy controls |
+| `/admin/gallery` | `src/pages/AdminGalleryReview.tsx` | Hidden allowlist-gated gallery moderation/review tooling |
+| `/admin/imported-listings` | `src/pages/AdminImportedListings.tsx` | Hidden allowlist-gated imported-listing source and draft operations |
 | `/admin/feedback` | `src/pages/AdminFeedback.tsx` | Hidden allowlist-gated internal feedback review tooling |
+| `/admin/beta-features` | `src/pages/AdminBetaFeatures.tsx` | Hidden allowlist-gated per-user beta rollout controls |
 | `/bookings` | `src/pages/Bookings.tsx` | Guest-session bookings page |
 | `/recover` | `src/pages/Recovery.tsx` | Token-based guest-session restore |
+| `/auth/whatsapp/prep` | `src/pages/WhatsAppAuthPrep.tsx` | WhatsApp auth handoff preparation page |
+| `/auth/whatsapp/verify` | `src/pages/WhatsAppAuthVerify.tsx` | WhatsApp auth verification UI |
+| `/auth/whatsapp/success` | `src/pages/WhatsAppAuthSuccess.tsx` | Verify success/return interstitial |
+| `/auth/account-merge/complete` | `src/pages/AccountMergeComplete.tsx` | Post-auth merge-completion handoff |
+| `/loc/:code`, `/gcal/:code`, `/ical/:code` | `src/pages/EventShortLinkPage.tsx` | Compact location/calendar shortcut routes |
 | `*` | redirect | Redirects to `/` |
 
 ### Important routing nuances
 
 - `/` stays public even when a user is signed in
 - `/my-activities` is the main signed-in personal area for hosting and attending
+- `/explore` is the canonical public browse route
+- `/calendar` exists only as a compatibility redirect to `/explore`
 - `/host/events/:id` and `/host/events/:id/edit` are auth-gated in `App.tsx`
 - `/create-event` is not route-gated because the delayed-auth create flow is intentional
 - `/moderation` is public and only surfaces public-facing moderation records
 - `/admin` should be the single entry point for hidden admin tools
-- `/admin/moderation` requires both a signed-in user and an allowlisted admin email
+- `/admin/moderation`, `/admin/moderation/settings`, `/admin/gallery`, `/admin/imported-listings`, and `/admin/beta-features` require both a signed-in user and a moderation-admin allowlist entry
 - `/admin/feedback` requires both a signed-in user and an allowlisted admin email
 - `/bookings` is not the general signed-in attendee dashboard; it is guest-session driven
-- `/login` redirects authenticated users to `/my-activities`
+- `/login` currently redirects authenticated users to `/`
 - unknown routes redirect to `/`
 
 ## Page Responsibilities
@@ -151,14 +164,14 @@ The route table lives in `src/App.tsx`.
 - hosted activities from both `events.host_user_id` and `event_hosts`
 - joined activities plus "thinking about it" merged together
 - pending semi-public access requests for hosted activities
-- public search box that navigates to `/calendar?q=...`
+- public search box that navigates to `/explore?q=...`
 
 ### `Login.tsx`
 
 - magic-link-only sign-in through `signInWithOtp`
 - optional recovery-mode UI when `?recovery=true`
 - recovery mode currently also sends `signInWithOtp`, not a guest-session recovery token
-- redirects already-signed-in users to `/my-activities`
+- redirects already-signed-in users to `/`
 
 ### `ProfileSettings.tsx`
 
@@ -173,7 +186,7 @@ The route table lives in `src/App.tsx`.
 ### `CreateEvent.tsx`
 
 - create and edit form
-- 3-step UI with visibility first, then details, then joining settings
+- 4-step UI with visibility first, then details, photos, and joining settings
 - header back button moves between steps before exiting the page
 - delayed-auth create flow
 - local draft persistence
@@ -184,10 +197,11 @@ The route table lives in `src/App.tsx`.
 - field-level public/private badges to explain what is shown publicly
 - public location is currently constrained to an approved dropdown option of `Hoi An, Vietnam`
 - supports explicit Google Maps link autofill for exact location text without overwriting the locked public-location filter value
+- supports host-managed activity gallery uploads and gallery visibility controls
 - signed-in host-name hydration and normalization
 - host name is treated as public for public and semi-public activities
 - co-host access check for edit mode
-- magic-link return resumes on Step 3 and only opens `One Last Step` when profile details are still missing
+- magic-link return resumes on Step 4 and only opens `One Last Step` when profile details are still missing
 - auth-related modals no longer auto-focus inputs on open, which keeps mobile viewports more stable before the user starts typing
 
 ### `EventDetail.tsx`
@@ -236,6 +250,7 @@ The route table lives in `src/App.tsx`.
 
 ### `Calendar.tsx`
 
+- serves `/explore` as the canonical public browse page, with `/calendar` redirected here
 - fetches future `events` where `is_public = true`
 - only shows items where `public_discovery_enabled = true`
 - supports search via query param
@@ -255,13 +270,33 @@ The route table lives in `src/App.tsx`.
 - calls the moderation Edge Function for manual overrides and AI re-runs
 - now requires a moderator-written public explanation for manual public-facing moderation decisions
 
+### `AdminModerationSettings.tsx`
+
+- hidden moderation-policy page
+- loads and saves runtime moderation strictness presets, rule toggles, and host-trust thresholds through the moderation function
+
+### `AdminGalleryReview.tsx`
+
+- hidden gallery moderation page
+- reviews public-preview gallery images, report counts, and moderation state
+
+### `AdminImportedListings.tsx`
+
+- hidden imported-listings operations page
+- manages `event_sources`, source snapshots, import jobs, extracted drafts, review state, and publish/reject flows
+
+### `AdminBetaFeatures.tsx`
+
+- hidden beta-rollout page
+- supports per-user feature lookup and enable/disable flows for host beta features such as WhatsApp connect testing overrides
+
 ### `ModerationTransparency.tsx`
 
 - public-facing moderation transparency page
 - reads a public-safe moderation log through a dedicated RPC
 - only shows moderation history for public content and semi-public previews
 - supports action filters and per-activity filtering
-- uses stable pseudonymous moderator handles rather than full personal names
+- prefers moderator profile names when available and otherwise falls back to stable pseudonymous moderator handles
 - can open the current public-facing activity page in a modal preview using a safe read path
 
 ### `Bookings.tsx`
@@ -301,6 +336,7 @@ The route table lives in `src/App.tsx`.
 - `src/types.ts`: shared data types
 - `src/utils.ts`: general-purpose formatting/time/calendar helpers
 - `src/hooks/useSupabaseSession.ts`: shared Supabase auth/session bootstrap hook with retry and stale-session recovery
+- `src/pages/Changelog.tsx`: two-mode changelog view backed by raw markdown plus a generated friendly summary artifact
 
 ### Shared helpers
 
@@ -320,6 +356,7 @@ Important files:
 - `bookings.ts`: booking grouping
 - `interests.ts`: "thinking about it" helpers
 - `rsvp.ts`: shared RSVP decision helpers
+- `eventShare.ts`: public/private share URL building plus location/calendar shortcut helpers
 - `useBodyScrollLock.ts`: shared body-scroll locking for modal-heavy pages so sheet scrolling does not move the background document
 
 ### Services
@@ -417,7 +454,7 @@ This is one of the clearest code/product/docs mismatches in the current repo.
 
 ### Attendee lifecycle
 
-1. Discover activity via direct link or `/calendar`
+1. Discover activity via direct link or `/explore`
 2. Open `/events/:slug`
 3. RSVP, join waitlist, think about it, or request view access
 4. for approval-required activities, attendee appears in `Going` as pending until host review
@@ -459,7 +496,7 @@ So contributors should think of:
 
 - `is_public` as the broad browse flag
 - `visibility` as the product-level visibility mode
-- `public_discovery_enabled` as the moderation/trust gate for whether a public-capable item is actually shown in `/calendar`
+- `public_discovery_enabled` as the moderation/trust gate for whether a public-capable item is actually shown in `/explore`
 
 ### Share behavior
 
@@ -527,6 +564,12 @@ So contributors should think of:
 - `trello-prompt-sync`: Trello webhook/manual-sync endpoint that calls Lalo internal feedback automation API for list-triggered Codex prompt generation written back to card descriptions, with Trello-native `x-trello-webhook` signature verification in webhook mode
 - `feedback-admin`: hidden admin listing/retry/archive endpoint for internal feedback review
 - `feedback-admin`: hidden admin listing/retry/archive/delete endpoint for internal feedback review
+- `push-dispatch`: installed-app push delivery
+- `event-gallery`: signed-URL gallery fetch for detail pages
+- `moderate-event-gallery`: gallery image moderation
+- `gallery-admin`: hidden admin gallery review actions
+- `import-worker-admin`: imported-listing source, draft, and publish actions
+- `host-whatsapp-connect`: host beta WhatsApp-connect flow
 
 ### RLS helper functions used in SQL
 

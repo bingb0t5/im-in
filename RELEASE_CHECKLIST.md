@@ -39,7 +39,7 @@ Use this before shipping a new build of `I'm In`.
 
 - **Auth:** magic link login still works.
 - **Event create/edit:** host can create and edit an activity, including delayed-auth create save flow.
-- **Calendar visibility:** private activities are hidden from `/calendar`.
+- **Explore visibility:** private activities are hidden from `/explore` (and therefore also absent via the legacy `/calendar` redirect).
 - **RSVP:** signed-in and guest RSVP both work.
 - **Guest email setting:** `require_guest_email_for_join` behaves correctly in both modes.
 - **Name-first guest flow:** when optional mode is on, guests can join with name only and then add email from success UI.
@@ -105,6 +105,7 @@ END $$;
 - Publish directory: `dist`
 - Configure SPA rewrite/fallback to `index.html`
 - Re-verify deep links after deploy:
+  - `/explore`
   - `/events/:slug`
   - `/host/events/:id`
   - `/host/events/:id/edit`

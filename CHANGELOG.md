@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## 2026-04-24
+
+### Short share-domain link generation
+
+- added `VITE_PUBLIC_SHARE_BASE_URL` support for generated activity share/copy links so invites can point at a dedicated public share domain such as `im-in.link`
+- changed generated private invite links to use a short `/e/:slug` path instead of the longer `/events/:slug` form
+- kept the compact map/calendar helper shortcuts (`/loc/:code`, `/gcal/:code`, `/ical/:code`) as part of the private invite payload
+
+## 2026-04-23
+
+### Licensing and transparency wording refresh
+
+- refreshed the public-facing licensing and branding language so the repo/docs more clearly describe the code as open to inspect for transparency and learning while keeping the official brand/identity reserved
+- updated the top-level documentation to better match the current intended positioning around reuse, branding, and official affiliation
+
+## 2026-04-21
+
+### Guest/private sharing and join-field polish
+
+- expanded attendee/private sharing behavior so private invite flows use the same richer share text and short-link helpers already available from host surfaces
+- fixed the RSVP/custom-answer flow so required host signup questions reliably appear when someone joins instead of letting the answer prompt disappear
+
+### Gallery access reliability
+
+- fixed gallery image loading after the recent access-control changes so approved images render again on activity pages and admin review surfaces
+
+## 2026-04-20
+
+### Session persistence and guest/auth hardening
+
+- added a dual-storage auth persistence path that mirrors Supabase session data into smaller same-origin cookies as a fallback alongside local storage
+- continued guest/account merge hardening so auto-claim is more conservative, conflict cases can surface a merge-or-keep-separate prompt, and remembered guests get a clearer local-account experience on Home
+- tightened mobile/return reliability around auth handoffs and guest-follow-up state so returning users are less likely to lose progress or identity context
 ## 2026-04-16
 
 ### Licensing and brand protection clarification

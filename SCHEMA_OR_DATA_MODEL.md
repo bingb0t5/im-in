@@ -452,7 +452,7 @@ Recent hardening note:
 
 - `visibility = public`
 - `is_public = true`
-- browseable in `/calendar` when `public_discovery_enabled = true`
+- browseable in `/explore` when `public_discovery_enabled = true` (`/calendar` is only a compatibility redirect)
 - public details shown
 - eligible for platform moderation and public moderation transparency logging
 
@@ -460,7 +460,7 @@ Recent hardening note:
 
 - `visibility = semi_public`
 - `is_public = true`
-- browseable in `/calendar`
+- browseable in `/explore`
 - public preview uses limited details
 - full detail access depends on `access_code` or host/co-host context
 - access requests live in `event_access_requests`

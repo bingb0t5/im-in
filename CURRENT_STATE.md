@@ -39,12 +39,12 @@ The weakest / least finished areas are:
 - public home page for everyone
 - signed-in dashboard at `/my-activities`
 - `/my-activities` now defaults to `Attending` when the user has no upcoming hosted activities, reducing empty-state dead-ends for attendees
-- public search and browse
+- public search and browse, now centered on `/explore` with `/calendar` kept as a compatibility redirect
 - public browse grouped into `Today`, `Tomorrow`, weekday sections for the next 7 days, and `Later` beyond that
 - public / semi-public / private visibility modes
 - delayed-auth create flow
 - `Verify with WhatsApp` UI now includes clearer step-by-step guidance through the external WhatsApp handoff and return flow
-- create and edit activity forms with a multi-step visibility-first flow
+- create and edit activity forms with a 4-step visibility-first flow (visibility, details, photos, joining settings)
 - create/edit location flow can resolve shared Google Maps short links and prefill exact location details while the public-location filter is currently locked to `Hoi An, Vietnam`
 - compact share shortcuts for private activity flows via `/loc/:code`, `/gcal/:code`, and `/ical/:code`
 - host dashboard
@@ -67,8 +67,11 @@ The weakest / least finished areas are:
 - signed-in users can report public preview gallery images; repeated reports auto-hide them pending review
 - host settings now show explicit moderation gate diagnostics (`visibility`, event `status`, discovery flag, moderation status) to explain why an activity is hidden from broader browse
 - hidden moderation admin queue with review, archived, and spam buckets for allowlisted admins, scoped to public-facing activity moderation
+- hidden `/admin/moderation/settings` page for runtime moderation policy controls
 - hidden `/admin/gallery` queue for image-specific moderation/review actions
 - hidden admin hub at `/admin` that links to the current internal admin tools
+- hidden `/admin/imported-listings` tooling for source setup, snapshot ingestion, draft review, and publishing imported activities
+- hidden `/admin/beta-features` tooling for per-user rollout controls such as Host WhatsApp connect testing overrides
 - allowlisted admins can now reach the hidden admin tools from the main top-bar account menu
 - hosts now receive a dedicated `host_join` notification when someone newly joins, requests to join, or enters the waitlist for their activity
 - rapid same-actor joins for the same activity are now batched into one delayed host notification that lists all joined names instead of spamming one host alert per row
@@ -103,6 +106,7 @@ The weakest / least finished areas are:
 - email upgrades now use a dedicated merge RPC so profile/session references move together instead of relying on fragile client-side multi-table updates
 - linked profiles can now carry both a `lalo_user_id` and a verified `whatsapp_number` from the Lalo verification flow
 - auth bootstrap now uses a shared session hook that retries reads, refreshes on focus/visibility, and clears stale invalid refresh tokens locally instead of leaving the UI stuck on a dead session
+- Supabase auth storage now dual-writes to local storage plus split same-origin cookies, which gives iOS/webview contexts a smaller fallback path for session recovery
 - WhatsApp auth completion now prefers server-minted Supabase session handoff (`setSession`) so returning users avoid unnecessary password rotation during verify/login completion
 - hosted auth redirects now require `VITE_APP_URL` outside local development so sign-in and recovery return to one canonical app origin
 - WhatsApp auth attempt/completion handoff state now uses expiring local storage instead of session-only storage, making mobile return flows less fragile
@@ -117,6 +121,7 @@ The weakest / least finished areas are:
 - direct Supabase client access from the SPA
 - RLS-sensitive flows routed through RPCs for RSVP/cancel/proxy/interest where needed
 - route-aware private link building for semi-public activities
+- generated share/copy URLs can target a separate share domain through `VITE_PUBLIC_SHARE_BASE_URL`, with private invite links now emitted as short `/e/:slug` paths
 - dedicated join-request queue (`event_join_requests`) plus host approve/reject RPCs for approval-required activities
 - approval-required joins now create visible `event_attendees` rows in `pending_approval` state so pending people show in `Going`
 - custom join-field answers are stored in a separate host-only table (`event_signup_field_answers`) and written through wrapper RSVP/proxy RPCs instead of being stored on publicly readable attendee rows
@@ -277,6 +282,7 @@ Note:
 - signed-in users are not the only "real" users in the data model
 - guest sessions are important real application state
 - recovery messaging currently overstates the strength of the implemented recovery experience
+- there is now a small focused Vitest suite in the repo, but it does not materially reduce risk for the highest-complexity flows yet
 
 ### Schema findings
 
