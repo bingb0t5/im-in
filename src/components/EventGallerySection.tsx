@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Flag, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Flag, Image as ImageIcon, Loader2, X } from 'lucide-react';
 import { EventGalleryImage } from '../types';
+import { ActivityImage } from './ActivityImage';
 
 type Props = {
   images: EventGalleryImage[];
@@ -24,18 +25,34 @@ export function EventGallerySection({
   onReport,
 }: Props) {
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
 
   useEffect(() => {
     if (images.length === 0) {
       setSelectedIndex(0);
+      setIsImageModalOpen(false);
       return;
     }
     setSelectedIndex((prev) => Math.min(prev, images.length - 1));
   }, [images.length]);
 
+  useEffect(() => {
+    if (!isImageModalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsImageModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isImageModalOpen]);
+
   if (!images.length && !subtitle) return null;
 
   const selectedImage = images[selectedIndex] || null;
+  const heroHeightClass = fullBleed ? 'h-[18rem] sm:h-[22rem] md:h-[26rem]' : 'h-72';
   const canReportSelected = !!(
     selectedImage
     && reportable
@@ -65,16 +82,20 @@ export function EventGallerySection({
         </div>
       ) : (
         <>
-          <div className="relative bg-slate-100">
+          <div className={`relative bg-slate-100 ${heroHeightClass}`}>
             {selectedImage?.signed_url ? (
-              <img
+              <ActivityImage
                 src={selectedImage.signed_url}
                 alt={selectedImage.original_file_name || 'Activity gallery image'}
-                className={`w-full object-cover ${fullBleed ? 'h-[18rem] sm:h-[22rem] md:h-[26rem]' : 'h-72'}`}
+                width={selectedImage.width}
+                height={selectedImage.height}
+                variant="hero"
+                className="h-full w-full"
                 loading="lazy"
+                onClick={() => setIsImageModalOpen(true)}
               />
             ) : (
-              <div className={`w-full bg-slate-100 flex items-center justify-center ${fullBleed ? 'h-[18rem] sm:h-[22rem] md:h-[26rem]' : 'h-72'}`}>
+              <div className="h-full w-full bg-slate-100 flex items-center justify-center">
                 <ImageIcon className="w-8 h-8 text-slate-400" />
               </div>
             )}
@@ -142,10 +163,13 @@ export function EventGallerySection({
                         }`}
                       >
                         {image.signed_url ? (
-                          <img
+                          <ActivityImage
                             src={image.signed_url}
                             alt={image.original_file_name || `Gallery thumbnail ${index + 1}`}
-                            className="h-full w-full object-cover"
+                            width={image.width}
+                            height={image.height}
+                            variant="thumbnail"
+                            className="h-full w-full"
                             loading="lazy"
                           />
                         ) : (
@@ -166,6 +190,34 @@ export function EventGallerySection({
           ) : null}
         </>
       )}
+      {isImageModalOpen && selectedImage?.signed_url ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Fullscreen gallery image"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-3 sm:p-6"
+          onClick={() => setIsImageModalOpen(false)}
+        >
+          <button
+            type="button"
+            onClick={() => setIsImageModalOpen(false)}
+            className="absolute right-3 top-3 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+            aria-label="Close fullscreen image"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <div
+            className="h-full w-full max-h-[calc(100dvh-1.5rem)] max-w-5xl sm:max-h-[calc(100dvh-3rem)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <img
+              src={selectedImage.signed_url}
+              alt={selectedImage.original_file_name || 'Activity gallery image'}
+              className="h-full w-full object-contain"
+            />
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

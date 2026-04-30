@@ -10,6 +10,7 @@ import { guestService, AttendeeProfile, getAccountNameFromUser, isSystemGuestEma
 import { getAttendanceSummary, getMyRsvpBuckets } from '../lib/attendees';
 import { decideRsvpStatus, getConfirmedCount, isRsvpBlocked } from '../lib/rsvp';
 import { findMyInterest, getNamedThinkingInterests, getThinkingCount } from '../lib/interests';
+import { getVisibleThinkingCount, isInterestHidden } from '../lib/activityInterestVisibility';
 import { goBackOr } from '../lib/navigation';
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 import { EventGallerySection } from '../components/EventGallerySection';
@@ -1379,6 +1380,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const participationMode = event.participation_mode || 'rsvp';
   const isInterestOnly = participationMode === 'interest_only';
   const interestVisibility = event.interest_visibility || 'count_only';
+  const interestCountsHidden = isInterestHidden(interestVisibility);
   const accessToken = searchParams.get('access');
   const moderationHistoryParams = new URLSearchParams(location.search);
   moderationHistoryParams.set('action', 'moderation');
@@ -1407,7 +1409,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const thinkingCount = getThinkingCount(interests);
   const namedThinkingInterests = getNamedThinkingInterests(interests);
   const visibleNamedThinkingInterests = interestVisibility === 'named' ? namedThinkingInterests : [];
-  const visibleThinkingCount = interestVisibility === 'hidden' ? 0 : thinkingCount;
+  const visibleThinkingCount = getVisibleThinkingCount(thinkingCount, interestVisibility);
   const hasSelfRsvp = mySelfRsvps.length > 0;
   const hasManagedRsvps = myManagedRsvps.length > 0;
   const rsvpButtonDisabled = isInterestOnly || rsvpLoading || joinRequestPending || (!approvalRequired && isFull && !event.allow_waitlist);
@@ -1824,7 +1826,9 @@ export default function EventDetail({ user }: { user: User | null }) {
                 <div>
                   {isInterestOnly ? (
                     <>
-                      <p className="font-bold text-slate-800 text-sm">{visibleThinkingCount} interested</p>
+                      {!interestCountsHidden ? (
+                        <p className="font-bold text-slate-800 text-sm">{visibleThinkingCount} interested</p>
+                      ) : null}
                       <p className="text-xs text-slate-400">Non-signup activity</p>
                     </>
                   ) : (
@@ -1912,13 +1916,17 @@ export default function EventDetail({ user }: { user: User | null }) {
         <section className="bg-white rounded-2xl p-5">
           <div className="flex items-center justify-between">
             <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Thinking about it</p>
-            <button
-              onClick={() => setShowThinkingModal(true)}
-              className="text-sm font-bold text-indigo-500 hover:text-indigo-400 transition-colors"
-              disabled={interestVisibility !== 'named' || visibleThinkingCount === 0 || (eventVisibility === 'public' && visibleNamedThinkingInterests.length === 0)}
-            >
-              {visibleThinkingCount}
-            </button>
+            {interestCountsHidden ? (
+              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Hidden</span>
+            ) : (
+              <button
+                onClick={() => setShowThinkingModal(true)}
+                className="text-sm font-bold text-indigo-500 hover:text-indigo-400 transition-colors"
+                disabled={interestVisibility !== 'named' || visibleThinkingCount === 0 || (eventVisibility === 'public' && visibleNamedThinkingInterests.length === 0)}
+              >
+                {visibleThinkingCount}
+              </button>
+            )}
           </div>
           <p className="text-xs text-slate-400 mt-2">
             {interestVisibility === 'hidden'
