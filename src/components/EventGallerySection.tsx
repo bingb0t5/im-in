@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Flag, Image as ImageIcon, Loader2, X } from 'lucide-react';
 import { EventGalleryImage } from '../types';
-import { ActivityImage } from './ActivityImage';
+import { ActivityImage, HERO_LANDSCAPE_COVER_RATIO_THRESHOLD } from './ActivityImage';
 
 type Props = {
   images: EventGalleryImage[];
@@ -52,7 +52,23 @@ export function EventGallerySection({
   if (!images.length && !subtitle) return null;
 
   const selectedImage = images[selectedIndex] || null;
-  const heroHeightClass = fullBleed ? 'h-[18rem] sm:h-[22rem] md:h-[26rem]' : 'h-72';
+  const selectedImageRatio = (selectedImage?.width || 0) > 0 && (selectedImage?.height || 0) > 0
+    ? Number(selectedImage?.width) / Number(selectedImage?.height)
+    : null;
+  const isClearlyLandscapeHero = selectedImageRatio !== null && selectedImageRatio >= HERO_LANDSCAPE_COVER_RATIO_THRESHOLD;
+  const hasKnownContainedRatio = fullBleed && !isClearlyLandscapeHero && selectedImageRatio !== null && selectedImageRatio > 0;
+  const heroHeightClass = fullBleed
+    ? isClearlyLandscapeHero
+      ? 'h-[18rem] sm:h-[22rem] md:h-[26rem]'
+      : hasKnownContainedRatio
+        ? ''
+        : 'h-[22rem] sm:h-[24rem] md:h-[28rem]'
+    : 'h-72';
+  const heroHeightStyle = hasKnownContainedRatio
+    ? {
+        height: `clamp(22rem, ${(100 / selectedImageRatio!).toFixed(2)}vw, 32rem)`,
+      }
+    : undefined;
   const canReportSelected = !!(
     selectedImage
     && reportable
@@ -82,7 +98,10 @@ export function EventGallerySection({
         </div>
       ) : (
         <>
-          <div className={`relative bg-slate-100 ${heroHeightClass}`}>
+          <div
+            className={`relative ${selectedImage?.signed_url ? 'bg-transparent' : 'bg-slate-100'} ${heroHeightClass}`}
+            style={heroHeightStyle}
+          >
             {selectedImage?.signed_url ? (
               <ActivityImage
                 src={selectedImage.signed_url}

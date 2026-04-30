@@ -14,7 +14,7 @@ type Props = {
   onClick?: () => void;
 };
 
-const TALL_RATIO_THRESHOLD = 0.85;
+export const HERO_LANDSCAPE_COVER_RATIO_THRESHOLD = 1.4;
 
 function joinClasses(...parts: Array<string | null | undefined | false>) {
   return parts.filter(Boolean).join(' ');
@@ -43,7 +43,7 @@ export function ActivityImage({
     return null;
   }, [height, naturalDimensions, width]);
 
-  const shouldContainHero = variant === 'hero' && ratio !== null && ratio < TALL_RATIO_THRESHOLD;
+  const shouldContainHero = variant === 'hero' && (ratio === null || ratio < HERO_LANDSCAPE_COVER_RATIO_THRESHOLD);
   const canInteract = Boolean(onClick) && !hasLoadError;
 
   const imageElement = hasLoadError ? (
@@ -58,9 +58,8 @@ export function ActivityImage({
             src={src}
             alt=""
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover blur-2xl opacity-40"
+            className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover blur-3xl opacity-90"
           />
-          <div className="pointer-events-none absolute inset-0 bg-slate-900/20" />
         </>
       ) : null}
       <img
@@ -87,7 +86,7 @@ export function ActivityImage({
           variant === 'thumbnail'
             ? 'object-cover object-center'
             : shouldContainHero
-              ? 'object-contain p-2 sm:p-3'
+              ? 'object-contain'
               : 'object-cover object-center',
         )}
       />
