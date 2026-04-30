@@ -10,6 +10,7 @@ import { User } from '@supabase/supabase-js';
 import { BookingRow, groupBookingsByEvent } from '../lib/bookings';
 import { filterEventsForQuery } from '../lib/activityRelations';
 import { hydrateMissingEventCounts } from '../lib/activityCounts';
+import { isInterestHidden } from '../lib/activityInterestVisibility';
 import { Card } from '../components/ui/Card';
 
 type CalendarGroup = {
@@ -145,6 +146,7 @@ function ExploreEventRow({
   const visibilityMeta = getVisibilityMeta(event);
   const confirmedCount = event.confirmed_count || 0;
   const thinkingCount = event.thinking_count || 0;
+  const interestCountsHidden = isInterestHidden(event.interest_visibility);
   const isInterestOnly = (event.participation_mode || 'rsvp') === 'interest_only';
   const interestedLabel = `${thinkingCount} ${thinkingCount === 1 ? 'person interested' : 'people interested'}`;
 
@@ -177,17 +179,19 @@ function ExploreEventRow({
               </span>
             ) : null}
             {isInterestOnly ? (
-              <span className="flex shrink-0 items-center gap-1">
-                <Users className="h-3.5 w-3.5 text-brand-600" />
-                {interestedLabel}
-              </span>
+              !interestCountsHidden ? (
+                <span className="flex shrink-0 items-center gap-1">
+                  <Users className="h-3.5 w-3.5 text-brand-600" />
+                  {interestedLabel}
+                </span>
+              ) : null
             ) : (
               <>
                 <span className="flex shrink-0 items-center gap-1">
                   <Users className="h-3.5 w-3.5 text-brand-600" />
                   {confirmedCount}/{event.capacity} going
                 </span>
-                <span className="shrink-0">{thinkingCount} thinking about it</span>
+                {!interestCountsHidden ? <span className="shrink-0">{thinkingCount} thinking about it</span> : null}
               </>
             )}
           </div>
