@@ -964,7 +964,7 @@ export default function EventDetail({ user }: { user: User | null }) {
     if (e) e.preventDefault();
     if (!event) return;
     if ((event.participation_mode || 'rsvp') !== 'rsvp') {
-      alert('This activity is non-signup. Use "Thinking about it" to add it to My Activities.');
+      alert('This activity is non-signup. Use Add to My Activities to save it.');
       return;
     }
     setRsvpLoading(true);
@@ -1610,7 +1610,6 @@ export default function EventDetail({ user }: { user: User | null }) {
                       <Users className="h-3.5 w-3.5 text-brand-600" />
                       {confirmedCount}/{event.capacity} going
                     </span>
-                    <span className="shrink-0">{visibleThinkingCount} thinking about it</span>
                   </>
                 )}
               </div>
@@ -1913,12 +1912,10 @@ export default function EventDetail({ user }: { user: User | null }) {
           </section>
         )}
 
-        <section className="bg-white rounded-2xl p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Thinking about it</p>
-            {interestCountsHidden ? (
-              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Hidden</span>
-            ) : (
+        {isInterestOnly && !interestCountsHidden ? (
+          <section className="bg-white rounded-2xl p-5">
+            <div className="flex items-center justify-between">
+              <p className="text-[9px] font-medium text-slate-400 uppercase tracking-widest">Interested</p>
               <button
                 onClick={() => setShowThinkingModal(true)}
                 className="text-sm font-bold text-indigo-500 hover:text-indigo-400 transition-colors"
@@ -1926,16 +1923,14 @@ export default function EventDetail({ user }: { user: User | null }) {
               >
                 {visibleThinkingCount}
               </button>
-            )}
-          </div>
-          <p className="text-xs text-slate-400 mt-2">
-            {interestVisibility === 'hidden'
-              ? 'Interest activity is hidden for this activity.'
-              : eventVisibility === 'public'
-                ? `${visibleThinkingCount} people are thinking about it`
-                : `${visibleNamedThinkingInterests.length} people visible by name`}
-          </p>
-        </section>
+            </div>
+            <p className="text-xs text-slate-400 mt-2">
+              {eventVisibility === 'public'
+                  ? `${visibleThinkingCount} people interested`
+                  : `${visibleNamedThinkingInterests.length} people visible by name`}
+            </p>
+          </section>
+        ) : null}
 
         {!isInterestOnly && attendees.length === 0 && (
           <p className="text-slate-400 text-sm px-1">Be the first to join!</p>
@@ -2016,7 +2011,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                 aria-pressed={thinkingButtonActive}
                 aria-label={thinkingButtonActive ? 'Remove from My Activities' : 'Add to My Activities'}
                 className={[
-                  'flex min-h-[3.45rem] w-full flex-col items-center justify-center gap-0.5 rounded-[1.15rem] border px-2 py-1.5 text-center backdrop-blur-md transition-all active:scale-[0.98]',
+                  'flex min-h-[3.45rem] w-full items-center justify-center rounded-[1.15rem] border px-3 py-1.5 text-center backdrop-blur-md transition-all active:scale-[0.98]',
                   thinkingLoading
                     ? 'cursor-not-allowed border-white/70 bg-gradient-to-b from-slate-100/95 to-slate-50/90 text-slate-400 shadow-sm'
                     : thinkingButtonActive
@@ -2024,8 +2019,7 @@ export default function EventDetail({ user }: { user: User | null }) {
                       : 'border-white/45 bg-gradient-to-b from-brand-500 via-brand-600 to-cyan-600 text-white shadow-[0_18px_36px_rgba(13,148,136,0.3)] hover:from-brand-400 hover:via-brand-500 hover:to-cyan-500',
                 ].join(' ')}
               >
-                <CircleHelp className="h-4.5 w-4.5" />
-                <span className="text-[10px] font-bold leading-tight sm:text-[11px]">
+                <span className="text-sm font-black leading-tight sm:text-base">
                   {thinkingButtonActive ? 'In My Activities' : 'Add to My Activities'}
                 </span>
               </button>
@@ -2067,7 +2061,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               onClick={() => handleToggleThinking()}
               disabled={thinkingButtonDisabled}
               aria-pressed={thinkingButtonActive}
-              aria-label={thinkingButtonActive ? "Remove I'm thinking about it" : "I'm thinking about it"}
+              aria-label={thinkingButtonActive ? 'Remove from My Activities' : 'Save to My Activities'}
               className={[
                 'flex min-h-[3.45rem] w-full flex-col items-center justify-center gap-0.5 rounded-[1.15rem] border px-2 py-1.5 text-center backdrop-blur-md transition-all active:scale-[0.98]',
                 thinkingButtonDisabled
@@ -2078,7 +2072,9 @@ export default function EventDetail({ user }: { user: User | null }) {
               ].join(' ')}
             >
               <CircleHelp className="h-4.5 w-4.5" />
-              <span className="text-[10px] font-bold leading-tight sm:text-[11px]">Thinking about it</span>
+              <span className="text-[10px] font-bold leading-tight sm:text-[11px]">
+                {thinkingButtonActive ? 'Saved' : 'Save'}
+              </span>
             </button>
 
             <button
@@ -2258,7 +2254,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               className="relative w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
             >
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-black text-slate-900">Thinking about it</h2>
+                <h2 className="text-lg font-black text-slate-900">Interested</h2>
                 <button onClick={() => setShowThinkingModal(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-all">
                   <X className="w-5 h-5 text-slate-400" />
                 </button>

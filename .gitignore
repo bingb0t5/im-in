@@ -10,3 +10,5 @@ src/server/whatsapp-helper/runtime/
 src/generated/
 **/runtime/session/
 **/runtime/smoke/
+.claude/
+ACCESS_GROUPS_FEATURE_DOC.md
