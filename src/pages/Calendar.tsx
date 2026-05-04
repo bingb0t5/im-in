@@ -191,7 +191,6 @@ function ExploreEventRow({
                   <Users className="h-3.5 w-3.5 text-brand-600" />
                   {confirmedCount}/{event.capacity} going
                 </span>
-                {!interestCountsHidden ? <span className="shrink-0">{thinkingCount} thinking about it</span> : null}
               </>
             )}
           </div>
