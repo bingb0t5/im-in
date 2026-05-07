@@ -28,6 +28,7 @@ import {
   parseSelectOptionsFromText,
   validateCustomJoinAnswer,
 } from '../lib/customJoinField';
+import { HostMessagingPanel } from '../components/HostMessagingPanel';
 
 type InAppShareCandidate = {
   recipient_key: string;
@@ -1935,6 +1936,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
             </div>
           )}
         </section>
+        <HostMessagingPanel event={event} />
         </>
         ) : null}
 
