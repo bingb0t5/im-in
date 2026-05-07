@@ -68,6 +68,45 @@ export type PlatformMessagingEngineHandoff = {
   };
 };
 
+export type PlatformMessagingTarget = {
+  id: string;
+  owner_app: string;
+  owner_workspace_id: string | null;
+  owner_user_id: string | null;
+  label: string;
+  engine_id: string;
+  whatsapp_group_ref: string | null;
+  invite_url: string | null;
+  status: 'pending' | 'ready' | 'failed';
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PlatformMessagingScheduledMessage = {
+  id: string;
+  event_id?: string;
+  target_id: string;
+  platform_message_id?: string;
+  platform_target_id?: string;
+  message_body: string;
+  scheduled_for: string;
+  status: 'scheduled' | 'processing' | 'sent' | 'failed' | 'cancelled';
+  last_error?: string | null;
+  sent_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PlatformMessagingActivitySettings = {
+  event_id: string;
+  host_user_id: string;
+  platform_target_id: string | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+} | null;
+
 export type PlatformMessagingStatus = {
   beta: PlatformMessagingBetaStatus;
   event: {
@@ -75,9 +114,11 @@ export type PlatformMessagingStatus = {
     title: string | null;
   };
   ownerScope: PlatformMessagingOwnerScope;
+  activitySettings: PlatformMessagingActivitySettings;
   latestEngine: PlatformMessagingEngineStatus | null;
   latestEngineError: string | null;
-  targets: unknown[];
+  targets: PlatformMessagingTarget[];
+  messages: PlatformMessagingScheduledMessage[];
 };
 
 export type PlatformMessagingEngineResponse = {
@@ -93,6 +134,22 @@ export type PlatformMessagingQrResponse = {
 export type PlatformMessagingHandoffResponse = {
   handoff: PlatformMessagingEngineHandoff;
   showQrUrl: string;
+  ownerScope: PlatformMessagingOwnerScope;
+};
+
+export type PlatformMessagingTargetResponse = {
+  target: PlatformMessagingTarget;
+  ownerScope: PlatformMessagingOwnerScope;
+};
+
+export type PlatformMessagingScheduledMessageResponse = {
+  message: PlatformMessagingScheduledMessage;
+  activityMessage?: PlatformMessagingScheduledMessage | null;
+  ownerScope: PlatformMessagingOwnerScope;
+};
+
+export type PlatformMessagingActivitySettingsResponse = {
+  activitySettings: NonNullable<PlatformMessagingActivitySettings>;
   ownerScope: PlatformMessagingOwnerScope;
 };
 
@@ -155,6 +212,44 @@ export const platformMessagingClient = {
       eventId,
       engineId,
       returnUrl: returnUrl || null,
+    });
+  },
+
+  createTarget(eventId: string, engineId: string, label: string, inviteUrl?: string | null) {
+    return invokeAuthedFunction<PlatformMessagingTargetResponse>('platform-messaging', {
+      action: 'createTarget',
+      eventId,
+      engineId,
+      label,
+      inviteUrl: inviteUrl || null,
+    });
+  },
+
+  createScheduledMessage(eventId: string, targetId: string, messageBody: string, scheduledFor: string) {
+    return invokeAuthedFunction<PlatformMessagingScheduledMessageResponse>('platform-messaging', {
+      action: 'createScheduledMessage',
+      eventId,
+      targetId,
+      messageBody,
+      scheduledFor,
+    });
+  },
+
+  sendMessageNow(eventId: string, targetId: string, messageBody: string) {
+    return invokeAuthedFunction<PlatformMessagingScheduledMessageResponse>('platform-messaging', {
+      action: 'sendMessageNow',
+      eventId,
+      targetId,
+      messageBody,
+    });
+  },
+
+  saveActivitySettings(eventId: string, enabled: boolean, targetId?: string | null) {
+    return invokeAuthedFunction<PlatformMessagingActivitySettingsResponse>('platform-messaging', {
+      action: 'saveActivitySettings',
+      eventId,
+      enabled,
+      targetId: targetId || null,
     });
   },
 };
