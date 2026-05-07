@@ -13,11 +13,6 @@ import {
   clearAllLaloStateForSignOut,
   isLaloWhatsAppAuthEnabled,
 } from '../integrations/lalo/laloAuth';
-import {
-  hostWhatsappConnectClient,
-  type HostWhatsappBetaStatus,
-  type HostWhatsappConnectStatus,
-} from '../integrations/host-whatsapp-connect/hostWhatsappConnectClient';
 import { accountMergeClient } from '../integrations/accountMerge/accountMergeClient';
 import {
   guestService,
@@ -78,13 +73,6 @@ export default function ProfileSettings({ user }: { user: User | null }) {
   const [pushPrefs, setPushPrefs] = useState<Record<string, boolean>>({});
   const autoStartAttemptedRef = useRef(false);
   const autoOpenedNamePromptRef = useRef(false);
-  const hostConnectPollRef = useRef<number | null>(null);
-  const [hostConnectBetaLoading, setHostConnectBetaLoading] = useState(false);
-  const [hostConnectBetaStatus, setHostConnectBetaStatus] = useState<HostWhatsappBetaStatus | null>(null);
-  const [hostConnectLoading, setHostConnectLoading] = useState(false);
-  const [hostConnectStatus, setHostConnectStatus] = useState<HostWhatsappConnectStatus | null>(null);
-  const [hostConnectError, setHostConnectError] = useState<string | null>(null);
-  const [hostConnectMessage, setHostConnectMessage] = useState<string | null>(null);
 
   const hydrateProfile = async (authUser: User) => {
     const profile = await guestService.getProfileForUser(authUser);
@@ -319,70 +307,6 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     navigate('/auth/whatsapp/verify?mode=link_existing&autostart=1&returnTo=%2Fprofile', { replace: true });
   };
 
-  const stopHostConnectPolling = () => {
-    if (hostConnectPollRef.current !== null) {
-      window.clearInterval(hostConnectPollRef.current);
-      hostConnectPollRef.current = null;
-    }
-  };
-
-  const pollHostConnectStatus = async () => {
-    try {
-      const status = await hostWhatsappConnectClient.getStatus();
-      setHostConnectStatus(status);
-      if (status.flowState === 'connected' || status.flowState === 'expired' || status.flowState === 'failed') {
-        stopHostConnectPolling();
-      }
-    } catch (pollError) {
-      setHostConnectError(pollError instanceof Error ? pollError.message : 'Could not refresh WhatsApp connection status.');
-      stopHostConnectPolling();
-    }
-  };
-
-  const startHostConnectPolling = () => {
-    stopHostConnectPolling();
-    hostConnectPollRef.current = window.setInterval(() => {
-      void pollHostConnectStatus();
-    }, 3_000);
-  };
-
-  const refreshHostConnectCode = async () => {
-    setHostConnectError(null);
-    try {
-      const code = await hostWhatsappConnectClient.getCode();
-      setHostConnectStatus((previous) =>
-        previous
-          ? {
-              ...previous,
-              flowState: code.flowState,
-              linkCode: code.linkCode,
-              instructions: code.instructions,
-              updatedAt: code.updatedAt,
-              phoneNumberMasked: code.phoneNumberMasked,
-            }
-          : null,
-      );
-    } catch (codeError) {
-      setHostConnectError(codeError instanceof Error ? codeError.message : 'Code is not available yet.');
-    }
-  };
-
-  const handleStartHostConnect = async () => {
-    setHostConnectLoading(true);
-    setHostConnectError(null);
-    setHostConnectMessage(null);
-    try {
-      await hostWhatsappConnectClient.start();
-      await pollHostConnectStatus();
-      startHostConnectPolling();
-      setHostConnectMessage('Connection started. Enter the code from this screen on your phone.');
-    } catch (startError) {
-      setHostConnectError(startError instanceof Error ? startError.message : 'Could not start WhatsApp connect flow.');
-    } finally {
-      setHostConnectLoading(false);
-    }
-  };
-
   const handleStartAccountMerge = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const normalizedMergeEmail = mergeEmail.trim().toLowerCase();
@@ -433,9 +357,6 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     : 'Add WhatsApp to this account through verification. Your email remains your backup sign-in, and any older WhatsApp-only account will be merged into this one.';
   const canManagePush = canManagePushNotifications(user, profile);
   const pushPublicKey = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY as string | undefined;
-  const showHostConnectBetaCard = hostConnectBetaStatus?.enabled === true;
-  const connectFlowState = hostConnectStatus?.flowState || 'idle';
-  const connectFlowTerminal = connectFlowState === 'connected' || connectFlowState === 'expired' || connectFlowState === 'failed';
 
   const handleEnablePush = async () => {
     if (!canManagePush) {
@@ -516,60 +437,6 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     autoStartAttemptedRef.current = true;
     void handleStartWhatsappVerification();
   }, [user, loading, hasLinkedWhatsapp, searchParams]);
-
-  useEffect(() => {
-    if (!user) {
-      setHostConnectBetaStatus(null);
-      setHostConnectStatus(null);
-      setHostConnectError(null);
-      stopHostConnectPolling();
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadHostConnectBetaStatus = async () => {
-      setHostConnectBetaLoading(true);
-      setHostConnectError(null);
-      try {
-        const status = await hostWhatsappConnectClient.getBetaStatus();
-        if (cancelled) return;
-        setHostConnectBetaStatus(status);
-        if (!status.enabled) {
-          setHostConnectStatus(null);
-          stopHostConnectPolling();
-          return;
-        }
-
-        const sessionStatus = await hostWhatsappConnectClient.getStatus().catch(() => null);
-        if (cancelled) return;
-        setHostConnectStatus(sessionStatus);
-        if (
-          sessionStatus &&
-          sessionStatus.flowState !== 'connected' &&
-          sessionStatus.flowState !== 'expired' &&
-          sessionStatus.flowState !== 'failed'
-        ) {
-          startHostConnectPolling();
-        }
-      } catch (betaError) {
-        if (cancelled) return;
-        setHostConnectError(betaError instanceof Error ? betaError.message : 'Could not load host beta settings.');
-        setHostConnectBetaStatus(null);
-      } finally {
-        if (!cancelled) {
-          setHostConnectBetaLoading(false);
-        }
-      }
-    };
-
-    void loadHostConnectBetaStatus();
-
-    return () => {
-      cancelled = true;
-      stopHostConnectPolling();
-    };
-  }, [user?.id]);
 
   useEffect(() => {
     if (!user || loading) return;
@@ -712,79 +579,6 @@ export default function ProfileSettings({ user }: { user: User | null }) {
                       <p className="text-sm text-slate-500">WhatsApp verification is not enabled in this environment yet.</p>
                     )}
                   </section>
-
-                  {showHostConnectBetaCard ? (
-                    <>
-                      <div className="my-5 h-px bg-slate-100" />
-                      <section className="space-y-3 rounded-2xl border border-brand-200 bg-brand-50/50 p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-brand-700">Host beta</p>
-                            <h3 className="text-base font-black tracking-tight text-slate-900">WhatsApp host connect</h3>
-                            <p className="text-sm text-slate-600">
-                              This test-only flow links your host account using a phone code instead of the normal verification panel.
-                            </p>
-                          </div>
-                          <span className="inline-flex items-center rounded-full bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-brand-700">
-                            {connectFlowState}
-                          </span>
-                        </div>
-
-                        <div className="rounded-2xl border border-brand-100 bg-white p-3 text-sm text-slate-700 space-y-1">
-                          <p>
-                            <span className="font-bold">Test number:</span>{' '}
-                            {hostConnectBetaStatus?.phoneNumberMasked || 'Not configured'}
-                          </p>
-                          {hostConnectStatus?.linkCode ? (
-                            <p>
-                              <span className="font-bold">Current code:</span>{' '}
-                              <span className="font-mono">{hostConnectStatus.linkCode}</span>
-                            </p>
-                          ) : null}
-                        </div>
-
-                        {hostConnectStatus?.instructions?.length ? (
-                          <ol className="list-decimal pl-5 space-y-1 text-sm text-slate-700">
-                            {hostConnectStatus.instructions.map((instruction) => (
-                              <li key={instruction}>{instruction}</li>
-                            ))}
-                          </ol>
-                        ) : null}
-
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            onClick={() => {
-                              void handleStartHostConnect();
-                            }}
-                            loading={hostConnectLoading}
-                            disabled={hostConnectBetaLoading}
-                            leadingIcon={<MessageCircle className="h-4 w-4" />}
-                          >
-                            {connectFlowState === 'connected' ? 'Reconnect host WhatsApp' : 'Connect host WhatsApp'}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            onClick={() => {
-                              void refreshHostConnectCode();
-                            }}
-                            disabled={hostConnectLoading || hostConnectBetaLoading || connectFlowState === 'idle'}
-                          >
-                            Refresh code
-                          </Button>
-                        </div>
-
-                        {connectFlowTerminal ? (
-                          <p className="text-xs text-slate-500">
-                            {connectFlowState === 'connected'
-                              ? 'Connected successfully.'
-                              : 'Connection flow ended. Start again to request a new code.'}
-                          </p>
-                        ) : null}
-                      </section>
-                    </>
-                  ) : null}
 
                   <div className="my-5 h-px bg-slate-100" />
 
@@ -976,8 +770,6 @@ export default function ProfileSettings({ user }: { user: User | null }) {
 
                 {message ? <p className="rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs text-brand-700">{message}</p> : null}
                 {error ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p> : null}
-                {hostConnectMessage ? <p className="rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs text-brand-700">{hostConnectMessage}</p> : null}
-                {hostConnectError ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">{hostConnectError}</p> : null}
               </>
             )}
           </Card>

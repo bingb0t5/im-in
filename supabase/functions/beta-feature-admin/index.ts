@@ -12,6 +12,13 @@ type BetaFeatureRow = {
   updated_at: string;
 };
 
+type AuthIdentitySummary = {
+  email: string | null;
+  whatsapp_number: string | null;
+  whatsapp_verified_at: string | null;
+  lalo_user_id: string | null;
+};
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -48,7 +55,7 @@ function isUuid(value: string) {
 }
 
 function normalizeFeatureKey(value: unknown) {
-  return typeof value === 'string' && value.trim() ? value.trim() : 'host_whatsapp_connect';
+  return typeof value === 'string' && value.trim() ? value.trim() : 'host_whatsapp_messaging';
 }
 
 function normalizeWhatsappNumber(value: unknown) {
@@ -68,6 +75,24 @@ function normalizePhoneSearch(value: string) {
 function isLikelyPhoneSearch(value: string) {
   const digits = normalizePhoneSearch(value);
   return value.trim().startsWith('+') || digits.length >= 4;
+}
+
+function authIdentityFromUser(user: any): AuthIdentitySummary {
+  const metadata = user?.user_metadata || {};
+  return {
+    email: normalizeText(user?.email || null) || null,
+    whatsapp_number: normalizeText(metadata.whatsapp_number || metadata.wa_id || null) || null,
+    whatsapp_verified_at: normalizeText(metadata.whatsapp_verified_at || null) || null,
+    lalo_user_id: normalizeText(metadata.lalo_user_id || null) || null,
+  };
+}
+
+function authIdentityMatchesPhone(identity: AuthIdentitySummary, query: string) {
+  const queryDigits = normalizePhoneSearch(query);
+  if (!queryDigits) return false;
+  return [identity.whatsapp_number, identity.lalo_user_id]
+    .map((value) => normalizePhoneSearch(value || ''))
+    .some((digits) => digits && (digits.includes(queryDigits) || queryDigits.includes(digits) || digits.endsWith(queryDigits.slice(-6))));
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -102,6 +127,33 @@ async function loadBetaRow(
     .maybeSingle();
   if (error) throw new Error(error.message || 'Could not load beta feature row.');
   return (data as BetaFeatureRow | null) || null;
+}
+
+async function loadAuthIdentityByUserId(adminClient: ReturnType<typeof createClient>, userId: string): Promise<AuthIdentitySummary | null> {
+  const { data, error } = await adminClient.auth.admin.getUserById(userId);
+  if (error || !data.user) return null;
+  return authIdentityFromUser(data.user);
+}
+
+async function findAuthUsersByWhatsapp(adminClient: ReturnType<typeof createClient>, query: string) {
+  const matches: Array<{ userId: string; authIdentity: AuthIdentitySummary }> = [];
+  const maxPages = 10;
+  const perPage = 100;
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage });
+    if (error) throw new Error(error.message || 'Could not search auth users.');
+    const users = data?.users || [];
+    for (const authUser of users) {
+      const identity = authIdentityFromUser(authUser);
+      if (authIdentityMatchesPhone(identity, query)) {
+        matches.push({ userId: authUser.id, authIdentity: identity });
+      }
+    }
+    if (users.length < perPage) break;
+  }
+
+  return matches;
 }
 
 Deno.serve(async (req) => {
@@ -167,9 +219,39 @@ Deno.serve(async (req) => {
         profileQuery = profileQuery.or(`full_name.ilike.%${query}%,whatsapp_number.ilike.%${query}%`);
       }
 
-      const { data: profiles, error: profilesError } = await profileQuery;
+      const { data: profileRows, error: profilesError } = await profileQuery;
       if (profilesError) throw new Error(profilesError.message || 'Could not search profiles.');
 
+      const profilesByUserId = new Map<string, any>();
+      for (const profile of profileRows || []) {
+        if (profile?.user_id && !profilesByUserId.has(profile.user_id)) {
+          profilesByUserId.set(profile.user_id, profile);
+        }
+      }
+
+      if (isLikelyPhoneSearch(query)) {
+        const authMatches = await findAuthUsersByWhatsapp(adminClient, query);
+        for (const match of authMatches) {
+          if (profilesByUserId.has(match.userId)) continue;
+          const { data: profileByUser } = await adminClient
+            .from('attendee_profiles')
+            .select(profileSelect)
+            .eq('user_id', match.userId)
+            .order('updated_at', { ascending: false })
+            .limit(1);
+          profilesByUserId.set(match.userId, profileByUser?.[0] || {
+            id: match.userId,
+            user_id: match.userId,
+            email: match.authIdentity.email,
+            full_name: null,
+            whatsapp_number: null,
+            whatsapp_verified_at: null,
+            auth_provider: null,
+          });
+        }
+      }
+
+      const profiles = Array.from(profilesByUserId.values());
       const userIds = [...new Set((profiles || []).map((row: any) => row.user_id).filter(Boolean))];
       const betaByUserId = new Map<string, BetaFeatureRow>();
       if (userIds.length > 0) {
@@ -184,10 +266,19 @@ Deno.serve(async (req) => {
         }
       }
 
+      const authIdentityByUserId = new Map<string, AuthIdentitySummary | null>();
+      await Promise.all(
+        userIds.map(async (userId) => {
+          authIdentityByUserId.set(userId, await loadAuthIdentityByUserId(adminClient, userId));
+        }),
+      );
+
       const items = (profiles || []).map((profile: any) => {
         const beta = profile.user_id ? betaByUserId.get(profile.user_id) || null : null;
+        const authIdentity = profile.user_id ? authIdentityByUserId.get(profile.user_id) || null : null;
         return {
           profile,
+          authIdentity,
           beta,
         };
       });
