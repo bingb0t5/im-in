@@ -1449,7 +1449,7 @@ export default function EventDetail({ user }: { user: User | null }) {
 
   const buildInviteText = (url: string) => (
     url === privateEventUrl
-      ? buildPrivateWhatsappShareText(shareBaseUrl, event)
+      ? buildPrivateWhatsappShareText(shareBaseUrl, event, { spotsAvailable: spotsRemaining })
       : `${event.title} – ${formatDate(event.starts_at, event.timezone)}\n${spotsRemaining} spots left. Join here:\n${url}`
   );
 

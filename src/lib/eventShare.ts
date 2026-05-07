@@ -26,6 +26,11 @@ type ShareableEvent = Pick<
 
 export type EventShortcutKind = 'loc' | 'gcal' | 'ical';
 
+type PrivateWhatsappShareOptions = {
+  spotsAvailable?: number | null;
+  attendeeNames?: string[];
+};
+
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '');
 }
@@ -133,16 +138,29 @@ export function buildIcsDownloadForActivity(
   };
 }
 
-export function buildPrivateWhatsappShareText(origin: string, event: ShareableEvent) {
+export function buildPrivateWhatsappShareText(
+  origin: string,
+  event: ShareableEvent,
+  options: PrivateWhatsappShareOptions = {},
+) {
   const mapsUrl = event.google_maps_url?.trim();
   const exactLocation = event.location_text?.trim();
   const signUpUrl = buildPrivateShareUrl(origin, event);
   const mapsShortcutUrl = buildEventShortcutUrl(origin, 'loc', event);
   const gcalShortcutUrl = buildEventShortcutUrl(origin, 'gcal', event);
   const icalShortcutUrl = buildEventShortcutUrl(origin, 'ical', event);
+  const attendeeNames = (options.attendeeNames || [])
+    .map((name) => name.trim())
+    .filter(Boolean);
   const lines = [
     event.title,
     `Activity Date/Time: ${formatDate(event.starts_at, event.timezone)}`,
+    typeof options.spotsAvailable === 'number'
+      ? `Spots available: ${Math.max(0, options.spotsAvailable)}`
+      : null,
+    attendeeNames.length
+      ? ['Who is already going:', ...attendeeNames.map((name) => `- ${name}`)].join('\n')
+      : null,
     'Sign up here:',
     signUpUrl,
     mapsUrl
