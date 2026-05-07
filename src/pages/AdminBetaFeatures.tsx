@@ -77,7 +77,7 @@ export default function AdminBetaFeatures({ user }: { user: User | null }) {
     event?.preventDefault();
     const trimmed = query.trim();
     if (!trimmed) {
-      setError('Enter an email, user id, or host name to search.');
+      setError('Enter an email, WhatsApp number, user id, or host name to search.');
       return;
     }
 
@@ -182,7 +182,7 @@ export default function AdminBetaFeatures({ user }: { user: User | null }) {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search by email, user id, or host name"
+                placeholder="Search by email, WhatsApp number, user id, or host name"
                 className="w-full rounded-2xl border border-slate-200 bg-white px-10 py-3 text-sm font-medium text-slate-800 outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10"
               />
             </div>
@@ -212,6 +212,10 @@ export default function AdminBetaFeatures({ user }: { user: User | null }) {
                     <p className="text-base font-bold text-slate-900">{row.profile.full_name || row.profile.email || userId}</p>
                     <p className="text-xs text-slate-500 break-all">user_id: {userId}</p>
                     <p className="text-xs text-slate-500 break-all">email: {row.profile.email || 'No email on profile'}</p>
+                    <p className="text-xs text-slate-500 break-all">
+                      WhatsApp: {row.profile.whatsapp_number || 'No WhatsApp number on profile'}
+                      {row.profile.whatsapp_verified_at ? ' · verified' : ''}
+                    </p>
                   </div>
                   <span
                     className={`inline-flex items-center rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${

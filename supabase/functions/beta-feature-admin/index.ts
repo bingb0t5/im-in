@@ -61,6 +61,15 @@ function normalizeWhatsappNumber(value: unknown) {
   return trimmed;
 }
 
+function normalizePhoneSearch(value: string) {
+  return value.replace(/\D/g, '');
+}
+
+function isLikelyPhoneSearch(value: string) {
+  const digits = normalizePhoneSearch(value);
+  return value.trim().startsWith('+') || digits.length >= 4;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 }
@@ -130,17 +139,32 @@ Deno.serve(async (req) => {
         return json({ error: 'query is required.' }, { status: 400 });
       }
 
+      const profileSelect = 'id,user_id,email,full_name,whatsapp_number,whatsapp_verified_at,auth_provider';
       let profileQuery = adminClient
         .from('attendee_profiles')
-        .select('id,user_id,email,full_name,whatsapp_number,whatsapp_verified_at,auth_provider')
+        .select(profileSelect)
         .limit(25);
 
       if (query.includes('@')) {
         profileQuery = profileQuery.ilike('email', `%${query.toLowerCase()}%`);
       } else if (isUuid(query)) {
         profileQuery = profileQuery.eq('user_id', query);
+      } else if (isLikelyPhoneSearch(query)) {
+        const digits = normalizePhoneSearch(query);
+        const phoneNeedles = [
+          query,
+          digits,
+          digits.length > 6 ? digits.slice(-6) : '',
+          digits.length > 4 ? digits.slice(-4) : '',
+        ]
+          .map((value) => value.trim())
+          .filter(Boolean);
+        const phoneFilters = [...new Set(phoneNeedles)]
+          .map((needle) => `whatsapp_number.ilike.%${needle}%`)
+          .join(',');
+        profileQuery = profileQuery.or(phoneFilters);
       } else {
-        profileQuery = profileQuery.ilike('full_name', `%${query}%`);
+        profileQuery = profileQuery.or(`full_name.ilike.%${query}%,whatsapp_number.ilike.%${query}%`);
       }
 
       const { data: profiles, error: profilesError } = await profileQuery;
