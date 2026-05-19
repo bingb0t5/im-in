@@ -29,10 +29,16 @@ type ProfileRow = {
 
 type SearchResultRow = {
   profile: ProfileRow;
+  authIdentity?: {
+    email: string | null;
+    whatsapp_number: string | null;
+    whatsapp_verified_at: string | null;
+    lalo_user_id: string | null;
+  } | null;
   beta: BetaRow | null;
 };
 
-const FEATURE_KEY = 'host_whatsapp_connect';
+const FEATURE_KEY = 'host_whatsapp_messaging';
 
 export default function AdminBetaFeatures({ user }: { user: User | null }) {
   const isAdmin = canAccessModerationAdminFrontend(user?.email);
@@ -45,6 +51,9 @@ export default function AdminBetaFeatures({ user }: { user: User | null }) {
   const [draftByUserId, setDraftByUserId] = useState<Record<string, { enabled: boolean; whatsappTestNumber: string; notes: string }>>(
     {},
   );
+
+  const getBestWhatsappNumber = (row: SearchResultRow) => row.profile.whatsapp_number || row.authIdentity?.whatsapp_number || '';
+  const getBestWhatsappVerifiedAt = (row: SearchResultRow) => row.profile.whatsapp_verified_at || row.authIdentity?.whatsapp_verified_at || null;
 
   const rowsWithUserId = useMemo(
     () => rows.filter((row) => typeof row.profile.user_id === 'string' && row.profile.user_id.trim().length > 0),
@@ -66,7 +75,7 @@ export default function AdminBetaFeatures({ user }: { user: User | null }) {
       if (!userId) continue;
       nextDraft[userId] = {
         enabled: row.beta?.enabled === true,
-        whatsappTestNumber: row.beta?.whatsapp_test_number || '',
+        whatsappTestNumber: row.beta?.whatsapp_test_number || getBestWhatsappNumber(row),
         notes: row.beta?.notes || '',
       };
     }
@@ -77,7 +86,7 @@ export default function AdminBetaFeatures({ user }: { user: User | null }) {
     event?.preventDefault();
     const trimmed = query.trim();
     if (!trimmed) {
-      setError('Enter an email, user id, or host name to search.');
+      setError('Enter an email, WhatsApp number, user id, or host name to search.');
       return;
     }
 
@@ -171,8 +180,8 @@ export default function AdminBetaFeatures({ user }: { user: User | null }) {
               <FlaskConical className="w-5 h-5 text-slate-600" />
             </div>
             <div>
-              <p className="text-sm font-bold text-slate-900">Host WhatsApp connect beta</p>
-              <p className="text-sm text-slate-500">Enable or disable the profile flow per host and set a testing WhatsApp number override.</p>
+              <p className="text-sm font-bold text-slate-900">Host WhatsApp messaging beta</p>
+              <p className="text-sm text-slate-500">Enable or disable the platform-backed Host Dashboard messaging flow per host.</p>
             </div>
           </div>
 
@@ -182,7 +191,7 @@ export default function AdminBetaFeatures({ user }: { user: User | null }) {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search by email, user id, or host name"
+                placeholder="Search by email, WhatsApp number, user id, or host name"
                 className="w-full rounded-2xl border border-slate-200 bg-white px-10 py-3 text-sm font-medium text-slate-800 outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10"
               />
             </div>
@@ -205,6 +214,8 @@ export default function AdminBetaFeatures({ user }: { user: User | null }) {
             const userId = row.profile.user_id as string;
             const draft = draftByUserId[userId] || { enabled: false, whatsappTestNumber: '', notes: '' };
             const saving = savingUserId === userId;
+            const bestWhatsappNumber = getBestWhatsappNumber(row);
+            const bestWhatsappVerifiedAt = getBestWhatsappVerifiedAt(row);
             return (
               <article key={`${row.profile.id}-${userId}`} className="bg-white rounded-2xl p-5 border border-slate-100 space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -212,6 +223,11 @@ export default function AdminBetaFeatures({ user }: { user: User | null }) {
                     <p className="text-base font-bold text-slate-900">{row.profile.full_name || row.profile.email || userId}</p>
                     <p className="text-xs text-slate-500 break-all">user_id: {userId}</p>
                     <p className="text-xs text-slate-500 break-all">email: {row.profile.email || 'No email on profile'}</p>
+                    <p className="text-xs text-slate-500 break-all">
+                      WhatsApp: {bestWhatsappNumber || 'No WhatsApp number found'}
+                      {bestWhatsappVerifiedAt ? ' · verified' : ''}
+                      {!row.profile.whatsapp_number && row.authIdentity?.whatsapp_number ? ' · from login identity' : ''}
+                    </p>
                   </div>
                   <span
                     className={`inline-flex items-center rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${
@@ -223,7 +239,7 @@ export default function AdminBetaFeatures({ user }: { user: User | null }) {
                 </div>
 
                 <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
-                  <span className="text-sm font-semibold text-slate-800">Enable host WhatsApp connect beta</span>
+                  <span className="text-sm font-semibold text-slate-800">Enable host WhatsApp messaging beta</span>
                   <input
                     type="checkbox"
                     checked={draft.enabled}

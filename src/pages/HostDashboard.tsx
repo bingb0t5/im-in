@@ -28,6 +28,7 @@ import {
   parseSelectOptionsFromText,
   validateCustomJoinAnswer,
 } from '../lib/customJoinField';
+import { HostMessagingPanel } from '../components/HostMessagingPanel';
 
 type InAppShareCandidate = {
   recipient_key: string;
@@ -124,7 +125,9 @@ export default function HostDashboard({ user }: { user: User | null }) {
   const [showHostsPanel, setShowHostsPanel] = useState(false);
   const [showCreateSuccessModal, setShowCreateSuccessModal] = useState(false);
   const [showManualShareModal, setShowManualShareModal] = useState(false);
+  const [showWhatsappShareTypeModal, setShowWhatsappShareTypeModal] = useState(false);
   const [manualShareUrl, setManualShareUrl] = useState('');
+  const [whatsappShareUrl, setWhatsappShareUrl] = useState('');
   const [inAppShareCandidates, setInAppShareCandidates] = useState<InAppShareCandidate[]>([]);
   const [selectedShareCandidateKeys, setSelectedShareCandidateKeys] = useState<string[]>([]);
   const [shareSuggestionGroup, setShareSuggestionGroup] = useState<'previous_activity' | 'other_people'>('previous_activity');
@@ -178,6 +181,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
     || showCreateSuccessModal
     || showDeleteModal.show
     || showManualShareModal
+    || showWhatsappShareTypeModal
     || showInAppShareModal
     || showNotificationModal
     || copyProgress !== null,
@@ -256,9 +260,28 @@ export default function HostDashboard({ user }: { user: User | null }) {
     return buildPrivateShareUrl(shareBaseUrl, event);
   };
 
-  const buildInviteText = (fallbackUrl = '') => {
+  const getSpotsAvailable = () => {
+    if (!event) return null;
+    const confirmedCount = attendees.filter((attendee) => attendee.status === 'confirmed').length;
+    return Math.max(0, event.capacity - confirmedCount);
+  };
+
+  const getConfirmedAttendeeNames = () => attendees
+    .filter((attendee) => attendee.status === 'confirmed')
+    .map((attendee) => {
+      const displayName = attendee.added_by_type === 'proxy'
+        ? pickFirstNonEmpty(attendee.guest_name, attendee.resolved_display_name)
+        : pickFirstNonEmpty(attendee.resolved_display_name, attendee.guest_name);
+      return getDisplayName(displayName);
+    })
+    .filter((name, index, names) => name !== 'Guest' && names.indexOf(name) === index);
+
+  const buildInviteText = (fallbackUrl = '', includeAttendees = false) => {
     if (!event) return fallbackUrl;
-    return buildPrivateWhatsappShareText(shareBaseUrl, event);
+    return buildPrivateWhatsappShareText(shareBaseUrl, event, {
+      spotsAvailable: getSpotsAvailable(),
+      attendeeNames: includeAttendees ? getConfirmedAttendeeNames() : [],
+    });
   };
 
   const copyInviteFallback = async (text: string) => {
@@ -1408,16 +1431,30 @@ export default function HostDashboard({ user }: { user: User | null }) {
     await copyInviteFallback(url);
   };
 
+  const openWhatsappShareTypePrompt = (url: string) => {
+    setWhatsappShareUrl(url);
+    setShowManualShareModal(false);
+    setShowWhatsappShareTypeModal(true);
+  };
+
+  const sendWhatsappShare = (includeAttendees: boolean) => {
+    const url = whatsappShareUrl || getPrivateShareUrl();
+    if (!url) return;
+    const inviteText = buildInviteText(url, includeAttendees);
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(inviteText)}`;
+    setShowWhatsappShareTypeModal(false);
+    setWhatsappShareUrl('');
+    // Use same-tab navigation so returning from WhatsApp lands back on this activity page.
+    window.location.href = whatsappUrl;
+  };
+
   const shareWhatsApp = async () => {
     try {
       const url = await ensurePrivateAccessUrl();
       if (!url || !event) {
         return;
       }
-      const inviteText = buildInviteText(url);
-      const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(inviteText)}`;
-      // Use same-tab navigation so returning from WhatsApp lands back on this activity page.
-      window.location.href = whatsappUrl;
+      openWhatsappShareTypePrompt(url);
     } catch (error: any) {
       openManualShareModal(getPrivateShareUrl());
       alert(error.message || 'Could not prepare share');
@@ -1935,6 +1972,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
             </div>
           )}
         </section>
+        <HostMessagingPanel event={event} />
         </>
         ) : null}
 
@@ -3385,8 +3423,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
               <div className="space-y-3">
                 <button
                   onClick={() => {
-                    window.location.href = `https://wa.me/?text=${encodeURIComponent(buildInviteText(manualShareUrl))}`;
-                    setShowManualShareModal(false);
+                    openWhatsappShareTypePrompt(manualShareUrl);
                   }}
                   className="w-full bg-brand-600 hover:bg-brand-500 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
@@ -3425,6 +3462,65 @@ export default function HostDashboard({ user }: { user: User | null }) {
                   Copy Invite
                 </button>
               </div>
+            </motion.div>
+          </div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showWhatsappShareTypeModal ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-hidden overscroll-contain">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setShowWhatsappShareTypeModal(false);
+                setWhatsappShareUrl('');
+              }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl overflow-y-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-3rem)] my-auto"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-xl font-black text-slate-900 tracking-tight">WhatsApp Message</h2>
+                <button
+                  onClick={() => {
+                    setShowWhatsappShareTypeModal(false);
+                    setWhatsappShareUrl('');
+                  }}
+                  className="p-2 hover:bg-slate-50 rounded-xl transition-all"
+                >
+                  <X className="w-6 h-6 text-slate-400" />
+                </button>
+              </div>
+              <p className="text-sm text-slate-500 font-medium mb-5">
+                Choose whether to include the current attendee list in the WhatsApp invite.
+              </p>
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => sendWhatsappShare(true)}
+                  disabled={getConfirmedAttendeeNames().length === 0}
+                  className="w-full bg-brand-600 hover:bg-brand-500 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black py-4 rounded-2xl shadow-lg shadow-brand-600/10 transition-all active:scale-95"
+                >
+                  Include who's going
+                </button>
+                <button
+                  type="button"
+                  onClick={() => sendWhatsappShare(false)}
+                  className="w-full bg-slate-50 hover:bg-slate-100 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95"
+                >
+                  Activity details only
+                </button>
+              </div>
+              {getConfirmedAttendeeNames().length === 0 ? (
+                <p className="mt-3 text-xs text-slate-400">No confirmed attendees to include yet.</p>
+              ) : null}
             </motion.div>
           </div>
         ) : null}
@@ -3483,6 +3579,7 @@ export default function HostDashboard({ user }: { user: User | null }) {
                   type="button"
                   onClick={() => {
                     clearCreateSuccessState();
+                    setShowCreateSuccessModal(false);
                     void shareWhatsApp();
                   }}
                   className="w-full bg-brand-600 hover:bg-brand-700 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-95"

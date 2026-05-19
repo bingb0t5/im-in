@@ -95,6 +95,7 @@ type CreateEventDraft = {
     gallery_visibility: EventGalleryVisibility;
     participation_mode: 'rsvp' | 'interest_only';
     interest_visibility: 'count_only' | 'named' | 'hidden';
+    activity_type: 'kids' | 'general';
     allow_waitlist: boolean;
     require_host_approval_for_join: boolean;
     require_guest_email_for_join: boolean;
@@ -178,6 +179,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
     gallery_visibility: 'private_only' as EventGalleryVisibility,
     participation_mode: 'rsvp' as 'rsvp' | 'interest_only',
     interest_visibility: 'count_only' as 'count_only' | 'named' | 'hidden',
+    activity_type: 'kids' as 'kids' | 'general',
     allow_waitlist: true,
     require_host_approval_for_join: false,
     require_guest_email_for_join: false,
@@ -483,6 +485,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
           public_location_text: normalizePublicLocationText(draft.formData.public_location_text),
           timezone: draft.formData.timezone || prev.timezone,
           duration_minutes: draft.formData.duration_minutes || prev.duration_minutes,
+          activity_type: draft.formData.activity_type === 'general' ? 'general' : 'kids',
         }));
         setVisibilitySelected(true);
         const resumeAuthStep = localStorage.getItem(CREATE_EVENT_PENDING_AUTH_KEY) === 'true';
@@ -756,6 +759,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
         gallery_visibility: normalizedEvent.gallery_visibility || 'private_only',
         participation_mode: (normalizedEvent.participation_mode as 'rsvp' | 'interest_only') || 'rsvp',
         interest_visibility: (normalizedEvent.interest_visibility as 'count_only' | 'named' | 'hidden') || 'count_only',
+        activity_type: normalizedEvent.activity_type === 'general' ? 'general' : 'kids',
         allow_waitlist: normalizedEvent.allow_waitlist ?? true,
         require_host_approval_for_join: normalizedEvent.require_host_approval_for_join ?? false,
         require_guest_email_for_join: normalizedEvent.require_guest_email_for_join ?? false,
@@ -1027,6 +1031,7 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
           timezone: formData.timezone || DEFAULT_EVENT_TIMEZONE,
           duration_minutes: formData.duration_minutes || 60,
           host_contact_text: resolvedHostContact || null,
+          activity_type: formData.activity_type || 'kids',
           custom_join_field_config: buildCustomJoinFieldConfigForSave(formData.custom_join_field_config),
         };
 
@@ -1950,6 +1955,39 @@ export default function CreateEvent({ user: userFromApp }: { user: User | null }
                           <p className="text-sm font-bold text-slate-800">Non-signup activity</p>
                           <p className="mt-1 text-xs text-slate-500">People can save interest without native RSVP.</p>
                         </button>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3">
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Activity type</p>
+                          <p className="text-xs text-slate-500">Choose the wording for adding someone else to this activity.</p>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <button
+                            type="button"
+                            onClick={() => setFormData((prev) => ({ ...prev, activity_type: 'kids' }))}
+                            className={`rounded-xl border px-3 py-3 text-left transition-all ${
+                              formData.activity_type === 'kids'
+                                ? 'border-brand-300 bg-white text-brand-700'
+                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            <p className="text-sm font-bold">Kids activity</p>
+                            <p className="mt-1 text-xs">Button says "My Kids in".</p>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFormData((prev) => ({ ...prev, activity_type: 'general' }))}
+                            className={`rounded-xl border px-3 py-3 text-left transition-all ${
+                              formData.activity_type === 'general'
+                                ? 'border-brand-300 bg-white text-brand-700'
+                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            <p className="text-sm font-bold">General activity</p>
+                            <p className="mt-1 text-xs">Button says "Add another".</p>
+                          </button>
+                        </div>
                       </div>
 
                       {formData.participation_mode === 'rsvp' ? (
