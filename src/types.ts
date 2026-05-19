@@ -25,6 +25,7 @@ export interface Event {
   allow_waitlist: boolean;
   require_host_approval_for_join?: boolean;
   require_guest_email_for_join?: boolean;
+  activity_type?: 'kids' | 'general';
   participation_mode?: 'rsvp' | 'interest_only' | 'external_contact' | 'view_only';
   interest_visibility?: 'count_only' | 'named' | 'hidden';
   origin_type?: 'host_created' | 'imported_community_source' | 'imported_verified_partner' | 'curated_manual';

@@ -1379,6 +1379,7 @@ export default function EventDetail({ user }: { user: User | null }) {
   const eventVisibility = event.visibility || (event.is_public ? 'public' : 'private');
   const participationMode = event.participation_mode || 'rsvp';
   const isInterestOnly = participationMode === 'interest_only';
+  const proxyRsvpButtonLabel = event.activity_type === 'general' ? 'Add another' : 'My Kids in';
   const interestVisibility = event.interest_visibility || 'count_only';
   const interestCountsHidden = isInterestHidden(interestVisibility);
   const accessToken = searchParams.get('access');
@@ -2087,7 +2088,7 @@ export default function EventDetail({ user }: { user: User | null }) {
               className="flex min-h-[3.45rem] w-full flex-col items-center justify-center gap-0.5 rounded-[1.15rem] border border-white/45 bg-gradient-to-b from-brand-500 via-brand-600 to-cyan-600 px-2 py-1.5 text-center text-white backdrop-blur-md shadow-[0_18px_36px_rgba(13,148,136,0.3)] transition-all hover:from-brand-400 hover:via-brand-500 hover:to-cyan-500 active:scale-[0.98]"
             >
               <Plus className="h-4.5 w-4.5" />
-              <span className="text-[10px] font-bold leading-tight sm:text-[11px]">My Kids in</span>
+              <span className="text-[10px] font-bold leading-tight sm:text-[11px]">{proxyRsvpButtonLabel}</span>
             </button>
               </>
             )}
