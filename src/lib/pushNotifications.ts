@@ -4,6 +4,7 @@ import { AttendeeProfile } from '../services/guestService';
 import { supabase } from '../supabase';
 import { NotificationPreferenceItem, PushNotificationCategory, PushSubscriptionItem } from '../types';
 import { isWhatsAppVerifiedProfile } from '../utils/installPromptEligibility';
+import { registerAppServiceWorker } from './serviceWorker';
 
 export const PUSH_NOTIFICATION_CATEGORIES: PushNotificationCategory[] = [
   'activity_shared',
@@ -78,10 +79,11 @@ export function getPushAvailability(profile: AttendeeProfile | null): PushAvaila
 }
 
 export async function ensurePushServiceWorker() {
-  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+  const registration = await registerAppServiceWorker();
+  if (!registration) {
     throw new Error('Service workers are not supported in this browser.');
   }
-  return navigator.serviceWorker.register('/sw.js', { scope: '/' });
+  return registration;
 }
 
 export async function getExistingPushSubscription() {
@@ -103,6 +105,11 @@ export async function subscribeCurrentDeviceToPush(vapidPublicKey: string) {
 
   if (permission !== 'granted') {
     throw new Error('Notifications permission was not granted.');
+  }
+
+  const existing = await registration.pushManager.getSubscription();
+  if (existing) {
+    return existing;
   }
 
   const subscription = await registration.pushManager.subscribe({
@@ -138,6 +145,19 @@ export async function syncPushSubscriptionToServer({
 
   if (error) throw toRpcError(error, 'Could not save push subscription.');
   return data as PushSubscriptionItem;
+}
+
+export async function refreshPushSubscriptionHeartbeat() {
+  const existing = await getExistingPushSubscription();
+  if (!existing) return null;
+
+  const env = detectRuntimeEnvironment();
+  return syncPushSubscriptionToServer({
+    subscription: existing,
+    userAgent: window.navigator.userAgent || '',
+    platform: env.isStandalone ? 'standalone' : 'browser',
+    isStandalone: env.isStandalone,
+  });
 }
 
 export async function unsubscribeCurrentDeviceFromPush(endpoint?: string) {
