@@ -33,6 +33,13 @@ import {
   syncPushSubscriptionToServer,
   unsubscribeCurrentDeviceFromPush,
 } from '../lib/pushNotifications';
+import {
+  collectPushDiagnostics,
+  formatDiagnosticTimestamp,
+  formatEndpointHash,
+  maintainPushSubscriptionHealth,
+  type PushDiagnosticsSnapshot,
+} from '../lib/pushDiagnostics';
 import { isWhatsAppVerifiedProfile } from '../utils/installPromptEligibility';
 
 const PUSH_CATEGORY_LABELS: Record<string, string> = {
@@ -71,6 +78,8 @@ export default function ProfileSettings({ user }: { user: User | null }) {
   const [permissionState, setPermissionState] = useState<NotificationPermission | 'unsupported'>('unsupported');
   const [devicePushEnabled, setDevicePushEnabled] = useState(false);
   const [pushPrefs, setPushPrefs] = useState<Record<string, boolean>>({});
+  const [pushDiagnostics, setPushDiagnostics] = useState<PushDiagnosticsSnapshot | null>(null);
+  const [pushDiagnosticsLoading, setPushDiagnosticsLoading] = useState(false);
   const autoStartAttemptedRef = useRef(false);
   const autoOpenedNamePromptRef = useRef(false);
 
@@ -147,6 +156,7 @@ export default function ProfileSettings({ user }: { user: User | null }) {
 
         const activeSubscription = subscriptions.find((row) => !row.revoked_at && row.endpoint === browserSubscription?.endpoint);
         setDevicePushEnabled(Boolean(activeSubscription && browserSubscription));
+        setPushDiagnostics(await collectPushDiagnostics(profile));
       } catch (settingsError) {
         if (cancelled) return;
         setPushError(settingsError instanceof Error ? settingsError.message : 'Could not load push notification settings.');
@@ -159,7 +169,21 @@ export default function ProfileSettings({ user }: { user: User | null }) {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, profile?.id]);
+
+  const handleRefreshPushDiagnostics = async () => {
+    setPushDiagnosticsLoading(true);
+    setPushError(null);
+    try {
+      await maintainPushSubscriptionHealth(profile);
+      setPushDiagnostics(await collectPushDiagnostics(profile));
+      setPushMessage('Push diagnostics refreshed.');
+    } catch (refreshError) {
+      setPushError(refreshError instanceof Error ? refreshError.message : 'Could not refresh push diagnostics.');
+    } finally {
+      setPushDiagnosticsLoading(false);
+    }
+  };
 
   const showAuthPrompt = !user && searchParams.get('signin') === 'true';
 
@@ -733,6 +757,56 @@ export default function ProfileSettings({ user }: { user: User | null }) {
 
                     {pushMessage ? <p className="rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs text-brand-700">{pushMessage}</p> : null}
                     {pushError ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">{pushError}</p> : null}
+
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">Delivery diagnostics</p>
+                          <p className="text-xs text-slate-500">Use this if notifications arrive late or only after opening the app.</p>
+                        </div>
+                        <Button
+                          type="button"
+                          fullWidth={false}
+                          variant="secondary"
+                          loading={pushDiagnosticsLoading}
+                          onClick={() => void handleRefreshPushDiagnostics()}
+                        >
+                          Refresh
+                        </Button>
+                      </div>
+
+                      {pushDiagnostics ? (
+                        <div className="space-y-3 text-xs text-slate-700">
+                          <div className="grid gap-2 rounded-xl border border-slate-200 bg-white p-3">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Device readiness</p>
+                            <p><span className="font-bold">Notification permission:</span> {pushDiagnostics.permission}</p>
+                            <p><span className="font-bold">Service worker:</span> {pushDiagnostics.serviceWorkerState || 'not registered'}</p>
+                            <p><span className="font-bold">Push subscription on device:</span> {pushDiagnostics.pushSubscriptionPresent ? 'present' : 'missing'}</p>
+                            <p><span className="font-bold">Installed app:</span> {pushDiagnostics.isStandalone ? 'yes' : 'no'}</p>
+                            <p><span className="font-bold">Subscription id:</span> {formatEndpointHash(pushDiagnostics.subscriptionEndpointHash)}</p>
+                          </div>
+
+                          <div className="grid gap-2 rounded-xl border border-slate-200 bg-white p-3">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Delivery timeline</p>
+                            <p><span className="font-bold">Last server dispatch success:</span> {formatDiagnosticTimestamp(pushDiagnostics.lastServerDispatchSuccessAt)}</p>
+                            <p><span className="font-bold">Last service worker receipt:</span> {formatDiagnosticTimestamp(pushDiagnostics.lastLocalPushReceivedAt)}</p>
+                            <p><span className="font-bold">Last subscription sync:</span> {formatDiagnosticTimestamp(pushDiagnostics.lastSubscriptionSyncAt)}</p>
+                          </div>
+
+                          {pushDiagnostics.guidance.length > 0 ? (
+                            <ul className="list-disc space-y-1 pl-5 text-amber-800">
+                              {pushDiagnostics.guidance.map((item) => (
+                                <li key={item}>{item}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-brand-700">No obvious client-side push issues detected.</p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500">Diagnostics will load here.</p>
+                      )}
+                    </div>
                   </section>
                 </div>
 

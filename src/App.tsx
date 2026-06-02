@@ -50,6 +50,7 @@ import { ModerationTransparencyModal } from './components/ModerationTransparency
 import { ScrollToTop } from './components/ScrollToTop';
 import { InAppBrowserPrompt } from './components/system/InAppBrowserPrompt';
 import { useSupabaseSession } from './hooks/useSupabaseSession';
+import { maintainPushSubscriptionHealth } from './lib/pushDiagnostics';
 
 const GUEST_MERGE_PROMPT_DISMISS_PREFIX = 'im_in_guest_merge_prompt_dismissed:';
 const DEBUG_IDENTITY_STORAGE_KEY = 'im_in_debug_identity';
@@ -333,6 +334,32 @@ export default function App() {
       clearRetry();
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('storage', onStorage);
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    let cancelled = false;
+
+    const syncPushHealth = async () => {
+      const profile = await guestService.getProfileForUser(user).catch(() => null);
+      if (cancelled) return;
+      await maintainPushSubscriptionHealth(profile);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void syncPushHealth();
+      }
+    };
+
+    void syncPushHealth();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [user?.id]);
 
