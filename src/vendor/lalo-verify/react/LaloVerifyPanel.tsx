@@ -4,12 +4,8 @@ import { Check, Copy, MessageCircle, RefreshCw, Shield } from 'lucide-react';
 
 import type { LaloVerifyClient, LaloVerifyFlowType, LaloVerifyStatusResponse } from '../types';
 import { LaloWebsiteWhatsAppBubbleIcon, WhatsAppBrandFilledMark, WhatsAppGreenTile } from './WhatsAppCta';
-import {
-  LALO_VERIFY_POLL_INTERVAL_MS,
-  LALO_VERIFY_SCREEN_STEP_DELAY_MS,
-  LALO_VERIFY_WHATSAPP_APP_FALLBACK_DELAY_MS,
-} from '../constants';
-import { buildWhatsAppAppLink, wait } from '../whatsappLinks';
+import { LALO_VERIFY_POLL_INTERVAL_MS, LALO_VERIFY_SCREEN_STEP_DELAY_MS } from '../constants';
+import { wait } from '../whatsappLinks';
 
 type VerifyScreenPhase = 'idle' | 'connecting' | 'generating' | 'handoff' | 'waiting' | 'verified';
 
@@ -19,7 +15,7 @@ type SessionStateShape = {
   status: LaloVerifyStatusResponse;
 };
 
-export type PersistedVerifyBundle = {
+type PersistedVerifyBundle = {
   sessionState: SessionStateShape;
   verifyPhase: VerifyScreenPhase;
 };
@@ -68,24 +64,17 @@ function writePersistedVerify(storageKey: string, sessionState: SessionStateShap
   }
 }
 
-function clearPersistedVerify(storageKey: string) {
-  try {
-    sessionStorage.removeItem(storageKey);
-  } catch {
-    // Ignore session storage clear failures.
+function openWhatsAppWebLink(webLink: string): boolean {
+  const isIOS =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  if (isIOS) {
+    window.location.href = webLink;
+    return true;
   }
-}
 
-export function shouldRestorePersistedVerify(bundle: PersistedVerifyBundle, nowMs = Date.now()) {
-  if (bundle.verifyPhase === 'idle' || bundle.verifyPhase === 'verified') return false;
-  if (bundle.sessionState.status?.status && bundle.sessionState.status.status !== 'pending') return false;
-
-  const expiresAt = bundle.sessionState.status?.expiresAt ?? bundle.sessionState.startData.expires_at;
-  if (!expiresAt) return true;
-
-  const expiresAtMs = new Date(expiresAt).getTime();
-  if (!Number.isFinite(expiresAtMs)) return false;
-  return nowMs < expiresAtMs;
+  return Boolean(window.open(webLink, '_blank', 'noopener,noreferrer'));
 }
 
 export type LaloVerifyPanelProps = {
@@ -94,8 +83,8 @@ export type LaloVerifyPanelProps = {
   title: string;
   description: string;
   buttonLabel: string;
-  autoStart?: boolean;
   platformName?: string;
+  autoStart?: boolean;
   layout?: 'card' | 'cta';
   helperText?: string;
   currentWhatsAppNumber?: string | null;
@@ -106,8 +95,8 @@ export type LaloVerifyPanelProps = {
   /** Default storage key prefix; full key is `${storageKeyPrefix}_${flowType}`. */
   storageKeyPrefix?: string;
   /**
-   * `lalo` - Lucide MessageCircle (white stroke), same as historical Lalo `/login` CTA.
-   * `brand` - filled WhatsApp-style path inside the green tile.
+   * `lalo` — Lucide MessageCircle (white stroke), same as historical Lalo `/login` CTA.
+   * `brand` — filled WhatsApp-style path inside the green tile.
    */
   ctaWhatsAppIcon?: 'lalo' | 'brand';
   /**
@@ -116,6 +105,7 @@ export type LaloVerifyPanelProps = {
    */
   onSessionBridge?: (status: LaloVerifyStatusResponse) => Promise<void>;
   onCompleted?: (status: LaloVerifyStatusResponse) => void | Promise<void>;
+  onOverlayVisibilityChange?: (visible: boolean) => void;
 };
 
 export function LaloVerifyPanel({
@@ -124,8 +114,8 @@ export function LaloVerifyPanel({
   title,
   description,
   buttonLabel,
-  autoStart = false,
   platformName,
+  autoStart = false,
   layout = 'card',
   helperText,
   currentWhatsAppNumber,
@@ -137,12 +127,13 @@ export function LaloVerifyPanel({
   ctaWhatsAppIcon = 'lalo',
   onSessionBridge,
   onCompleted,
+  onOverlayVisibilityChange,
 }: LaloVerifyPanelProps) {
   const [isStarting, setIsStarting] = React.useState(false);
   const [isPolling, setIsPolling] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [isBridgingSession, setIsBridgingSession] = React.useState(false);
-  /** True while `onCompleted` is running - do not show "Done" yet (user dismissing early caused half-finished sign-in). */
+  /** True while `onCompleted` is running — do not show "Done" yet (user dismissing early caused half-finished sign-in). */
   const [awaitingHostOnCompleted, setAwaitingHostOnCompleted] = React.useState(false);
   const [completionFollowUpError, setCompletionFollowUpError] = React.useState<string | null>(null);
   const [verifyPhase, setVerifyPhase] = React.useState<VerifyScreenPhase>('idle');
@@ -160,7 +151,11 @@ export function LaloVerifyPanel({
     setIsAboutModalOpen(false);
     setCompletionFollowUpError(null);
     setAwaitingHostOnCompleted(false);
-    clearPersistedVerify(storageKey);
+    try {
+      sessionStorage.removeItem(storageKey);
+    } catch {
+      // Ignore session storage clear failures.
+    }
   }, [storageKey]);
 
   const handleCopyMessage = React.useCallback(async () => {
@@ -173,47 +168,15 @@ export function LaloVerifyPanel({
   const handleOpenWhatsApp = React.useCallback(() => {
     if (!sessionState?.startData.whatsapp_deep_link) return;
     setError(null);
-    /** Same-tab handoff can freeze React before effects run - persist first so restore shows the overlay. */
+    /** Same-tab handoff can freeze React before effects run — persist first so restore shows the overlay. */
     writePersistedVerify(storageKey, sessionState, 'waiting');
     setVerifyPhase('waiting');
 
     const webLink = sessionState.startData.whatsapp_deep_link;
-    const appLink = buildWhatsAppAppLink(webLink);
-
-    if (!appLink) {
-      const openedWindow = window.open(webLink, '_blank', 'noopener,noreferrer');
-      if (!openedWindow) {
-        setError('Unable to open WhatsApp automatically. Please allow pop-ups or try again.');
-      }
-      return;
+    const didOpen = openWhatsAppWebLink(webLink);
+    if (!didOpen) {
+      setError('Unable to open WhatsApp automatically. Please allow pop-ups or try again.');
     }
-
-    let fallbackTimeout = 0;
-    const clearFallback = () => {
-      if (fallbackTimeout) {
-        window.clearTimeout(fallbackTimeout);
-        fallbackTimeout = 0;
-      }
-      window.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('pagehide', clearFallback);
-      window.removeEventListener('blur', clearFallback);
-    };
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        clearFallback();
-      }
-    };
-
-    window.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('pagehide', clearFallback);
-    window.addEventListener('blur', clearFallback);
-
-    fallbackTimeout = window.setTimeout(() => {
-      clearFallback();
-      window.open(webLink, '_blank', 'noopener,noreferrer');
-    }, LALO_VERIFY_WHATSAPP_APP_FALLBACK_DELAY_MS);
-
-    window.location.href = appLink;
   }, [sessionState, storageKey]);
 
   const pollStatus = React.useCallback(
@@ -248,8 +211,6 @@ export function LaloVerifyPanel({
 
         try {
           await onCompleted?.(status);
-          setCompletionFollowUpError(null);
-          clearPersistedVerify(storageKey);
         } catch (completionError: unknown) {
           const message =
             completionError instanceof Error
@@ -263,16 +224,12 @@ export function LaloVerifyPanel({
 
       return status;
     },
-    [client, onSessionBridge, onCompleted, storageKey],
+    [client, onSessionBridge, onCompleted],
   );
 
   React.useEffect(() => {
     const bundle = readPersistedVerify(storageKey);
     if (!bundle) return;
-    if (!shouldRestorePersistedVerify(bundle)) {
-      clearPersistedVerify(storageKey);
-      return;
-    }
     setSessionState(bundle.sessionState);
     setVerifyPhase(bundle.verifyPhase);
   }, [storageKey]);
@@ -283,7 +240,7 @@ export function LaloVerifyPanel({
       if (sessionState && verifyPhase !== 'idle') {
         writePersistedVerify(storageKey, sessionState, verifyPhase);
       } else if (!sessionState) {
-        clearPersistedVerify(storageKey);
+        sessionStorage.removeItem(storageKey);
       }
     } catch {
       // Ignore session storage persistence failures.
@@ -381,9 +338,11 @@ export function LaloVerifyPanel({
   }, [client, flowType, getAuthToken, storageKey]);
 
   React.useEffect(() => {
-    if (!autoStart || hasAutoStartedRef.current) return;
-    if (sessionState || verifyPhase !== 'idle' || isStarting) return;
-
+    if (!autoStart) return;
+    if (verifyPhase !== 'idle') return;
+    if (sessionState) return;
+    if (isStarting) return;
+    if (hasAutoStartedRef.current) return;
     hasAutoStartedRef.current = true;
     void handleStart();
   }, [autoStart, handleStart, isStarting, sessionState, verifyPhase]);
@@ -400,22 +359,35 @@ export function LaloVerifyPanel({
   /** After Lalo marks complete, keep spinner / "Verifying" until host `onCompleted` finishes (no brief "verified" flash). */
   const overlayVisualPhase: VerifyScreenPhase =
     verifyPhase === 'verified' && (awaitingHostOnCompleted || isBridgingSession) ? 'waiting' : verifyPhase;
-  const verifyTitle = overlayVisualPhase === 'verified' ? 'WhatsApp verified' : 'Verifying your WhatsApp';
-  const verifyDescription =
-    verifyPhase === 'connecting'
-      ? 'Connecting to secure WhatsApp verification'
-      : verifyPhase === 'generating'
-        ? 'Generating your secure WhatsApp message'
-        : verifyPhase === 'handoff'
-          ? `We are ready to open WhatsApp. Send the prefilled message to confirm your WhatsApp account for ${platformLabel}.`
-          : verifyPhase === 'waiting'
-            ? 'Return to this screen after sending the message. Verification will continue automatically.'
-            : isBridgingSession || awaitingHostOnCompleted
-              ? 'Finalising your sign-in...'
-              : successDescription;
+  const verifyTitle =
+    overlayVisualPhase === 'verified'
+      ? 'Verified with Lalo Verify'
+      : 'Verifying your WhatsApp';
+  const verifySubtitle =
+    overlayVisualPhase === 'verified'
+      ? isBridgingSession || awaitingHostOnCompleted
+        ? 'Finalising your sign-in...'
+        : successDescription
+      : verifyPhase === 'connecting'
+        ? 'Connecting to Lalo Verify'
+        : verifyPhase === 'generating'
+          ? 'Generating your secure WhatsApp message'
+          : null;
+  const shouldShowStepGuide = Boolean(sessionState) && verifyPhase === 'handoff';
+  const shouldShowWaitingCenterMessage = Boolean(sessionState) && verifyPhase === 'waiting';
+  const stepGuideLines = [
+    'Tap the button below',
+    'WhatsApp will open with an authentication code message to send to our server via the official WhatsApp API.',
+    'Press send, then return here to continue',
+    "Come back here - you'll be verified automatically",
+  ] as const;
 
   const purple = 'var(--lv-brand-primary, #6B4DA3)';
   const purpleSoft = 'color-mix(in srgb, var(--lv-brand-primary, #6B4DA3) 20%, transparent)';
+
+  React.useEffect(() => {
+    onOverlayVisibilityChange?.(showVerifyScreen);
+  }, [onOverlayVisibilityChange, showVerifyScreen]);
 
   return (
     <div className={isCtaLayout ? 'w-full space-y-3' : 'space-y-4 rounded-3xl border border-stone-100 bg-white p-5 shadow-sm'}>
@@ -502,15 +474,15 @@ export function LaloVerifyPanel({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="lv-verify-overlay-gradient fixed inset-0 z-[220] flex flex-col items-center justify-center p-6 text-white backdrop-blur-xl"
+            className="lv-verify-overlay-shell lv-verify-overlay-gradient fixed inset-0 z-[10000] flex flex-col items-center justify-center p-6 text-white backdrop-blur-xl"
           >
             <motion.div
               initial={{ scale: 0.96, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.96, opacity: 0 }}
-              className="flex w-full max-w-sm flex-col items-center space-y-6 text-center"
+              className="lv-verify-overlay-content flex w-full max-w-md flex-col items-center space-y-2.5 text-center"
             >
-              <div className="relative">
+              <div className="lv-verify-overlay-icon relative">
                 <div
                   className="absolute inset-[-26px] rounded-full blur-2xl"
                   style={{ backgroundColor: purpleSoft }}
@@ -546,10 +518,46 @@ export function LaloVerifyPanel({
                 </div>
               </div>
 
-              <div className="max-w-[18rem] space-y-2">
-                <h3 className="text-[2rem] font-bold leading-none tracking-tight">{verifyTitle}</h3>
-                <p className="text-sm leading-relaxed text-white/[0.68]">{verifyDescription}</p>
+              <div className="lv-verify-overlay-heading -mt-1 max-w-[22rem] space-y-1.5">
+                <h3
+                  className="text-[2.625rem] font-bold leading-none tracking-tight text-white"
+                >
+                  {overlayVisualPhase === 'verified' || verifyPhase === 'connecting' || verifyPhase === 'generating' ? (
+                    verifyTitle
+                  ) : (
+                    <>
+                      <span className="block">Verifying your</span>
+                      <span className="block">WhatsApp</span>
+                    </>
+                  )}
+                </h3>
+                {verifySubtitle ? <p className="text-sm leading-relaxed text-white/[0.68]">{verifySubtitle}</p> : null}
+                <p className="text-center text-[9px] font-medium tracking-wide text-white/45">Powered by Lalo Verify</p>
               </div>
+
+              {shouldShowStepGuide ? (
+                <div className="lv-verify-step-guide w-full max-w-[22.5rem] space-y-2.5 text-left">
+                  <ol className="space-y-2.5 text-[1rem] leading-snug text-white/92">
+                    {stepGuideLines.map((line, index) => (
+                      <li key={line} className="flex items-center gap-3">
+                        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/20 text-sm font-semibold text-white/88">
+                          {index + 1}
+                        </span>
+                        <span>{line}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ) : null}
+
+              {shouldShowWaitingCenterMessage ? (
+                <div className="w-full max-w-[20rem] rounded-2xl border border-white/12 bg-white/[0.08] px-4 py-4 text-center backdrop-blur-sm">
+                  <p className="text-sm font-semibold text-white/92">Great, you&apos;re on the right step.</p>
+                  <p className="mt-1.5 text-xs leading-relaxed text-white/70">
+                    Stay on this page while we check for your WhatsApp message. We&apos;ll verify you automatically.
+                  </p>
+                </div>
+              ) : null}
 
               {sessionState?.status.expiresAt && overlayVisualPhase !== 'verified' ? (
                 <p className="text-[11px] uppercase tracking-[0.22em] text-white/35">
@@ -558,10 +566,10 @@ export function LaloVerifyPanel({
               ) : null}
 
               {sessionState && (verifyPhase === 'handoff' || verifyPhase === 'waiting' || verifyPhase === 'verified') ? (
-                <div className="w-full max-w-[19rem] space-y-3">
+                <div className="lv-verify-actions -mt-1 w-full max-w-[19rem] space-y-3">
                   {hasDeepLink && verifyPhase === 'handoff' ? (
                     <button type="button" onClick={handleOpenWhatsApp} className="lv-overlay-white-cta">
-                      Send WhatsApp message
+                      Open WhatsApp &amp; Send Message
                     </button>
                   ) : null}
 
@@ -578,12 +586,6 @@ export function LaloVerifyPanel({
                         <Copy size={14} />
                         {copied ? 'Copied' : 'Copy'}
                       </button>
-                    </div>
-                  ) : null}
-
-                  {verifyPhase === 'handoff' ? (
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-xs text-white/60 backdrop-blur-sm">
-                      This opens WhatsApp with your verification message already filled in.
                     </div>
                   ) : null}
 
@@ -607,14 +609,9 @@ export function LaloVerifyPanel({
                     </button>
                   ) : null}
 
-                  {verifyPhase === 'waiting' ||
-                  (verifyPhase === 'verified' && (awaitingHostOnCompleted || isBridgingSession)) ? (
+                  {verifyPhase === 'verified' && (awaitingHostOnCompleted || isBridgingSession) ? (
                     <div className="rounded-2xl border border-white/10 bg-white/[0.08] px-4 py-3 text-xs text-white/60 backdrop-blur-sm">
-                      {verifyPhase === 'verified' && (awaitingHostOnCompleted || isBridgingSession)
-                        ? 'Finishing sign-in in this app...'
-                        : isPolling
-                          ? 'Waiting for your WhatsApp message and checking automatically...'
-                          : 'Waiting for your WhatsApp message...'}
+                      Finishing sign-in in this app…
                     </div>
                   ) : null}
 
@@ -664,17 +661,18 @@ export function LaloVerifyPanel({
                         <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/45">
                           Secure WhatsApp verification
                         </p>
-                        <h4 className="text-2xl font-bold tracking-tight text-white">How WhatsApp verification works</h4>
+                        <h4 className="text-2xl font-bold tracking-tight text-white">What&apos;s Lalo Verify?</h4>
                       </div>
 
                       <div className="space-y-3 text-sm leading-relaxed text-white/72">
                         <p>
-                          {platformLabel} uses secure WhatsApp verification to confirm that you own the WhatsApp account
-                          you&apos;re registering with.
+                          {platformLabel} uses Lalo Verify to securely confirm that you own the WhatsApp account you&apos;re
+                          registering with.
                         </p>
                         <p>
-                          When you continue, WhatsApp opens with a unique prefilled message. Sending it confirms that the
-                          request came from your WhatsApp account using WhatsApp&apos;s official APIs.
+                          When you continue, WhatsApp opens with a unique prefilled message. Sending it lets Lalo
+                          Verify confirm the request came from your WhatsApp account using WhatsApp&apos;s official
+                          APIs.
                         </p>
                         <p>
                           Your verified WhatsApp number can be used for account access and for important updates related
@@ -682,8 +680,8 @@ export function LaloVerifyPanel({
                         </p>
                         <p>
                           Your number is not shared publicly and is not used for unrelated promotional messages from{' '}
-                          {platformLabel}. Access is limited to verification, sign-in support, and
-                          relevant activity communication when needed.
+                          {platformLabel} or Lalo Verify. Access is limited to verification, sign-in support, and relevant
+                          activity communication when needed.
                         </p>
                       </div>
 

@@ -1,0 +1,16 @@
+{
+  "artifact": "lalo-verify",
+  "version": "0.1.0",
+  "channel": "latest",
+  "generatedAt": "2026-06-26T09:29:09.014Z",
+  "files": [
+    "index.ts",
+    "types.ts",
+    "constants.ts",
+    "whatsappLinks.ts",
+    "styles.css",
+    "react/index.ts",
+    "react/LaloVerifyPanel.tsx",
+    "react/WhatsAppCta.tsx"
+  ]
+}

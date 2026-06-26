@@ -3,13 +3,13 @@ import { MessageCircle } from 'lucide-react';
 
 /**
  * Same glyph as the Lalo web `/login` CTA before the shared package: Lucide `MessageCircle`
- * (white stroke, 36px, strokeWidth 2.4) on the green tile - pixel parity with beta.llalo-style builds.
+ * (white stroke, 36px, strokeWidth 2.4) on the green tile — pixel parity with beta.llalo-style builds.
  */
 export function LaloWebsiteWhatsAppBubbleIcon() {
   return <MessageCircle size={36} className="shrink-0 text-white" strokeWidth={2.4} aria-hidden />;
 }
 
-/** Optional filled mark (Simple Icons-style path) for hosts that want a solid "app icon" look. */
+/** Optional filled mark (Simple Icons–style path) for hosts that want a solid “app icon” look. */
 export function WhatsAppBrandFilledMark({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" role="img" aria-hidden xmlns="http://www.w3.org/2000/svg">
@@ -21,7 +21,7 @@ export function WhatsAppBrandFilledMark({ className }: { className?: string }) {
   );
 }
 
-/** Rounded green tile - styles live in `styles.css` (`.lv-wa-cta-tile`). */
+/** Rounded green tile — styles live in `lalo-verify/styles.css` (`.lv-wa-cta-tile`). */
 export function WhatsAppGreenTile({ children }: { children: ReactNode }) {
   return <span className="lv-wa-cta-tile">{children}</span>;
 }
