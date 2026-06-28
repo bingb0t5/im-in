@@ -164,6 +164,8 @@ export function AppTopBar({ user }: AppTopBarProps) {
 
   const isNotificationActionable = (notification: NotificationItem) => Boolean(resolveNotificationAction(notification).actionUrl);
 
+  const shouldOpenDetailFirst = (notification: NotificationItem) => notification.type === 'host_message';
+
   const runNotificationAction = (notification: NotificationItem) => {
     const { actionUrl } = resolveNotificationAction(notification);
     if (!actionUrl) return false;
@@ -193,11 +195,24 @@ export function AppTopBar({ user }: AppTopBarProps) {
       await markRead(notification.id);
     }
 
+    const resolved = resolveNotificationAction(notification);
+
+    if (shouldOpenDetailFirst(notification)) {
+      setNotificationsOpen(false);
+      setSelectedNotification({
+        ...notification,
+        read_at: readAt,
+        action_url: resolved.actionUrl,
+        action_label: resolved.actionLabel,
+      });
+      return;
+    }
+
     if (runNotificationAction(notification)) {
       return;
     }
 
-    const resolved = resolveNotificationAction(notification);
+    setNotificationsOpen(false);
     setSelectedNotification({
       ...notification,
       read_at: readAt,

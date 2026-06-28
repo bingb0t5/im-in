@@ -88,6 +88,105 @@ function normalizeWhatsappNumber(value: string | null | undefined) {
   return trimmed || null;
 }
 
+function normalizeWhatsappDigits(value: string | null | undefined) {
+  const digits = (value || '').replace(/\D/g, '');
+  return digits || null;
+}
+
+function whatsappNumberVariants(value: string | null | undefined) {
+  const normalized = normalizeWhatsappNumber(value);
+  const digits = normalizeWhatsappDigits(normalized);
+  if (!digits) return [];
+
+  const variants = new Set<string>();
+  if (normalized) variants.add(normalized);
+  variants.add(digits);
+  variants.add(`+${digits}`);
+  return Array.from(variants);
+}
+
+async function findProfilesByVerifiedWhatsapp(admin: SupabaseClient, waId?: string | null) {
+  const variants = whatsappNumberVariants(waId);
+  if (variants.length === 0) return [] as AttendeeProfileRow[];
+
+  const { data, error } = await admin
+    .from('attendee_profiles')
+    .select('id, email, user_id, lalo_user_id, auth_provider, first_name, last_name, whatsapp_number, whatsapp_verified_at')
+    .in('whatsapp_number', variants)
+    .order('updated_at', { ascending: false });
+
+  if (error) {
+    throw Object.assign(new Error(error.message), { status: 500 });
+  }
+
+  const rows = (data || []) as AttendeeProfileRow[];
+  const targetDigits = normalizeWhatsappDigits(waId);
+  if (!targetDigits) return rows;
+
+  return rows.filter((row) => normalizeWhatsappDigits(row.whatsapp_number) === targetDigits);
+}
+
+async function countHostedEventsForUser(admin: SupabaseClient, userId?: string | null) {
+  if (!userId) return 0;
+
+  const { count, error } = await admin
+    .from('events')
+    .select('id', { count: 'exact', head: true })
+    .eq('host_user_id', userId);
+
+  if (error) {
+    throw Object.assign(new Error(error.message), { status: 500 });
+  }
+
+  return count || 0;
+}
+
+export async function resolveCanonicalUserIdForProfileEmail(
+  admin: SupabaseClient,
+  email: string,
+  preferredUserId?: string | null,
+) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return preferredUserId || null;
+
+  const { data, error } = await admin
+    .from('attendee_profiles')
+    .select('id, email, user_id, lalo_user_id, auth_provider, first_name, last_name, whatsapp_number, whatsapp_verified_at')
+    .eq('email', normalizedEmail)
+    .order('updated_at', { ascending: false });
+
+  if (error) {
+    throw Object.assign(new Error(error.message), { status: 500 });
+  }
+
+  const profiles = (data || []) as AttendeeProfileRow[];
+  if (profiles.length === 0) return preferredUserId || null;
+
+  const userIds = Array.from(new Set(profiles.map((profile) => profile.user_id).filter(Boolean))) as string[];
+  if (userIds.length === 0) return preferredUserId || null;
+
+  let bestUserId = preferredUserId || userIds[0] || null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (const userId of userIds) {
+    const profile = selectCanonicalProfile(
+      profiles.filter((row) => row.user_id === userId),
+      normalizedEmail,
+      userId,
+    );
+    if (!profile) continue;
+
+    const hostedEventCount = await countHostedEventsForUser(admin, userId);
+    const score = hostedEventCount * 1000 + scoreAuthProfileCandidate(profile, normalizedEmail, userId);
+    if (score > bestScore) {
+      bestScore = score;
+      bestUserId = userId;
+    }
+  }
+
+  return bestUserId;
+}
+
 function buildLaloSyntheticEmail(laloUserId: string) {
   return `lalo+${laloUserId.toLowerCase()}@auth.im-in.local`;
 }
@@ -716,6 +815,11 @@ export async function createOrLinkLaloUser(admin: SupabaseClient, laloUserId: st
     }
 
     profile = existingByEmail;
+  }
+
+  if (!profile && normalizedWhatsappNumber) {
+    const existingByWhatsapp = await findProfilesByVerifiedWhatsapp(admin, normalizedWhatsappNumber);
+    profile = selectCanonicalProfile(existingByWhatsapp, syntheticEmail) || null;
   }
 
   let userId = profile?.user_id || null;

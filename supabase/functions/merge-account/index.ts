@@ -5,6 +5,7 @@ import {
   json,
   mergeLaloAccountIntoUser,
   normalizeEmail,
+  resolveCanonicalUserIdForProfileEmail,
   type AttendeeProfileRow,
 } from '../_shared/lalo.ts';
 
@@ -174,10 +175,27 @@ async function completeMerge(request: Request) {
       return json({ error: 'The WhatsApp account to merge could not be found anymore.' }, { status: 404 });
     }
 
-    const targetProfile = await getBestTargetProfile(admin, targetUser.id, targetUser.email || '');
+    const canonicalUserId = await resolveCanonicalUserIdForProfileEmail(
+      admin,
+      mergeRequest.target_email,
+      targetUser.id,
+    );
+
+    let mergeTargetUser = targetUser;
+    if (canonicalUserId && canonicalUserId !== mergeRequest.source_user_id) {
+      const { data: canonicalUserData, error: canonicalUserError } = await admin.auth.admin.getUserById(canonicalUserId);
+      if (canonicalUserError) {
+        throw Object.assign(new Error(canonicalUserError.message), { status: 500 });
+      }
+      if (canonicalUserData.user) {
+        mergeTargetUser = canonicalUserData.user;
+      }
+    }
+
+    const targetProfile = await getBestTargetProfile(admin, mergeTargetUser.id, mergeRequest.target_email);
     const mergeResult = await mergeLaloAccountIntoUser(
       admin,
-      targetUser,
+      mergeTargetUser,
       sourceProfile,
       targetProfile,
       sourceProfile.lalo_user_id,
@@ -185,9 +203,30 @@ async function completeMerge(request: Request) {
       sourceProfile.whatsapp_verified_at || new Date().toISOString(),
     );
 
+    if (targetUser.id !== mergeTargetUser.id && targetUser.id !== mergeRequest.source_user_id) {
+      const orphanProfile = await getLatestProfileByUserId(admin, targetUser.id);
+      if (orphanProfile) {
+        const orphanTargetProfile = await getBestTargetProfile(admin, mergeTargetUser.id, mergeRequest.target_email);
+        await mergeLaloAccountIntoUser(
+          admin,
+          mergeTargetUser,
+          orphanProfile,
+          orphanTargetProfile,
+          orphanProfile.lalo_user_id || sourceProfile.lalo_user_id,
+          orphanProfile.whatsapp_number || null,
+          orphanProfile.whatsapp_verified_at || new Date().toISOString(),
+        );
+      } else {
+        const { error: deleteOrphanUserError } = await admin.auth.admin.deleteUser(targetUser.id);
+        if (deleteOrphanUserError) {
+          throw Object.assign(new Error(deleteOrphanUserError.message), { status: 500 });
+        }
+      }
+    }
+
     return json({
       merged: true,
-      target_user_id: targetUser.id,
+      target_user_id: mergeTargetUser.id,
       target_email: normalizedTargetEmail,
       profile_id: mergeResult.profileId,
     });

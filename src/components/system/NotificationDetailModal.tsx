@@ -1,4 +1,5 @@
 import { ExternalLink, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { NotificationItem } from '../../types';
 import { formatDate } from '../../utils';
 import { useBodyScrollLock } from '../../lib/useBodyScrollLock';
@@ -25,9 +26,9 @@ export function NotificationDetailModal({
 }: NotificationDetailModalProps) {
   useBodyScrollLock(open);
 
-  if (!open || !notification) return null;
+  if (!open || !notification || typeof document === 'undefined') return null;
 
-  return (
+  return createPortal((
     <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 sm:p-6">
       <button
         type="button"
@@ -69,5 +70,5 @@ export function NotificationDetailModal({
         ) : null}
       </div>
     </div>
-  );
+  ), document.body);
 }
